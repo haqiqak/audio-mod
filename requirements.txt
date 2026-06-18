@@ -1,0 +1,20 @@
+# ── Core UI ──────────────────────────────────────────────────────────────────
+streamlit>=1.38.0
+
+# ── Live microphone recording ───────────────────────────────────────────────
+streamlit-mic-recorder>=0.0.7
+
+# ── ASR (CrisperWhisper) ─────────────────────────────────────────────────────
+transformers>=4.40
+accelerate>=0.26
+torch>=2.0
+
+# ── NLP utilities (phonetic onset, syllable count, POS tagging) ──────────────
+nltk>=3.8
+wordfreq>=3.0
+
+# ── numpy is used for WAV resampling (audioop was removed in Python 3.13) ────
+numpy>=1.24
+
+# ── Config ───────────────────────────────────────────────────────────────────
+PyYAML>=6.0

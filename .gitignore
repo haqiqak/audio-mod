@@ -1,0 +1,50 @@
+# ── User data — do not commit, even in testing ──────────────────────────
+# Account files + fluency profiles are real (if test) user data and
+# credentials. Keep the folder in git, ignore its contents.
+users/*
+!users/.gitkeep
+
+# ── Secrets ───────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+.env
+.env.*
+
+# ── Model / dataset caches ───────────────────────────────────────────────
+# CrisperWhisper (~3.2GB) and any Hugging Face / torch caches. Check
+# paths.py for the exact cache dir(s) this project reroutes to and add
+# them here if they differ.
+.cache/
+**/hf_cache/
+**/huggingface/
+**/torch_cache/
+*.safetensors
+*.bin
+*.pt
+*.onnx
+
+# NLTK data downloaded via the optional setup step in the README
+nltk_data/
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+
+# ── Virtual environments ─────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+
+# ── Logs ──────────────────────────────────────────────────────────────────
+*.log
+
+# ── OS / editor noise ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
