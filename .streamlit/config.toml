@@ -1,0 +1,24 @@
+# Forces Streamlit's native widget theme to light, app-wide — including the
+# login page (auth.py) and any other screen, regardless of the visitor's
+# OS/browser dark-mode setting. This is the root-cause fix for "black boxes"
+# (selects, buttons, alerts, dataframes, etc.) that only became readable on
+# hover: without this file, Streamlit's built-in components inherit the
+# system's dark theme, while custom CSS only re-colors text — not always
+# the background — producing low/no contrast.
+
+[theme]
+base = "light"
+primaryColor = "#2f6fed"
+backgroundColor = "#f7f8fb"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1b2433"
+font = "sans serif"
+
+# Disables Streamlit's source-file watcher, which otherwise walks every
+# transformers submodule (including vision models this app never imports)
+# on every interaction and dumps a torchvision ModuleNotFoundError traceback
+# for each one. Purely cosmetic/log-noise fix — unrelated to ASR speed.
+# Trade-off: code edits to .py files won't auto-reload the running app
+# anymore; restart `streamlit run app.py` manually after editing.
+[server]
+fileWatcherType = "none"

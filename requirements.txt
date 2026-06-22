@@ -5,7 +5,13 @@ streamlit>=1.38.0
 streamlit-mic-recorder>=0.0.7
 
 # ── ASR (CrisperWhisper) ─────────────────────────────────────────────────────
-transformers>=4.40
+# IMPORTANT: pin transformers to 4.47.x exactly.
+#   • <4.47 — missing WhisperSdpaAttention; inference takes 600-700s on CPU.
+#   • ==4.47.x — WhisperSdpaAttention ships; inference drops to ~50s on CPU.
+#   •  >=5.0 — ASR pipeline's preprocess() drops the `num_frames` key that
+#             WhisperFeatureExtractor used to return, causing a KeyError crash.
+# Do not upgrade transformers without testing a full mic-record round-trip first.
+transformers>=4.47.0,<5.0.0
 accelerate>=0.26
 torch>=2.0
 
@@ -18,3 +24,10 @@ numpy>=1.24
 
 # ── Config ───────────────────────────────────────────────────────────────────
 PyYAML>=6.0
+
+# ── NOT needed (dead-end optimization attempts, safe to ignore) ───────────────
+# faster-whisper / ctranslate2 — incompatible with CrisperWhisper's tokenizer
+# optimum / optimum-intel — num_frames KeyError when pipeline wraps OV model
+# Both were tried and ruled out. Do not re-install unless CrisperWhisper's
+# tokenizer layout is verified compatible with faster-whisper's hardcoded
+# special-token assumptions.

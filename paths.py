@@ -25,10 +25,22 @@ if _VENDOR.exists():
 # Cap BLAS/OpenMP threads BEFORE numpy/torch import.  OpenBLAS otherwise
 # pre-allocates per-thread buffers sized for every CPU core, a large upfront
 # allocation that fails on RAM-constrained machines ("OpenBLAS error: Memory
-# allocation still failed").  setdefault lets a machine with spare RAM override.
+# allocation still failed").
+#
+# IMPORTANT: this was previously hardcoded to "1" thread everywhere. That
+# avoided the load-time OOM, but it also single-threaded every CrisperWhisper
+# generate() call — every encoder/decoder matmul forced onto one core — which
+# is why a few seconds of audio could take 20+ minutes to transcribe on CPU.
+# The OOM only happens once, at model load (OpenBLAS sizing per-core scratch
+# buffers); it has nothing to do with how many threads are used during
+# inference afterwards. So: cap at a small-but-real thread count instead of
+# 1, which keeps load-time allocation bounded while letting inference
+# actually use the CPU. setdefault still lets an explicit env var (e.g. a
+# genuinely RAM-starved machine forcing "1") override this.
+_DEFAULT_THREADS = str(max(1, min(4, (os.cpu_count() or 1))))
 for _t in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
            "NUMEXPR_NUM_THREADS"):
-    os.environ.setdefault(_t, "1")
+    os.environ.setdefault(_t, _DEFAULT_THREADS)
 
 _TARGETS = {
     "NLTK_DATA":                  _CACHE / "nltk_data",

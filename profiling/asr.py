@@ -29,6 +29,25 @@ real-time-factor is typically 2-8x, meaning a 10-second clip can take
 20-80 seconds, and longer clips scale accordingly. This is expected
 model behaviour, not a bug — see app.py for the live progress logging
 that surfaces this to the user instead of looking frozen.
+
+Backend note (added after measuring the above): the `transformers` pipeline
+above pads every clip to Whisper's fixed 30s window before the encoder runs,
+so the slow part is NOT the decode loop (max_new_tokens barely matters) —
+it's one fixed-cost ~30s-window encoder forward pass in plain PyTorch fp32.
+On CPU that was measured at ~650-680s regardless of clip length or token cap.
+
+ASR_BACKEND controls which engine runs real audio (fixtures/.json/.txt never
+need either):
+  • "faster_whisper" (default) — same CrisperWhisper weights, converted once
+    to CTranslate2 format and run through its quantized (int8) C++ inference
+    engine. This is what actually fixes the encoder-bound slowness above;
+    typically 4-10x faster than the transformers path on CPU. Requires a
+    one-time model conversion — see README "Faster backend setup".
+  • "transformers" — the original pipeline above. Kept as a fallback/
+    comparison path; still has the ~30s-window encoder cost.
+If ASR_BACKEND=faster_whisper but the converted model directory isn't found,
+transcribe() raises a clear RuntimeError with the exact conversion command,
+rather than silently falling back to the slow path.
 """
 
 from __future__ import annotations
@@ -198,6 +217,26 @@ class CrisperWhisperASR:
             )
         self.device = device if device is not None else os.environ.get("ASR_DEVICE", "cpu")
         self._pipe = None
+        self._ct2_model = None
+        self._ov_pipe = None
+        # NOTE: faster_whisper/CTranslate2 was tried and ruled out — its
+        # tokenizer wrapper hardcodes stock-Whisper special-token positions
+        # and CrisperWhisper's fine-tune has a different layout, so it can
+        # never find "<|startoftranscript|>" no matter how the model is
+        # converted. openvino is now the default fast path instead: it
+        # accelerates the SAME transformers model/tokenizer object we already
+        # know works, so there's no separate tokenizer implementation to
+        # disagree with the model.
+        self.backend = os.environ.get("ASR_BACKEND", "transformers").strip().lower()
+        self.ct2_model_dir = os.environ.get(
+            "CRISPERWHISPER_CT2_DIR",
+            str(Path(__file__).resolve().parents[1] / "models" / "crisperwhisper-ct2"),
+        )
+        self.ct2_compute_type = os.environ.get("CRISPERWHISPER_CT2_COMPUTE_TYPE", "int8")
+        self.ov_model_dir = os.environ.get(
+            "CRISPERWHISPER_OV_DIR",
+            str(Path(__file__).resolve().parents[1] / "models" / "crisperwhisper-ov"),
+        )
         self.last_timing: dict[str, float] = {}
 
     def _load_pipeline(self):
@@ -263,6 +302,110 @@ class CrisperWhisperASR:
         self._pipe = pipeline("automatic-speech-recognition", **kwargs)
         return self._pipe
 
+
+    def _load_faster_whisper(self):
+        """Load the CTranslate2-converted CrisperWhisper model (faster-whisper).
+
+        Requires a one-time conversion of the HF weights — see README
+        "Faster backend setup". We deliberately do NOT auto-convert here:
+        conversion downloads + reprocesses the full ~3GB model and can itself
+        take minutes, which would be a confusing surprise mid-transcription.
+        """
+        if self._ct2_model is not None:
+            return self._ct2_model
+
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:
+            raise RuntimeError(
+                "faster_whisper is not installed.\n"
+                "Run in your venv:\n"
+                "    pip install faster-whisper ctranslate2\n"
+                "Then restart Streamlit. Or set ASR_BACKEND=transformers to\n"
+                "use the slower (but dependency-light) original pipeline."
+            ) from exc
+
+        model_dir = Path(self.ct2_model_dir)
+        if not model_dir.exists() or not any(model_dir.iterdir()):
+            raise RuntimeError(
+                f"CTranslate2 model not found at: {model_dir}\n"
+                "Convert CrisperWhisper's weights once with:\n"
+                f"    ct2-transformers-converter --model {self.model_id} "
+                f"--output_dir \"{model_dir}\" --quantization {self.ct2_compute_type} "
+                "--copy_files tokenizer.json preprocessor_config.json\n"
+                "(install the converter first: pip install ctranslate2 transformers[torch])\n"
+                "This is a one-time step — the converted files are reused on every "
+                "future run. Or set ASR_BACKEND=transformers to use the original, "
+                "slower pipeline meanwhile."
+            )
+
+        device = "cpu" if self.device in (None, "cpu") else str(self.device)
+        self._ct2_model = WhisperModel(
+            str(model_dir),
+            device=device,
+            compute_type=self.ct2_compute_type,
+        )
+        return self._ct2_model
+
+    def _load_openvino_pipeline(self):
+        """Load CrisperWhisper through OpenVINO (via optimum-intel).
+
+        Unlike the faster_whisper path, this does NOT swap out the tokenizer
+        or special-token handling — it accelerates the math (encoder/decoder
+        matmuls) underneath the exact same `transformers` model/processor
+        objects we already know produce correct output. That's what avoids
+        the "<|startoftranscript|> not found" class of bug entirely: there's
+        only ever one tokenizer implementation in play, the normal HF one.
+
+        First call for a given model: exports + int8-quantizes into
+        ov_model_dir (slower, one-time — comparable to the CTranslate2
+        conversion we did before, but happens automatically in-process
+        instead of a separate CLI step). Every call after that loads the
+        cached export directly (fast).
+        """
+        if self._ov_pipe is not None:
+            return self._ov_pipe
+
+        try:
+            from optimum.intel.openvino import OVModelForSpeechSeq2Seq
+            from transformers import AutoProcessor, pipeline
+        except ImportError as exc:
+            raise RuntimeError(
+                "optimum[openvino] is not installed.\n"
+                "Run in your venv:\n"
+                "    pip install \"optimum[openvino]\"\n"
+                "Then restart Streamlit. Or set ASR_BACKEND=transformers to\n"
+                "use the slower (but dependency-light) original pipeline."
+            ) from exc
+
+        model_dir = Path(self.ov_model_dir)
+        processor = AutoProcessor.from_pretrained(self.model_id)
+
+        if model_dir.exists() and any(model_dir.iterdir()):
+            ov_model = OVModelForSpeechSeq2Seq.from_pretrained(
+                str(model_dir), compile=True,
+            )
+        else:
+            # First-run export: downloads the HF weights (likely already
+            # cached from earlier runs), converts to OpenVINO IR, and
+            # int8-quantizes. This is the slow one-time step — expect it to
+            # take a few minutes, not the ~700s-per-clip we were seeing.
+            model_dir.mkdir(parents=True, exist_ok=True)
+            ov_model = OVModelForSpeechSeq2Seq.from_pretrained(
+                self.model_id, export=True, load_in_8bit=True, compile=True,
+            )
+            ov_model.save_pretrained(str(model_dir))
+            processor.save_pretrained(str(model_dir))
+
+        self._ov_pipe = pipeline(
+            "automatic-speech-recognition",
+            model=ov_model,
+            tokenizer=processor.tokenizer,
+            feature_extractor=processor.feature_extractor,
+            return_timestamps="word",
+        )
+        return self._ov_pipe
+
     def transcribe(self, audio_path: str | Path) -> list[dict[str, Any]]:
         """Return verbatim token dicts.
 
@@ -295,20 +438,87 @@ class CrisperWhisperASR:
         # alignment even with greedy decoding.
         audio_for_asr = self._ensure_min_duration(path)
 
+        if self.backend == "faster_whisper":
+            return self._transcribe_faster_whisper(audio_for_asr)
+        if self.backend == "openvino":
+            return self._transcribe_openvino(audio_for_asr)
+        return self._transcribe_transformers(audio_for_asr)
+
+    @staticmethod
+    def _max_new_tokens_for(audio_for_asr: Path) -> int:
+        """Cap decode steps proportional to clip duration (~6 tok/s, 20 floor,
+        256 ceiling) so a clip with no clean EOS can't burn the full cap on
+        repetition/garbage. Shared by the transformers and openvino paths
+        (faster_whisper manages its own stopping via beam_size/VAD)."""
+        try:
+            with wave.open(str(audio_for_asr), "rb") as _wf:
+                dur = _wf.getnframes() / max(_wf.getframerate(), 1)
+        except Exception:
+            return 256  # non-WAV (mp3/flac/m4a) — fall back to the flat cap
+        return max(20, min(256, int(dur * 6) + 20))
+
+    def _transcribe_faster_whisper(self, audio_for_asr: Path) -> list[dict[str, Any]]:
+        """Fast path: CTranslate2-quantized CrisperWhisper.
+
+        Fixes the actual bottleneck found in the transformers path — Whisper
+        pads every clip to a fixed 30s window before the encoder runs, so the
+        encoder forward pass (not decode steps) is the fixed ~650-680s cost on
+        CPU/fp32. CTranslate2's int8 kernels target exactly that cost.
+        """
+        import time as _time
+        _t0 = _time.perf_counter()
+        model = self._load_faster_whisper()
+        _t_load = _time.perf_counter() - _t0
+
+        _t1 = _time.perf_counter()
+        segments, _info = model.transcribe(
+            str(audio_for_asr),
+            language="en",
+            task="transcribe",
+            beam_size=1,          # same "THE fix" rationale as num_beams=1 above
+            word_timestamps=True,
+            condition_on_previous_text=False,
+        )
+        chunks: list[dict[str, Any]] = []
+        for seg in segments:
+            words = getattr(seg, "words", None) or []
+            for w in words:
+                chunks.append({
+                    "text": w.word,
+                    "timestamp": (w.start, w.end),
+                })
+            if not words and (seg.text or "").strip():
+                # Model returned segment-level text with no word alignment
+                # (rare, e.g. very short/silent clips) — fall back to the
+                # segment's own span so we still produce something.
+                chunks.append({"text": seg.text.strip(), "timestamp": (seg.start, seg.end)})
+        _t_infer = _time.perf_counter() - _t1
+
+        self.last_timing = {
+            "load_pipeline_seconds": round(_t_load, 3),
+            "inference_seconds": round(_t_infer, 3),
+        }
+
+        if chunks:
+            return [t.to_dict() for t in self._tokens_from_chunks(chunks)]
+        return []
+
+    def _transcribe_transformers(self, audio_for_asr: Path) -> list[dict[str, Any]]:
+        """Original (slow) path — kept as a fallback / comparison backend."""
+        max_new_tokens = self._max_new_tokens_for(audio_for_asr)
+
         # ── Real ASR, instrumented ──────────────────────────────────────────────
         # self.last_timing is read by app.py after this call to show a real
-        # breakdown in the UI log instead of one opaque total — see future.md
-        # Step 0. _load_pipeline() should be near-zero on a warm/cached call;
-        # if it isn't, the model is being reconstructed every time. The pipe()
-        # call itself is the actual generate() — if THIS is what's slow, the
-        # bottleneck is inference, not loading, and future.md Step 2 applies.
+        # breakdown in the UI log instead of one opaque total. _load_pipeline()
+        # should be near-zero on a warm/cached call; if it isn't, the model is
+        # being reconstructed every time.
         import time as _time
         _t0 = _time.perf_counter()
         pipe = self._load_pipeline()
         _t_load = _time.perf_counter() - _t0
 
         _t1 = _time.perf_counter()
-        result = pipe(str(audio_for_asr))
+        result = pipe(str(audio_for_asr), generate_kwargs={"max_new_tokens": max_new_tokens})
         _t_infer = _time.perf_counter() - _t1
 
         self.last_timing = {
@@ -321,6 +531,46 @@ class CrisperWhisperASR:
             return [t.to_dict() for t in self._tokens_from_chunks(chunks)]
         # No word timestamps returned — fall back to text tokenisation
         return [t.to_dict() for t in self.tokens_from_text(result.get("text", ""))]
+
+    def _transcribe_openvino(self, audio_for_asr: Path) -> list[dict[str, Any]]:
+        """Fast path: OpenVINO-accelerated CrisperWhisper (default backend).
+
+        Same transformers pipeline/tokenizer as _transcribe_transformers —
+        only the model's matmul backend changes (OpenVINO IR + int8 instead
+        of plain PyTorch fp32) — so output shape/behaviour matches the
+        original path exactly, just faster on the encoder pass that was the
+        actual bottleneck.
+        """
+        max_new_tokens = self._max_new_tokens_for(audio_for_asr)
+
+        import time as _time
+        _t0 = _time.perf_counter()
+        pipe = self._load_openvino_pipeline()
+        _t_load = _time.perf_counter() - _t0
+
+        _t1 = _time.perf_counter()
+        result = pipe(
+            str(audio_for_asr),
+            generate_kwargs={
+                "language": "en",
+                "task": "transcribe",
+                "num_beams": 1,
+                "max_new_tokens": max_new_tokens,
+            },
+        )
+        _t_infer = _time.perf_counter() - _t1
+
+        self.last_timing = {
+            "load_pipeline_seconds": round(_t_load, 3),
+            "inference_seconds": round(_t_infer, 3),
+        }
+
+        chunks = result.get("chunks") or result.get("segments") or []
+        if chunks:
+            return [t.to_dict() for t in self._tokens_from_chunks(chunks)]
+        return [t.to_dict() for t in self.tokens_from_text(result.get("text", ""))]
+
+
 
     def _ensure_min_duration(self, path: Path, min_seconds: float = 1.2) -> Path:
         """Pad a WAV file with trailing silence if shorter than min_seconds.

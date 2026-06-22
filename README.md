@@ -1,52 +1,89 @@
-# Stammr Profiler — Standalone
+# Audio Profiler
 
-A self-contained Streamlit app that:
+A standalone Streamlit app for verbatim speech transcription and disfluency
+profiling. Built for speakers who stutter — it captures exactly what was said
+(including repetitions, fillers, and false starts that standard ASR silently
+removes) and builds a personalized profile of which sounds and word types are
+most difficult for that speaker over time.
 
-1. **Captures audio** three ways — instant demo fixture, live microphone
-   recording, or file upload (WAV / MP3 / FLAC / M4A / JSON / TXT).
-2. **Transcribes** it verbatim via **CrisperWhisper**
-   (`nyrahealth/CrisperWhisper`), preserving repetitions and false starts
-   that vanilla Whisper silently deletes.
-3. **Detects disfluencies** — repetitions, silent blocks, fillers,
-   prolongations, ASR stutter markers — via the rule-based detector in
-   `profiling/detect.py`.
-4. **Updates** the signed-in user's `SpeakerDifficultyProfile` with
-   EWMA-weighted onset-risk scores, stored in
-   `users/<username>.fluency_profile.json`.
-5. **Visualises** the transcript, stats, onset-risk bars, and full session
-   history in the UI.
+---
 
-This module is **completely independent** of the main Speech AI synonym /
-grammar pipeline. It does not import `rewrite/`, `grammar.py`, `engine.py`,
-or the real `semantic.py`.
+## What it does
+
+### 1 — Transcription
+Audio is transcribed verbatim using **CrisperWhisper** (`nyrahealth/CrisperWhisper`),
+a fine-tuned version of whisper-large-v3 specifically trained to preserve
+disfluencies rather than clean them up. Word-level timestamps are returned for
+every token.
+
+### 2 — Disfluency detection
+The rule-based detector (`profiling/detect.py`) flags five event types:
+
+| Type | How it's detected |
+|---|---|
+| **Repetition** | Same word appears twice in a row, or a trailing fragment (`word-`) immediately precedes the same word |
+| **Filler** | Token matches a known filler list (`uh`, `um`, `er`, `erm`, `like`) or is marked `is_filler` by CrisperWhisper |
+| **Stutter marker** | Token ends with `-` (sub-word fragment) or is marked `is_stutter` by CrisperWhisper |
+| **Block** | Silent gap ≥ 0.55s between two consecutive words |
+| **Prolongation** | Token duration ≥ 90th-percentile of all durations in the clip AND ≥ 0.65s |
+
+All thresholds are configurable in `config.yaml`.
+
+### 3 — Speaker difficulty profile
+Each signed-in user has a `SpeakerDifficultyProfile` stored as
+`users/<username>.fluency_profile.json`. After each session:
+
+- Detected events are grouped by phoneme onset (e.g. `B`, `P`, `S T R`).
+- Each onset's risk score is updated via **EWMA** (α = 0.35 by default),
+  so recent sessions have more weight than old ones.
+- On first login (cold start), onset risks are seeded from population
+  priors (`default_onset_priors.json`) and any self-reported difficult sounds.
+- Word difficulty is a weighted combination of four factors:
+  onset risk (45%), syllable length (25%), word rarity (20%), and
+  grammatical class (10%).
+
+### 4 — Visualisation
+The **Analyse** tab shows:
+- Full verbatim transcript with disfluent words highlighted in orange.
+- Summary stats: total tokens, disfluency count, fluency rate %.
+- Per-type event badges and a full timestamped event table.
+
+The **My Profile** tab shows:
+- Onset-risk bar chart (top 8 onsets by current risk score).
+- Full session history with event counts per session.
+
+### 5 — Three input modes
+- **Demo** — instant fixture (no audio required, no model download).
+- **Record now** — live microphone capture via `streamlit-mic-recorder`.
+- **Upload** — WAV, MP3, FLAC, M4A, JSON fixture, or plain TXT.
 
 ---
 
 ## File layout
 
 ```
-profiling_app/
-├── app.py                    ← Streamlit entry point (3 input modes)
-├── auth.py                   ← Login / Register screen
-├── user_store.py             ← File-based user accounts
-├── semantic.py                ← Stub (only _PROTECTED_SINGLE needed)
-├── phonetic.py                ← Phoneme-onset utilities
-├── freq.py                    ← wordfreq wrapper
+audio-mod/
+├── app.py                     ← Streamlit entry point
+├── auth.py                    ← Login / Register screen
+├── user_store.py              ← File-based user accounts (sha256 passwords)
+├── semantic.py                ← Stub (protected word list only)
+├── phonetic.py                ← CMUdict phoneme-onset utilities
+├── freq.py                    ← wordfreq wrapper (memory-safe fallback)
 ├── paths.py                   ← Cache-path bootstrapper (import FIRST)
-├── config.yaml                ← Tuning knobs
+├── config.yaml                ← Tuning knobs (EWMA alpha, detection thresholds)
 ├── requirements.txt
-├── README.md                  ← this file
+├── README.md
 ├── .gitignore
 ├── .streamlit/
-│   └── config.toml             ← Forces a light UI theme app-wide
-├── users/                     ← User account files + fluency profiles (gitignored)
+│   └── config.toml            ← Light theme + file-watcher disabled
+├── users/                     ← Runtime only — gitignored
 └── profiling/
     ├── __init__.py
-    ├── asr.py                 ← CrisperWhisper wrapper + WAV resampler + fallback
-    ├── detect.py               ← Rule-based disfluency detector
-    ├── profile.py               ← SpeakerDifficultyProfile (EWMA + onset risk)
-    ├── coldstart.py             ← Population priors + self-report seeding
-    ├── config.py                ← Config loader
+    ├── asr.py                 ← CrisperWhisper pipeline + resampler
+    ├── detect.py              ← Rule-based disfluency detector
+    ├── profile.py             ← SpeakerDifficultyProfile (EWMA + onset risk)
+    ├── coldstart.py           ← Population priors + self-report seeding
+    ├── config.py              ← Config loader (YAML with hardcoded defaults)
     └── default_onset_priors.json
 ```
 
@@ -54,28 +91,16 @@ profiling_app/
 
 ## Setup
 
-```bash
-cd profiling_app
-pip install -r requirements.txt
-```
-
-If `pip` complains about externally-managed environments (common on Linux/Mac
-system Python), use a virtual environment instead:
-
-```bash
+```powershell
+cd audio-mod
 python -m venv venv
-# Windows:
 venv\Scripts\activate
-# Mac/Linux:
-source venv/bin/activate
-
 pip install -r requirements.txt
 ```
 
-> **First real audio run:** CrisperWhisper (~3.2 GB) downloads automatically.
-> JSON/TXT fixtures and the built-in demo skip this entirely and run instantly.
+On Mac/Linux replace the activate line with `source venv/bin/activate`.
 
-### Optional — NLTK data (only needed if not already cached)
+### First-run NLTK data (if not already cached)
 
 ```python
 import nltk
@@ -88,65 +113,44 @@ nltk.download("punkt_tab")
 
 ## Run
 
-```bash
+```powershell
 streamlit run app.py
 ```
 
-Then open the URL Streamlit prints (usually `http://localhost:8501`).
+Opens at `http://localhost:8501`. Register an account on first visit.
 
 ---
 
-## How to verify it's working (do this first)
+## Verify it works (do this first)
 
-1. Register/log in.
-2. Go to the **Analyse** tab.
-3. Select **Demo (instant, no audio)**.
-4. Click **Run demo now**.
+1. Register / log in.
+2. Go to **Analyse** → select **Demo (instant, no audio)** → click **Run demo now**.
 
-Expected, in under 3 seconds:
-- A green log box ticking through 6 steps
-- Transcript with disfluent words highlighted in orange
-- Stats: 9 tokens, 7 disfluencies, 22.2% fluency rate
-- Badges: `repetition x 2`, `stutter marker x 2`, `block x 1`, `filler x 1`, `prolongation x 1`
-- A full event table with timestamps and confidence scores
-- The **My Profile** tab now shows risk bars for `B`, `T`, `S`
+Expected output in under 3 seconds:
+- Green log box completing 6 steps.
+- Transcript with orange-highlighted disfluent words.
+- Stats: 9 tokens, 7 disfluencies, 22.2% fluency rate.
+- Badges: `repetition ×2`, `stutter marker ×2`, `block ×1`, `filler ×1`, `prolongation ×1`.
+- **My Profile** tab showing risk bars for `B`, `T`, `S`.
 
-If all of that appears, the entire pipeline — ASR loader, detector, profile
-updater, UI — is confirmed working end to end.
+If all of that appears the full pipeline is working end-to-end without needing
+the ASR model.
 
 ---
 
 ## Live microphone recording
 
-1. Make sure `streamlit-mic-recorder` is installed (it's in `requirements.txt`).
-2. Go to **Analyse** -> select **Record now**.
-3. Click **Start recording**, speak, click **Stop & analyse**.
-4. The captured clip plays back, then the log box runs, then results appear.
+1. Go to **Analyse** → select **Record now**.
+2. Click **Start recording**, speak, click **Stop & analyse**.
 
-The first real-audio run downloads the CrisperWhisper model (~3 GB) — watch
-your terminal for `model.safetensors: XX%` progress. Subsequent runs are
-fast because the model is cached locally.
+The first real-audio run downloads CrisperWhisper (~3.2 GB) automatically —
+watch the terminal for download progress. All subsequent runs load from the
+local cache in `.cache/hf/`.
 
----
-
-## Testing without a GPU / without downloading the model
-
-Upload a **JSON fixture** instead of real audio:
-
-```json
-{
-  "tokens": [
-    {"word": "I",      "start": 0.0, "end": 0.2},
-    {"word": "I",      "start": 0.2, "end": 0.4, "is_stutter": true},
-    {"word": "want",   "start": 0.4, "end": 0.7},
-    {"word": "uh",     "start": 1.5, "end": 1.7, "is_filler": true},
-    {"word": "something", "start": 1.7, "end": 3.0}
-  ]
-}
-```
-
-Or a plain `.txt` file — words tokenise automatically; trailing `word-`
-fragments and common fillers (`uh`, `um`, `er`...) are flagged.
+**Expected inference time on CPU:** ~40–80 seconds for a short clip (2–5s),
+scaling roughly with clip length. This is normal — CrisperWhisper is a
+large model and there is no GPU in this setup. The app logs elapsed time
+every 4 seconds so it never looks frozen.
 
 ---
 
@@ -154,62 +158,49 @@ fragments and common fillers (`uh`, `um`, `er`...) are flagged.
 
 | Key | Default | Effect |
 |---|---|---|
-| `profiling.ewma_alpha` | `0.35` | How fast new sessions overwrite old risk scores |
+| `profiling.ewma_alpha` | `0.35` | How fast new sessions overwrite old risk scores (0 = never update, 1 = replace entirely) |
 | `profiling.confidence_events` | `30` | Events needed before personal data fully overrides population priors |
-| `profiling.weights.onset` | `0.45` | Weight of phoneme-onset risk in difficulty score |
+| `profiling.weights.onset` | `0.45` | Weight of phoneme-onset risk in per-word difficulty score |
+| `profiling.weights.length` | `0.25` | Weight of syllable length |
+| `profiling.weights.frequency` | `0.20` | Weight of word rarity |
+| `profiling.weights.grammatical_class` | `0.10` | Weight of content-word penalty |
 | `profiling.detection.block_gap_seconds` | `0.55` | Minimum silence gap counted as a block |
 | `profiling.detection.prolongation_min_seconds` | `0.65` | Minimum token duration counted as prolongation |
+| `profiling.detection.prolongation_percentile` | `90` | Percentile threshold for prolongation detection |
 
 ---
 
-## Fixes applied (changelog)
+## Changelog
 
 | Issue | Root cause | Fix |
 |---|---|---|
-| 10+ minute hang, no transcript | CrisperWhisper ran multilingual language-detection first; `forced_decoder_ids` in its `generation_config` conflicted with `return_timestamps` | `asr.py` now passes `generate_kwargs={"language": "en", "task": "transcribe", "forced_decoder_ids": None}` |
-| `size of tensor a (2) must match tensor b (0)` | Missing `chunk_length_s` caused attention-mask shape mismatches on short/mic clips | Added `chunk_length_s=30` to the pipeline call |
-| Silent failure when `transformers` missing | Old code fell back to timing-only mode marked `profile_safe=False`, which the detector silently dropped — looked like nothing was happening | Now raises a clear `RuntimeError` with install instructions, shown directly in the UI |
-| Mic audio (44100 Hz) crashing or producing garbage | Whisper expects 16 kHz; `audioop` (the usual stdlib resampler) was removed in Python 3.13 | Added `resample_to_16k()` in `asr.py` using **numpy only** — works on Python 3.13 |
-| White-on-white text | Sidebar dark-theme CSS leaked into the global selector | CSS scoped strictly: sidebar styling only inside `section[data-testid="stSidebar"]`, body text forced to a dark color explicitly |
-| `use_container_width` deprecation warnings | Streamlit deprecated the param in favor of `width=` | All `st.dataframe(...)` calls now use `width="stretch"` |
-| `torchvision` `ModuleNotFoundError` spam in terminal | Streamlit's file watcher scans every transformers submodule, including vision models you'll never use | **Harmless — safe to ignore.** Does not affect ASR. Install `torchvision` only if you want to silence it. |
-| Selects, the file uploader, and other widgets rendered as solid black boxes — only readable on hover/focus | No `.streamlit/config.toml`, so native widgets inherited the visitor's OS/browser dark-mode theme instead of the app's own light styling | Added `.streamlit/config.toml` (`base = "light"`); added explicit light CSS for the select popover, file-upload dropzone, and checkboxes |
-| Run-log / "elapsed time" text invisible (dark text on a dark panel) | CSS specificity bug — a broad `div` text-color rule unintentionally overrode the log panel's own (lighter) text color | Log panel rule rewritten with higher specificity and switched to the same light theme as the rest of the UI |
-| Login page felt very long, mostly empty space above the box | Page is set to `layout="wide"`; the login screen never reset Streamlit's default top padding the way the main app does | `auth.py` now resets the top padding and caps the page to 480px wide |
-| Login username/password fields, tabs, and buttons unstyled | Only the outer card `<div>` had CSS — the actual `st.text_input` / `st.tabs` / `st.button` widgets fell back to Streamlit's default theme | Explicit light styling added for inputs, tabs, and buttons in `auth.py` |
+| 600–700s inference per clip | BLAS/OpenMP threads hardcoded to 1, single-threading all encoder matmuls | `paths.py` now sets threads to `min(4, cpu_count)` |
+| 600–700s inference per clip (real cause) | `transformers < 4.47` lacked WhisperSdpaAttention; 4.47+ ships it and drops inference to ~50s | `requirements.txt` now pins `transformers>=4.47,<5.0` |
+| `KeyError: num_frames` crash | `transformers 5.0` dropped the `num_frames` key from WhisperFeatureExtractor output, breaking the ASR pipeline's preprocess step | Upper-bounded to `<5.0` in requirements |
+| 10+ minute hang with no output | CrisperWhisper's `generation_config` had `forced_decoder_ids` set, conflicting with `return_timestamps="word"` | `asr.py` passes `language="en"`, `task="transcribe"`, and clears `forced_decoder_ids` |
+| `size of tensor a must match tensor b` crash | `num_beams > 1` + `return_timestamps="word"` triggers a confirmed transformers bug in beam-index reshaping | `num_beams=1` forced in pipeline `generate_kwargs` |
+| Mic audio producing garbage | Browser captures at 44100 Hz; Whisper expects 16 kHz; `audioop` removed in Python 3.13 | `asr.py` resamples to 16 kHz using numpy only |
+| Black boxes on widgets (dark mode) | No `config.toml` — widgets inherited OS dark theme | `.streamlit/config.toml` added with `base = "light"` |
+| torchvision spam in terminal | Streamlit file-watcher scans all transformers submodules including vision models | `config.toml` sets `fileWatcherType = "none"` |
+| Cold-start profile overwriting trained scores | `onboarding()` seeded all onsets on every page load, inflating previously trained-down scores | Seed now only applies to onsets with no observed session data |
 
 ---
 
-## Putting this on GitHub
+## GitHub / version control notes
 
-A `.gitignore` is included and already excludes the things you don't want
-in version control for this project:
+The `.gitignore` already excludes:
+- `users/` — account credentials and profile data, never commit.
+- `.cache/` — model weights (~3.2 GB), re-downloaded on first run.
+- `venv/`, `__pycache__/`, `.DS_Store`.
 
-- **`users/`** — account files and `*.fluency_profile.json` data. This is
-  real (even if test) user data and login credentials; it shouldn't ever
-  be pushed, even to a private repo.
-- **Model caches** — CrisperWhisper is ~3.2 GB and re-downloads on first
-  run anyway; committing it would blow past GitHub's file-size limits.
-- **`venv/`, `__pycache__/`, `.DS_Store`**, and other local/OS noise.
-
-A couple of things worth doing before or right after your first push:
-
-- **Keep `.streamlit/config.toml`** — unlike `secrets.toml`, it only holds
-  theme colors, not credentials, so it's safe and expected to be committed.
-- **Check `user_store.py`** for how passwords are stored before this goes
-  anywhere public — if they're hashed, great; if not, that's worth fixing
-  before real users touch it, even in testing.
-- **Add a `LICENSE`** if you want to make the repo's terms explicit (MIT is
-  the common default for small tools like this).
-- **Pin versions in `requirements.txt`** (e.g. `streamlit==1.x.x`) so a
-  fresh clone doesn't break from an unrelated upstream update.
+Safe to commit: everything else, including `.streamlit/config.toml`
+(contains only theme settings, no secrets).
 
 ---
 
-## What this is NOT
+## What this app does NOT do
 
-- Does not suggest synonyms or rephrase sentences.
-- Does not run grammar correction.
-- Does not transcribe-then-analyze text as a separate step (that pipeline
-  lives in the main project). This app only profiles disfluencies found
-  directly in audio.
+- Synonym suggestion or sentence rephrasing (that lives in the main Speech AI pipeline).
+- Grammar correction.
+- Multi-language transcription (English only, hardcoded).
+- Real-time / streaming transcription (full clip is processed after recording stops).
