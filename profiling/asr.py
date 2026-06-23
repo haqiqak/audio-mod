@@ -256,7 +256,17 @@ class CrisperWhisperASR:
         kwargs: dict[str, Any] = {
             "model": self.model_id,
             "return_timestamps": "word",
-            "model_kwargs": {"low_cpu_mem_usage": True},
+            "model_kwargs": {
+                "low_cpu_mem_usage": True,
+                # Silences: "WhisperModel is using WhisperSdpaAttention, but
+                # scaled_dot_product_attention does not support output_attentions=True
+                # ... Falling back to the manual attention implementation."
+                # The pipeline requests output_attentions internally for word-timestamp
+                # extraction. SDPA doesn't support that, so it falls back anyway —
+                # setting "eager" explicitly just stops the warning without changing
+                # which implementation actually runs (it was always falling back).
+                "attn_implementation": "eager",
+            },
             # ── language='en' + task='transcribe' ──────────────────────────────
             # This is the ONLY thing needed to skip Whisper's multilingual
             # language-detection pass. Do NOT also pass forced_decoder_ids
@@ -289,11 +299,18 @@ class CrisperWhisperASR:
             # Bounds worst-case generation length so a single bad decode step
             # (e.g. repetition without a clean EOS) can't silently balloon
             # runtime on short clips. 256 is generous for clips under ~30s.
+            #
+            # ── return_legacy_cache ─────────────────────────────────────────────
+            # Silences: "From v4.47 onwards, when a model cache is to be returned,
+            # `generate` will return a Cache instance instead by default."
+            # We don't use the cache object at all — setting this avoids the
+            # format-change warning without affecting output.
             "generate_kwargs": {
                 "language": "en",
                 "task": "transcribe",
                 "num_beams": 1,
                 "max_new_tokens": 256,
+                "return_legacy_cache": True,
             },
         }
         if self.device not in (None, "cpu"):

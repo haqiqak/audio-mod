@@ -440,6 +440,7 @@ def run_pipeline(
                 json.dump(fixture_dict, tf)
                 tmp_path = tf.name
             tokens = asr.transcribe(tmp_path)
+            audio_for_detector: bytes | None = None
 
         elif txt_bytes is not None:
             log(f"Source: {source_name} (text fixture — ASR skipped)")
@@ -447,6 +448,7 @@ def run_pipeline(
                 tf.write(txt_bytes)
                 tmp_path = tf.name
             tokens = asr.transcribe(tmp_path)
+            audio_for_detector = None
 
         elif wav_bytes is not None:
             log(f"Source: {source_name} ({len(wav_bytes):,} bytes raw)")
@@ -457,6 +459,7 @@ def run_pipeline(
             tokens = _run_with_progress(
                 lambda: asr.transcribe_bytes(resampled), log, "Transcribing", est,
             )
+            audio_for_detector = resampled   # pass waveform to detector
 
         else:  # audio_path
             log(f"Source: {source_name}")
@@ -464,12 +467,19 @@ def run_pipeline(
             if suffix in {".json", ".txt", ".transcript"}:
                 log("Fixture detected — ASR skipped")
                 tokens = asr.transcribe(audio_path)
+                audio_for_detector = None
             else:
                 est = _estimate_path_seconds(audio_path)
                 log(f"Loading CrisperWhisper · device={device}")
                 tokens = _run_with_progress(
                     lambda: asr.transcribe(audio_path), log, "Transcribing", est,
                 )
+                # Read file bytes so the detector can do acoustic validation
+                try:
+                    from profiling.asr import resample_to_16k as _resample
+                    audio_for_detector = _resample(Path(audio_path).read_bytes())
+                except Exception:
+                    audio_for_detector = None
 
         log(f"Transcription complete — {len(tokens)} token(s)")
 
@@ -480,8 +490,9 @@ def run_pipeline(
                 log(f"Breakdown — pipeline load: {lp:.2f}s · inference: {inf:.2f}s")
 
         log("Running disfluency detector…")
-        events = detect_disfluencies(tokens)
-        log(f"Detection complete — {len(events)} event(s)")
+        events = detect_disfluencies(tokens, audio_bytes=audio_for_detector)
+        acoustic_note = " (acoustic validation active)" if audio_for_detector else ""
+        log(f"Detection complete — {len(events)} event(s){acoustic_note}")
 
         if save:
             if events:

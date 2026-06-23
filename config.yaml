@@ -11,12 +11,27 @@ profiling:
     prolongation_percentile: 90
     prolongation_min_seconds: 0.65
     block_gap_seconds: 0.55
+    near_repetition_similarity: 0.75
+    phrase_repetition_min_words: 2
+    # Confidence bonus applied to disfluencies at sentence-initial position.
+    # Stuttering is overwhelmingly sentence-initial, so events there are
+    # clinically more significant and get a small confidence boost.
+    sentence_initial_boost: 0.08
     filler_words:
       - uh
       - um
       - er
       - erm
       - like
+    acoustic:
+      # RMS energy below this = silence (confirms blocks are real, not ASR gaps)
+      # Raise if background noise is suppressing real blocks.
+      silence_rms_threshold: 0.015
+      # RMS above this = speaker is producing sound (confirms prolongation)
+      voiced_rms_threshold: 0.030
+      # Zero-crossing rate below this = voiced sound (vowel/sonorant).
+      # High ZCR = unvoiced consonant or noise — not clinically meaningful prolongation.
+      voiced_zcr_threshold: 0.15
 rewrite:
   lambda: 0.55
   mu: 0.12

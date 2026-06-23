@@ -47,9 +47,23 @@ def profile_path(username: str) -> Path:
 
 def _onset_key(word_or_onset: str | Iterable[str]) -> str:
     if isinstance(word_or_onset, str):
-        if " " in word_or_onset or word_or_onset.isupper():
-            return word_or_onset.strip().upper()
-        onset = phonetic.onset(word_or_onset)
+        s = word_or_onset.strip()
+        # Treat as a pre-computed ARPAbet onset code (not an English word) when:
+        #   • it contains a space  → must be multi-phoneme e.g. "S T R", "K L"
+        #   • it's multi-character AND all-uppercase  → e.g. "SH", "TH", "CH"
+        # A single uppercase letter like "I" or "A" is ambiguous — it could be
+        # the English pronoun/article. Do NOT shortcut those; always run them
+        # through phonetic.onset() so vowel-initial words correctly get an
+        # empty onset rather than a phantom phoneme label.
+        is_arpabet_code = (
+            " " in s
+            or (len(s) > 1 and s.isupper() and not s.isalpha() is False)
+        )
+        # Simpler guard: space-separated or 2+ chars all-caps
+        is_arpabet_code = " " in s or (len(s) >= 2 and s.isupper())
+        if is_arpabet_code:
+            return s.upper()
+        onset = phonetic.onset(s)
     else:
         onset = tuple(word_or_onset)
     return " ".join(str(p).upper() for p in onset if p)
@@ -198,9 +212,16 @@ class SpeakerDifficultyProfile:
             # data. These are marked profile_safe=False by the ASR layer.
             if event.get("profile_safe") is False:
                 continue
-            word = str(event.get("word", "")).strip()
-            if not word:
+            word_raw = str(event.get("word", "")).strip()
+            if not word_raw:
                 continue
+            # Strip leading/trailing punctuation before onset lookup.
+            # CrisperWhisper attaches punctuation to the last word of each
+            # sentence ("recording." "place.") — without stripping, _onset_key
+            # would receive "recording." which phonetic.onset() can't look up
+            # in CMUdict, falling back to grapheme rules that may return wrong
+            # or empty results. "recording" → R correctly every time.
+            word = re.sub(r"^[^A-Za-z]+|[^A-Za-z]+$", "", word_raw) or word_raw
             onset = _onset_key(word)
             if not onset:
                 continue
@@ -217,7 +238,7 @@ class SpeakerDifficultyProfile:
             buckets.setdefault(onset, []).append(value)
             saved_events.append(
                 {
-                    "word": word,
+                    "word": word,   # punctuation-stripped
                     "onset": onset,
                     "disfluent": disfluent,
                     "type": event.get("type", "observed" if disfluent else "fluent"),
