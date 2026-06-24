@@ -1,0 +1,34 @@
+# Normalize line endings for all text files — git stores LF internally and
+# converts to the platform's native ending on checkout. Without this, editing
+# the same files on Windows vs. Mac/Linux causes noisy whole-file diffs that
+# are just CRLF/LF churn, not real changes.
+* text=auto eol=lf
+
+# Explicit, in case extension-based detection ever misses one of these
+*.py  text eol=lf
+*.md  text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+
+# Windows-only scripts, if any get added later (e.g. venv\Scripts\activate.bat)
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary — never line-ending-convert these (also harmless since .gitignore
+# already excludes most model/weight extensions; this just protects anything
+# that slips through, e.g. a committed sample WAV for testing)
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.m4a binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.svg binary
+*.safetensors binary
+*.bin binary
+*.pt binary
+*.onnx binary

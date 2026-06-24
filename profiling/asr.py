@@ -38,16 +38,34 @@ On CPU that was measured at ~650-680s regardless of clip length or token cap.
 
 ASR_BACKEND controls which engine runs real audio (fixtures/.json/.txt never
 need either):
-  • "faster_whisper" (default) — same CrisperWhisper weights, converted once
-    to CTranslate2 format and run through its quantized (int8) C++ inference
-    engine. This is what actually fixes the encoder-bound slowness above;
-    typically 4-10x faster than the transformers path on CPU. Requires a
-    one-time model conversion — see README "Faster backend setup".
-  • "transformers" — the original pipeline above. Kept as a fallback/
-    comparison path; still has the ~30s-window encoder cost.
-If ASR_BACKEND=faster_whisper but the converted model directory isn't found,
-transcribe() raises a clear RuntimeError with the exact conversion command,
-rather than silently falling back to the slow path.
+  • "transformers" (default) — the only backend that currently produces
+    correct word-level timestamps, which every feature in this app depends
+    on (detection, calibration, profiling). Still has the ~30s-window
+    encoder cost described above on CPU.
+  • "auto" — currently identical to "transformers". Kept as an alias in
+    case OpenVINO becomes usable again later (see below) and this should
+    resume auto-selecting it.
+  • "openvino" — DO NOT USE. Raises immediately with a clear message
+    instead of attempting transcription. optimum-intel's
+    OVModelForSpeechSeq2Seq does not return cross_attentions from
+    generate() the way the plain PyTorch model does, and transformers'
+    return_timestamps="word" post-processing requires them to compute
+    word-level alignment — this is a confirmed, still-open upstream bug
+    (github.com/huggingface/optimum-intel issue #561), not something
+    fixable from this codebase. It was briefly the auto-selected default
+    in an earlier round of this project, before a real test recording
+    surfaced the crash — transcription would actually run (and run a fast
+    encoder pass), then fail deep inside transformers' generation code
+    with `TypeError: 'NoneType' object is not subscriptable` once it tried
+    to extract word timestamps from the (absent) cross-attentions. See
+    _transcribe_openvino's docstring for the full trace and what would need
+    to change upstream before this becomes safe to re-enable.
+  • "faster_whisper" — NOT auto-selected; tried and ruled out for
+    CrisperWhisper specifically (its tokenizer wrapper hardcodes stock-
+    Whisper special-token positions, and CrisperWhisper's fine-tune has a
+    different layout — see _load_faster_whisper for the exact error). Left
+    in for anyone who wants to retry against a future faster-whisper
+    release that supports custom special-token layouts.
 """
 
 from __future__ import annotations
@@ -459,6 +477,13 @@ class CrisperWhisperASR:
             return self._transcribe_faster_whisper(audio_for_asr)
         if self.backend == "openvino":
             return self._transcribe_openvino(audio_for_asr)
+        if self.backend == "transformers":
+            return self._transcribe_transformers(audio_for_asr)
+
+        # "auto" — currently identical to "transformers". OpenVINO is
+        # intentionally NOT part of this chain; see the note above
+        # _transcribe_openvino for why it can't be used as a silent
+        # fallback target (or as a target at all, right now).
         return self._transcribe_transformers(audio_for_asr)
 
     @staticmethod
@@ -550,13 +575,42 @@ class CrisperWhisperASR:
         return [t.to_dict() for t in self.tokens_from_text(result.get("text", ""))]
 
     def _transcribe_openvino(self, audio_for_asr: Path) -> list[dict[str, Any]]:
-        """Fast path: OpenVINO-accelerated CrisperWhisper (default backend).
+        """NOT a working fast path right now — kept for reference / future fix.
 
-        Same transformers pipeline/tokenizer as _transcribe_transformers —
-        only the model's matmul backend changes (OpenVINO IR + int8 instead
-        of plain PyTorch fp32) — so output shape/behaviour matches the
-        original path exactly, just faster on the encoder pass that was the
-        actual bottleneck.
+        Confirmed upstream bug: optimum-intel's OVModelForSpeechSeq2Seq does
+        not return cross_attentions from generate() the way the plain
+        PyTorch model does, and transformers' return_timestamps="word"
+        post-processing requires them to compute word-level alignment. This
+        crashes deep inside transformers/models/whisper/generation_whisper.py
+        (_extract_token_timestamps) with `TypeError: 'NoneType' object is
+        not subscriptable` — confirmed against
+        github.com/huggingface/optimum-intel issue #561, still open upstream
+        with no known workaround as of this writing.
+
+        Since every feature in this app (detection, calibration, profiling)
+        depends on word-level timestamps, OpenVINO cannot currently be used
+        here regardless of its speed advantage — a fast transcript with no
+        word timings is useless for this pipeline. This method now fails
+        fast with a clear message instead of letting the person hit the
+        confusing NoneType crash several minutes into a real transcription.
+
+        Revisit if a future optimum-intel release fixes #561, or if anyone
+        finds a workaround that restores cross_attentions through the OV
+        decoder — at that point this can become the real default again.
+        """
+        raise RuntimeError(
+            "ASR_BACKEND=openvino is not currently usable: optimum-intel's "
+            "OpenVINO Whisper model can't produce word-level timestamps "
+            "(github.com/huggingface/optimum-intel issue #561), and this "
+            "app depends on word timestamps for every feature. Use "
+            "ASR_BACKEND=transformers (the default) instead."
+        )
+
+    def _transcribe_openvino_DISABLED_reference_impl(self, audio_for_asr: Path) -> list[dict[str, Any]]:
+        """Original implementation, kept only as a reference for anyone
+        revisiting this once optimum-intel issue #561 is fixed upstream.
+        Not called anywhere — _transcribe_openvino above raises before
+        reaching any of this.
         """
         max_new_tokens = self._max_new_tokens_for(audio_for_asr)
 

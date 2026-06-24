@@ -28,6 +28,7 @@ import phonetic
 import semantic
 from freq import zipf_frequency
 
+from .calibration import SpeakerBaseline
 from .coldstart import fused_cold_start, load_population_priors
 from .config import load_config
 
@@ -50,16 +51,12 @@ def _onset_key(word_or_onset: str | Iterable[str]) -> str:
         s = word_or_onset.strip()
         # Treat as a pre-computed ARPAbet onset code (not an English word) when:
         #   • it contains a space  → must be multi-phoneme e.g. "S T R", "K L"
-        #   • it's multi-character AND all-uppercase  → e.g. "SH", "TH", "CH"
+        #   • it's 2+ chars AND all-uppercase  → e.g. "SH", "TH", "CH"
         # A single uppercase letter like "I" or "A" is ambiguous — it could be
         # the English pronoun/article. Do NOT shortcut those; always run them
         # through phonetic.onset() so vowel-initial words correctly get an
-        # empty onset rather than a phantom phoneme label.
-        is_arpabet_code = (
-            " " in s
-            or (len(s) > 1 and s.isupper() and not s.isalpha() is False)
-        )
-        # Simpler guard: space-separated or 2+ chars all-caps
+        # empty onset rather than a phantom phoneme label (this was the bug
+        # fix_profile.py patched after the fact — fixed at the source here).
         is_arpabet_code = " " in s or (len(s) >= 2 and s.isupper())
         if is_arpabet_code:
             return s.upper()
@@ -81,9 +78,29 @@ def _content_from_tag(tag: str | None) -> bool:
     return bool(tag and tag[:1] in {"N", "V", "J", "R"})
 
 
-def _guess_tag(word: str) -> str | None:
+_POS_TAGGER_READY = False
+
+
+def _ensure_pos_tagger() -> bool:
+    """One-time NLTK tagger-data check, done once at first use rather than
+    on every _guess_tag() call. With factors_for_word() now called per-word
+    across a live transcript, a per-call nltk.download() would otherwise do
+    a cache-existence check for every single word in every transcript."""
+    global _POS_TAGGER_READY
+    if _POS_TAGGER_READY:
+        return True
     try:
         nltk.download("averaged_perceptron_tagger_eng", quiet=True)
+        _POS_TAGGER_READY = True
+    except Exception:
+        pass
+    return _POS_TAGGER_READY
+
+
+def _guess_tag(word: str) -> str | None:
+    if not _ensure_pos_tagger():
+        return None
+    try:
         return pos_tag([word])[0][1]
     except Exception:
         return None
@@ -97,6 +114,7 @@ class SpeakerDifficultyProfile:
     self_reported_sounds: list[str] = field(default_factory=list)
     sessions: list[dict[str, Any]] = field(default_factory=list)
     event_count: int = 0
+    speaker_baseline: SpeakerBaseline = field(default_factory=SpeakerBaseline)
     config: dict[str, Any] = field(default_factory=load_config)
     population_priors: dict[str, float] = field(default_factory=load_population_priors)
 
@@ -130,6 +148,7 @@ class SpeakerDifficultyProfile:
             self_reported_sounds=list(data.get("self_reported_sounds", [])),
             sessions=list(data.get("sessions", [])),
             event_count=int(data.get("event_count", 0)),
+            speaker_baseline=SpeakerBaseline.from_dict(data.get("speaker_baseline")),
             config=config or load_config(),
         )
         if not profile.onset_risk:
@@ -144,6 +163,7 @@ class SpeakerDifficultyProfile:
             "self_reported_sounds": self.self_reported_sounds,
             "sessions": self.sessions[-100:],
             "event_count": self.event_count,
+            "speaker_baseline": self.speaker_baseline.to_dict(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -151,6 +171,18 @@ class SpeakerDifficultyProfile:
         path = profile_path(self.username)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2, ensure_ascii=False)
+
+    def update_speaker_baseline(self, tokens: Iterable[dict[str, Any]]) -> bool:
+        """Fold one calibration read's tokens into the speaker's rolling
+        tempo baseline. Returns False (no-op) if the read didn't carry
+        enough timing data to be useful — existing baseline is untouched.
+        """
+        from .calibration import measure_calibration_read, update_baseline
+        samples = measure_calibration_read(tokens)
+        if samples is None:
+            return False
+        self.speaker_baseline = update_baseline(self.speaker_baseline, samples)
+        return True
 
     @property
     def weights(self) -> dict[str, float]:

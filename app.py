@@ -27,6 +27,7 @@ import streamlit as st
 
 from auth import require_auth
 from profiling.asr import CrisperWhisperASR, resample_to_16k
+from profiling.calibration import CALIBRATION_SENTENCE, MAX_BASELINE_SAMPLES
 from profiling.detect import detect_disfluencies
 from profiling.profile import SpeakerDifficultyProfile, profile_path
 
@@ -416,8 +417,16 @@ def run_pipeline(
     save: bool,
     label: str,
     source_name: str,
+    is_calibration: bool = False,
 ):
-    """Exactly one of wav_bytes/fixture_dict/txt_bytes/audio_path is set."""
+    """Exactly one of wav_bytes/fixture_dict/txt_bytes/audio_path is set.
+
+    is_calibration=True routes the transcribed tokens into the speaker's
+    tempo baseline (profiling/calibration.py) instead of — or alongside —
+    normal disfluency detection. Used by the "Calibrate" input mode, where
+    the speaker reads a fixed, phonetically-neutral sentence so we can
+    measure their natural rate rather than their difficulty.
+    """
     log_lines: list[str] = []
     log_ph = st.empty()
 
@@ -489,16 +498,48 @@ def run_pipeline(
             if lp is not None and inf is not None:
                 log(f"Breakdown — pipeline load: {lp:.2f}s · inference: {inf:.2f}s")
 
+        # Profile is loaded up front (not just when saving) because the
+        # speaker's calibration baseline — if they have one — personalizes
+        # the detector's block/prolongation thresholds for every run, not
+        # only runs where "Save to profile" is checked.
+        profile = SpeakerDifficultyProfile.load(CURRENT_USER)
+
+        if is_calibration:
+            log("Calibration read — measuring speaker tempo, not detecting disfluencies…")
+            got_samples = profile.update_speaker_baseline(tokens)
+            if got_samples:
+                profile.save()
+                b = profile.speaker_baseline
+                log(
+                    f"Baseline updated — word duration ≈{b.word_dur_median:.2f}s "
+                    f"(±{b.word_dur_iqr:.2f}s), gap ≈{b.gap_median:.2f}s "
+                    f"(±{b.gap_iqr:.2f}s) · {b.sample_count} calibration read(s) pooled"
+                )
+                st.success(
+                    "Calibration saved. Detection thresholds for this account are now "
+                    "personalized to your natural speaking tempo."
+                )
+            else:
+                log("Not enough timestamped words in this read — baseline unchanged.")
+                st.warning(
+                    "Couldn't get enough timing data from that read — try again, "
+                    "speaking the sentence naturally at a comfortable pace."
+                )
+            with st.expander("Raw token JSON", expanded=False):
+                st.json(tokens)
+            return
+
         log("Running disfluency detector…")
-        events = detect_disfluencies(tokens, audio_bytes=audio_for_detector)
+        baseline = profile.speaker_baseline if profile.speaker_baseline.is_usable else None
+        events = detect_disfluencies(tokens, audio_bytes=audio_for_detector, speaker_baseline=baseline)
         acoustic_note = " (acoustic validation active)" if audio_for_detector else ""
-        log(f"Detection complete — {len(events)} event(s){acoustic_note}")
+        calib_note = " (speaker-calibrated thresholds)" if baseline else " (default thresholds — not yet calibrated)"
+        log(f"Detection complete — {len(events)} event(s){acoustic_note}{calib_note}")
 
         if save:
             if events:
-                p = SpeakerDifficultyProfile.load(CURRENT_USER)
-                p.update(events, session_id=label.strip() or None)
-                p.save()
+                profile.update(events, session_id=label.strip() or None)
+                profile.save()
                 log(f"Profile updated for '{CURRENT_USER}'")
             else:
                 log("No events — profile unchanged")
@@ -512,16 +553,43 @@ def run_pipeline(
         for e in events:
             ev_map.setdefault(e["index"], []).append(e)
 
+        show_risk = st.checkbox(
+            "Show personalized word-risk shading",
+            value=False,
+            help=(
+                "Shades every word by this speaker's own difficulty score "
+                "(onset risk + length + rarity + word class) — independent of "
+                "whether the detector actually flagged that word this time. "
+                "Discrete orange highlights below are detected events in THIS "
+                "clip; this shading is the standing risk profile."
+            ),
+        )
+
         parts = []
         for i, tok in enumerate(tokens):
             w = tok.get("word", "")
+            style = ""
+            risk_title = ""
+            if show_risk and w.strip():
+                risk = profile.difficulty(w)
+                # Light shading scaled by risk; kept subtle so it doesn't
+                # fight with the existing flagged/ok word classes below.
+                alpha = round(min(0.45, risk * 0.5), 3)
+                style = f' style="background-color: rgba(213,94,0,{alpha});"'
+                risk_title = f"personalized risk {risk:.2f}"
             if i in dis_idx:
                 tip = " / ".join({e["type"] for e in ev_map[i]})
-                parts.append(f'<span class="am-word-flag" title="{tip}">{w}</span>')
+                if risk_title:
+                    tip = f"{tip} · {risk_title}"
+                parts.append(f'<span class="am-word-flag"{style} title="{tip}">{w}</span>')
             else:
-                parts.append(f'<span class="am-word-ok">{w}</span>')
+                tip = risk_title
+                parts.append(f'<span class="am-word-ok"{style} title="{tip}">{w}</span>')
         st.markdown('<div class="am-transcript">' + " ".join(parts) + "</div>", unsafe_allow_html=True)
-        st.caption("Highlighted words were flagged as disfluencies — hover to see the type.")
+        st.caption(
+            "Highlighted words were flagged as disfluencies — hover to see the type."
+            + (" Background shading is this speaker's standing word-risk score." if show_risk else "")
+        )
 
         n_tok, n_ev = len(tokens), len(events)
         fluency = round(100 * (1 - n_ev / max(n_tok, 1)), 1)
@@ -594,7 +662,7 @@ if screen == "Analyse":
     with col_left:
         st.markdown("##### Input")
         mode = st.radio(
-            "Input mode", ["Demo", "Record", "Upload"],
+            "Input mode", ["Demo", "Calibrate", "Record", "Upload"],
             horizontal=True, label_visibility="collapsed", key="input_mode",
         )
 
@@ -620,6 +688,57 @@ if screen == "Analyse":
         )
         if st.button("Run demo", type="primary"):
             run_pipeline(fixture_dict=DEMO, device=device, save=save, label=label or "demo", source_name="demo fixture")
+
+    elif mode == "Calibrate":
+        _profile_preview = SpeakerDifficultyProfile.load(CURRENT_USER)
+        _b = _profile_preview.speaker_baseline
+        if _b.is_usable:
+            st.markdown(
+                '<div class="am-card"><h4>Speaker tempo baseline</h4>'
+                f"<p>Calibrated from {_b.sample_count} read(s), last updated "
+                f"{(_b.last_calibrated_at or '—').split('T')[0]}. "
+                f"Word duration ≈{_b.word_dur_median:.2f}s (±{_b.word_dur_iqr:.2f}s) · "
+                f"gap ≈{_b.gap_median:.2f}s (±{_b.gap_iqr:.2f}s).</p>"
+                "<p>Block and prolongation thresholds for this account are now personalized "
+                "to your own natural range, not a one-size-fits-all default. "
+                "Re-read the sentence below any time your tempo has changed — recent "
+                f"reads are blended, up to the last {MAX_BASELINE_SAMPLES}.</p></div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="am-card"><h4>Not calibrated yet</h4>'
+                "<p>Detection currently uses fixed thresholds that work reasonably for an "
+                "average speaking rate, but may over- or under-flag if your natural tempo "
+                "is notably slower or faster. Read the sentence below once, naturally and "
+                "at a comfortable pace — this is a one-time setup, not something you repeat "
+                "every session.</p></div>",
+                unsafe_allow_html=True,
+            )
+        st.markdown(
+            f'<div class="am-card-soft" style="font-size:1.05rem;line-height:1.5;">'
+            f"“{CALIBRATION_SENTENCE}”</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "This sentence is deliberately plain — it measures your natural pace, "
+            "not your difficulty with specific sounds."
+        )
+
+        if HAS_MIC:
+            audio = _mic_rec(
+                key="mic_calibrate", start_prompt="Start reading", stop_prompt="Stop & calibrate",
+                use_container_width=True, format="wav",
+            )
+            if audio and audio.get("bytes"):
+                st.audio(audio["bytes"], format="audio/wav")
+                run_pipeline(
+                    wav_bytes=audio["bytes"], device=device, save=False,
+                    label="calibration", source_name="calibration read",
+                    is_calibration=True,
+                )
+        else:
+            st.warning("streamlit-mic-recorder is not installed. Run `pip install streamlit-mic-recorder` and restart.")
 
     elif mode == "Record":
         if HAS_MIC:
@@ -686,6 +805,13 @@ else:
 
     with col1:
         sounds_str = ", ".join(p.self_reported_sounds) or "—"
+        b = p.speaker_baseline
+        calib_line = (
+            f"Tempo calibrated ({b.sample_count} read(s)) — "
+            f"word ≈{b.word_dur_median:.2f}s, gap ≈{b.gap_median:.2f}s"
+            if b.is_usable else
+            'Not yet calibrated — see the "Calibrate" input mode on Analyse'
+        )
         st.markdown(
             f'<div class="am-card"><h4>Overview</h4>'
             f'<div class="am-stats">'
@@ -693,7 +819,8 @@ else:
             f'<div class="am-stat"><div class="v">{p.event_count}</div><div class="l">Events</div></div>'
             f"</div>"
             f'<p style="margin-top:.5rem;font-size:.85rem;">Self-reported sounds: '
-            f"<strong>{sounds_str}</strong></p></div>",
+            f"<strong>{sounds_str}</strong></p>"
+            f'<p style="margin-top:.25rem;font-size:.85rem;">{calib_line}</p></div>',
             unsafe_allow_html=True,
         )
 

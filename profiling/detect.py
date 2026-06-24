@@ -241,14 +241,21 @@ def detect_disfluencies(
     tokens: Iterable[Any],
     config: dict[str, Any] | None = None,
     audio_bytes: bytes | None = None,
+    speaker_baseline: "Any | None" = None,
 ) -> list[dict[str, Any]]:
     """Flag repetitions, prolongations, blocks, fillers, and ASR stutter marks.
 
     Parameters
     ----------
-    tokens      : iterable of VerbatimToken or dict with word/start/end fields
-    config      : optional profiling config dict (loaded from config.yaml if None)
-    audio_bytes : optional 16 kHz mono WAV bytes for acoustic validation.
+    tokens           : iterable of VerbatimToken or dict with word/start/end fields
+    config           : optional profiling config dict (loaded from config.yaml if None)
+    audio_bytes      : optional 16 kHz mono WAV bytes for acoustic validation.
+    speaker_baseline : optional calibration.SpeakerBaseline. When provided and
+                        usable, block_gap_seconds and prolongation_min_seconds
+                        are personalized to the speaker's own calibrated tempo
+                        (never below the config/global floor — see
+                        calibration.adjusted_thresholds). Omit for the
+                        original fixed-threshold behaviour.
 
     Returns
     -------
@@ -267,6 +274,15 @@ def detect_disfluencies(
     block_gap      = float(cfg.get("block_gap_seconds",           0.55))
     prolong_min    = float(cfg.get("prolongation_min_seconds",    0.65))
     prolong_pct    = float(cfg.get("prolongation_percentile",     90))
+
+    # ── Personalize thresholds from a speaker's calibration baseline ──────────
+    # Only ever raises a speaker's own bar above the global floor — never
+    # lowers detection sensitivity below what an uncalibrated speaker gets.
+    if speaker_baseline is not None and getattr(speaker_baseline, "is_usable", False):
+        from .calibration import adjusted_thresholds
+        adjusted = adjusted_thresholds(speaker_baseline, block_gap, prolong_min)
+        block_gap = adjusted["block_gap_seconds"]
+        prolong_min = adjusted["prolongation_min_seconds"]
     near_rep_sim   = float(cfg.get("near_repetition_similarity",  0.75))
     phrase_rep_len = int(  cfg.get("phrase_repetition_min_words", 2))
     # Confidence boost for sentence-initial disfluencies (clinically more

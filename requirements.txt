@@ -25,9 +25,20 @@ numpy>=1.24
 # ── Config ───────────────────────────────────────────────────────────────────
 PyYAML>=6.0
 
-# ── NOT needed (dead-end optimization attempts, safe to ignore) ───────────────
-# faster-whisper / ctranslate2 — incompatible with CrisperWhisper's tokenizer
-# optimum / optimum-intel — num_frames KeyError when pipeline wraps OV model
-# Both were tried and ruled out. Do not re-install unless CrisperWhisper's
-# tokenizer layout is verified compatible with faster-whisper's hardcoded
-# special-token assumptions.
+# ── Do NOT install: optimum[openvino] ─────────────────────────────────────────
+# Tried as a faster CPU backend, but optimum-intel's OVModelForSpeechSeq2Seq
+# can't produce word-level timestamps (confirmed upstream bug,
+# github.com/huggingface/optimum-intel issue #561) — generate() doesn't
+# return cross_attentions through the OpenVINO decoder, which transformers'
+# return_timestamps="word" post-processing requires. Every feature in this
+# app (detection, calibration, profiling) depends on word timestamps, so
+# this backend is not usable here regardless of its speed. ASR_BACKEND
+# defaults to "transformers"; setting ASR_BACKEND=openvino raises a clear
+# error rather than attempting transcription. See profiling/asr.py
+# _transcribe_openvino's docstring for the full trace.
+#
+# ── Do NOT install: faster-whisper / ctranslate2 ──────────────────────────────
+# Tried and ruled out for CrisperWhisper specifically — its tokenizer wrapper
+# hardcodes stock-Whisper special-token positions, and CrisperWhisper's
+# fine-tune has a different layout. See profiling/asr.py _load_faster_whisper
+# for the exact error and reasoning.

@@ -1,4 +1,4 @@
-# ── User data — do not commit, even in testing ──────────────────────────
+# ── User data — do not commit, even in testing ──────────────────────────────
 # Account files + fluency profiles are real (if test) user data and
 # credentials. Keep the folder in git, ignore its contents.
 users/*
@@ -10,20 +10,18 @@ users/*
 .env.*
 
 # ── Model / dataset caches ───────────────────────────────────────────────
-# CrisperWhisper (~3.2GB) and any Hugging Face / torch caches. Check
-# paths.py for the exact cache dir(s) this project reroutes to and add
-# them here if they differ.
+# Confirmed against paths.py: ALL runtime caches (NLTK data, Hugging Face /
+# CrisperWhisper weights ~3.2GB, sentence-transformers, torch, language_tool)
+# are rerouted to this single project-local folder. Ignoring .cache/ alone
+# is sufficient — nothing escapes to a system-level cache dir.
 .cache/
-**/hf_cache/
-**/huggingface/
-**/torch_cache/
+
+# Stray model/weight files, in case anything is ever exported outside .cache/
 *.safetensors
 *.bin
 *.pt
 *.onnx
-
-# NLTK data downloaded via the optional setup step in the README
-nltk_data/
+*.gguf
 
 # ── Python ────────────────────────────────────────────────────────────────
 __pycache__/
@@ -48,3 +46,5 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
