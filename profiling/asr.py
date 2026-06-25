@@ -487,15 +487,35 @@ class CrisperWhisperASR:
         return self._transcribe_transformers(audio_for_asr)
 
     @staticmethod
-    def _max_new_tokens_for(audio_for_asr: Path) -> int:
+    def _clip_duration_seconds(audio_for_asr: Path) -> float | None:
+        """Clip length in seconds read from the WAV header, or None for a
+        non-WAV file (mp3/flac/m4a) whose duration we can't read header-only.
+        Used both for the max_new_tokens budget and for last_timing's
+        real-time-factor reporting (see benchmark_asr.py)."""
+        try:
+            with wave.open(str(audio_for_asr), "rb") as _wf:
+                return _wf.getnframes() / max(_wf.getframerate(), 1)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _audio_size_bytes(audio_for_asr: Path) -> int | None:
+        """On-disk size of the clip being transcribed, or None if it can't be
+        stat'd. Recorded in last_timing so a benchmark row can relate latency
+        to input size, not just duration."""
+        try:
+            return int(Path(audio_for_asr).stat().st_size)
+        except Exception:
+            return None
+
+    @classmethod
+    def _max_new_tokens_for(cls, audio_for_asr: Path) -> int:
         """Cap decode steps proportional to clip duration (~6 tok/s, 20 floor,
         256 ceiling) so a clip with no clean EOS can't burn the full cap on
         repetition/garbage. Shared by the transformers and openvino paths
         (faster_whisper manages its own stopping via beam_size/VAD)."""
-        try:
-            with wave.open(str(audio_for_asr), "rb") as _wf:
-                dur = _wf.getnframes() / max(_wf.getframerate(), 1)
-        except Exception:
+        dur = cls._clip_duration_seconds(audio_for_asr)
+        if dur is None:
             return 256  # non-WAV (mp3/flac/m4a) — fall back to the flat cap
         return max(20, min(256, int(dur * 6) + 20))
 
@@ -536,9 +556,14 @@ class CrisperWhisperASR:
                 chunks.append({"text": seg.text.strip(), "timestamp": (seg.start, seg.end)})
         _t_infer = _time.perf_counter() - _t1
 
+        clip_dur = self._clip_duration_seconds(audio_for_asr)
         self.last_timing = {
             "load_pipeline_seconds": round(_t_load, 3),
             "inference_seconds": round(_t_infer, 3),
+            "clip_duration_seconds": round(clip_dur, 3) if clip_dur is not None else None,
+            "max_new_tokens": None,  # faster_whisper stops via beam_size/VAD, not a token cap
+            "audio_size_bytes": self._audio_size_bytes(audio_for_asr),
+            "backend": "faster_whisper",
         }
 
         if chunks:
@@ -563,9 +588,14 @@ class CrisperWhisperASR:
         result = pipe(str(audio_for_asr), generate_kwargs={"max_new_tokens": max_new_tokens})
         _t_infer = _time.perf_counter() - _t1
 
+        clip_dur = self._clip_duration_seconds(audio_for_asr)
         self.last_timing = {
             "load_pipeline_seconds": round(_t_load, 3),
             "inference_seconds": round(_t_infer, 3),
+            "clip_duration_seconds": round(clip_dur, 3) if clip_dur is not None else None,
+            "max_new_tokens": max_new_tokens,
+            "audio_size_bytes": self._audio_size_bytes(audio_for_asr),
+            "backend": "transformers",
         }
 
         chunks = result.get("chunks") or result.get("segments") or []
