@@ -65,3 +65,45 @@ CPU inference.
 typed; `max_new_tokens` budget = 32 for a 2.0 s clip = `int(2*6)+20`; floors at
 20, ceilings at 256; non-WAV → `clip_duration_seconds=None`, budget falls back
 to 256). Demo-fixture regression unchanged: **9 tokens / 7 disfluencies**.
+
+---
+
+## 2026-06-26 — Step 1b: benchmark harness for honest latency
+
+**What was done**
+Added [profiling/benchmark_asr.py](profiling/benchmark_asr.py): runs the ASR
+pipeline over a folder of WAVs (default `./benchmark_clips/`) and prints one
+table — `File | Duration(s) | Load(s) | Infer(s) | RTF | Tokens` — where
+RTF = inference ÷ clip duration. Clips are run shortest-first (so the
+model-load-bearing first row is the cheapest to wait on), and a summary reports
+RTF range plus first-clip vs warm-clip load (to show whether the cached-model
+path holds). All numbers are read straight from `CrisperWhisperASR.last_timing`
+(Step 1a) — the harness adds no timing of its own. A built-in `--self-test`
+verifies the table layout and RTF math against a stub pipeline + generated
+silence WAVs, with no real model load. Errors per clip are captured into the
+row so one bad file doesn't abort the batch; an empty/missing clips folder
+prints a clear "drop real recordings" message and exits non-zero.
+
+**Alternatives considered**
+- Put the table/RTF logic only in an ad-hoc script. Rejected: making
+  `format_table`/`_rtf`/`benchmark_clip` importable + self-testable means the
+  format is trusted before a slow real run, per the measurement-first rule.
+- Time the clips inside the harness with its own `perf_counter`. Rejected:
+  that would double-measure and could disagree with what the app reports;
+  reading `last_timing` keeps a single source of truth.
+- Use pytest. Rejected for now: pytest isn't installed in the venv; a
+  `--self-test` flag + the plain-assert `tests/` file keep this dependency-free.
+
+**Why this choice**
+The whole point of this batch is to replace guessed latency figures with
+measured ones. A harness whose own math is verified by a mock-model self-test
+lets us trust the table format and RTF column before spending minutes on real
+CPU inference, and lets us re-run cheaply whenever clips change.
+
+**Measured result**
+`python -m profiling.benchmark_asr --self-test` → all checks pass (RTF math;
+two rows produced and sorted shortest-first; `token_count` wired from the stub;
+`rtf == infer/duration` for each row; clip duration read from WAV header;
+table contains all six headers and both filenames). Real-clip numbers are
+recorded in the Step 1c entry below. Demo regression unaffected (harness adds
+no detection-path code).
