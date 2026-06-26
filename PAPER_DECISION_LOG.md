@@ -438,3 +438,35 @@ overlapping token-flagged prolongation is **not** double-counted (one event,
 token-sourced, carries `voiced_duration`); no audio → demo stays 7 events with no
 acoustic source. Full suite: acoustic 8/8, detect-acoustic 5/5, detect-fusion
 3/3, asr-timing 3/3, benchmark self-test pass, demo **9 tokens / 7 disfluencies**.
+
+---
+
+## 2026-06-27 — Quality: generalized phrase-repetition (any length)
+
+**What was done**
+The phrase-repetition pre-pass in `detect_disfluencies` checked only 2- and
+3-word windows, so longer immediate repeats ("I want to I want to", "please pass
+the salt please pass the salt") fell through silently. It now scans windows from
+`phrase_repetition_min_words` up to `phrase_repetition_max_words` (new config
+key, default 8) — also capped at `len(tokens)//2` to bound the scan — and records
+the phrase length so the evidence reads e.g. "4-word phrase repeated starting at
+token 4". Longest match wins per start index; `add()` still dedupes by
+(index, type). Added `phrase_repetition_max_words` to `config.yaml`, marked the
+ARCHITECTURE §4 limitation fixed, and added `tests/test_detect_phrase.py`.
+
+**Alternatives considered**
+- Keep the 2-3 cap. Rejected: a listed limitation, and longer repeats are a real
+  stuttering/cluttering pattern.
+- Unbounded window. Rejected: O(n²) on long transcripts; an 8-word ceiling (and
+  the structural `len//2` bound) covers realistic repeats cheaply.
+
+**Why this choice**
+Pure recall win for a documented gap, fully testable model-free, zero risk to the
+audio path or fixtures (text-only change; demo unchanged).
+
+**Measured result**
+`python tests/test_detect_phrase.py` → 4/4: 2-word and (newly) 4-word repeats
+flagged at the 2nd occurrence with correct length in the evidence; a non-repeat
+sentence yields no phrase event; demo fixture still 7 events. Regression sweep:
+detect-acoustic 5/5, detect-fusion 3/3, acoustic 8/8, demo **9 tokens /
+7 disfluencies**.

@@ -305,9 +305,12 @@ sensitivity below what an uncalibrated speaker gets.
   genuinely different but similarly-spelled words ("strawberry" vs
   "strawberries"). A phonetic-distance version for short words, falling back
   to edit distance for longer ones, would be the natural fix — not yet done.
-- **Phrase-repetition only checks 2-3 word windows**
-  (`phrase_repetition_min_words` + 1). Longer repeated phrases fall through
-  silently. Not yet generalized to a sliding window over arbitrary lengths.
+- ~~**Phrase-repetition only checks 2-3 word windows**~~ — **fixed.** The scan
+  now runs windows from `phrase_repetition_min_words` up to
+  `phrase_repetition_max_words` (default 8, also capped at `len(tokens)//2`), so
+  longer repeats like "I want to I want to" are caught; the longest match wins
+  for the evidence string. Verified by `tests/test_detect_phrase.py` (incl. a
+  4-word repeat the old window missed); demo fixture still 9/7.
 - **The multi-factor `difficulty()` score and the event-based detector are
   two separate signals**, surfaced separately in the UI (event highlighting
   vs. optional background shading) rather than merged into one combined

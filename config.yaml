@@ -13,6 +13,9 @@ profiling:
     block_gap_seconds: 0.55
     near_repetition_similarity: 0.75
     phrase_repetition_min_words: 2
+    # Longest repeated phrase to scan for (e.g. "I want to I want to"). Raised
+    # from the old hard-coded 2-3 word limit; capped here to bound the scan.
+    phrase_repetition_max_words: 8
     # Confidence bonus applied to disfluencies at sentence-initial position.
     # Stuttering is overwhelmingly sentence-initial, so events there are
     # clinically more significant and get a small confidence boost.

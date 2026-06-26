@@ -416,8 +416,15 @@ def detect_disfluencies(
     sent_init  = _sentence_initial_indices(rows)
 
     # ── Phrase-repetition pre-pass ────────────────────────────────────────────
-    phrase_rep_indices: set[int] = set()
-    for wlen in range(phrase_rep_len, min(phrase_rep_len + 2, len(rows) + 1)):
+    # Detect an immediately-repeated phrase of ANY length from phrase_rep_len up
+    # to a cap (previously only 2-3 word windows, so "I want to I want to" or
+    # longer repeats fell through silently). Longer matches win for the evidence
+    # string. Capped at phrase_repetition_max_words (and at len(rows)//2, since a
+    # phrase can't repeat within fewer than twice its length) to bound the scan.
+    phrase_rep_max = int(cfg.get("phrase_repetition_max_words", 8))
+    phrase_rep_spans: dict[int, int] = {}   # start index of 2nd occurrence -> phrase length
+    upper = min(max(phrase_rep_len, phrase_rep_max), len(rows) // 2)
+    for wlen in range(phrase_rep_len, upper + 1):
         for i in range(wlen * 2, len(rows) + 1):
             seq_a = tuple(norms[i - wlen * 2 : i - wlen])
             seq_b = tuple(norms[i - wlen : i])
@@ -426,7 +433,8 @@ def detect_disfluencies(
                 and seq_a == seq_b
                 and all(s for s in seq_a)
             ):
-                phrase_rep_indices.add(i - wlen)
+                start = i - wlen
+                phrase_rep_spans[start] = max(phrase_rep_spans.get(start, 0), wlen)
 
     # ── Event accumulator ─────────────────────────────────────────────────────
     events: list[dict[str, Any]] = []
@@ -479,8 +487,10 @@ def detect_disfluencies(
             add(i, "stutter_marker", 0.85, "ASR stutter marker or trailing fragment")
 
         # ── Phrase repetition ─────────────────────────────────────────────────
-        if i in phrase_rep_indices:
-            add(i, "repetition", 0.88, f"phrase repeated starting at token {i}")
+        if i in phrase_rep_spans:
+            wlen = phrase_rep_spans[i]
+            add(i, "repetition", 0.88,
+                f"{wlen}-word phrase repeated starting at token {i}")
 
         if i > 0:
             prev_low  = norms[i - 1]
