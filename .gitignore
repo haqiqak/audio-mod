@@ -37,6 +37,13 @@ venv/
 env/
 ENV/
 
+# ── Benchmark clips ─────────────────────────────────────────────────────────
+# Throwaway synthetic clips and (later) real recordings used by
+# profiling/benchmark_asr.py. Audio is large and/or real voice data — keep the
+# folder in git, ignore its contents.
+benchmark_clips/*
+!benchmark_clips/.gitkeep
+
 # ── Logs ──────────────────────────────────────────────────────────────────
 *.log
 

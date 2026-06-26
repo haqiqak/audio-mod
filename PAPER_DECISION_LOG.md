@@ -107,3 +107,67 @@ two rows produced and sorted shortest-first; `token_count` wired from the stub;
 table contains all six headers and both filenames). Real-clip numbers are
 recorded in the Step 1c entry below. Demo regression unaffected (harness adds
 no detection-path code).
+
+---
+
+## 2026-06-26 — Step 1c: real benchmark BLOCKED on this machine (OOM at model load)
+
+**What was done**
+Prepared the harness for a real run and attempted it:
+- `profiling/benchmark_asr.py` now `import paths` first (before numpy/torch are
+  pulled in via `profiling.asr`), so a real run uses the same BLAS/OpenMP
+  thread caps and cache routing as the app — otherwise the benchmark would use
+  all CPU cores and report a latency the app never delivers. `paths.py` uses
+  `setdefault`, so an already-set `HF_HOME` (the on-disk model) is preserved.
+- Added `benchmark_clips/` to `.gitignore` (keep the folder via `.gitkeep`,
+  ignore its contents — synthetic throwaway clips and, later, real voice data).
+- Generated three synthetic faint-noise clips (3 s / 8 s / 15 s, 16 kHz mono)
+  as agreed (synthetic dry-run; token counts not meaningful, latency is).
+
+The real run **could not complete on this machine**: every attempt to load the
+CrisperWhisper weights crashes with a native **segmentation fault (exit 139)**,
+in both venvs (Python 3.13 `venv` and 3.14 `.venv`), via `transformers.pipeline`,
+plain `AutoModelForSpeechSeq2Seq.from_pretrained`, and even `safetensors`'
+`safe_open(..., framework="pt").get_tensor(...)`.
+
+**Diagnosis (what was ruled in/out)**
+- Not a code bug in this repo: it reproduces on a stock `from_pretrained`.
+- Not a corrupt download: the file is the expected size (3,219,908,024 B ≈
+  3.2 GB, whisper-large-v3 fp16); the safetensors **header reads fine** (1260
+  tensors) and reading tensors via the **numpy** framework works. Only the
+  **torch** materialization path crashes.
+- Not a broken torch/safetensors install per se: `torch.zeros(fp16)`,
+  `torch.from_numpy(fp16)`, and a small `safetensors.torch` save/load round-trip
+  all succeed.
+- **Most likely cause: out of memory.** The machine has 7.8 GB total RAM with
+  ~2.2 GB free at test time; a plain CPU `from_pretrained` materializes weights
+  in fp32 (~6.4 GB), and even an fp16-resident load is ~3.2 GB — both exceed
+  free RAM. On Windows a failed native allocation during weight load surfaces
+  as SIGSEGV rather than a clean `MemoryError`, which matches the symptom (crash
+  while materializing the *first* tensor on the torch path).
+
+**Alternatives considered**
+- Force a minimal-footprint load (`torch_dtype=float16`, `low_cpu_mem_usage`)
+  on this machine. Not pursued: 3.2 GB resident still exceeds ~2.2 GB free, and
+  the owner opted to run the measurement on a 16 GB device instead.
+- Fabricate/estimate the latency numbers to fill the docs. Explicitly rejected
+  — this batch is measurement-first; unverified figures are exactly what it's
+  meant to remove.
+
+**Why this choice**
+The harness is correct and self-test-verified; the only missing ingredient is
+hardware that can hold the model. Rather than guess, the real run is deferred
+to a 16 GB machine. **To produce the table there:**
+```
+# (model auto-downloads to the project .cache/hf on first run unless HF_HOME is set)
+python -m profiling.benchmark_asr --clips-dir benchmark_clips    # synthetic clips, or
+# drop ~3s/8s/15s real recordings into benchmark_clips/ and run the same command
+```
+Then paste the table back and Step 3 (load-vs-inference, token-budget check)
+and the doc latency-number updates can be completed against real figures.
+
+**Measured result**
+No latency table yet — model load OOM/segfaults at ~2.2 GB free RAM (needs
+3.2–6.4 GB). Harness + synthetic clips are ready; real numbers pending a
+16 GB run. Demo-fixture regression still **9 tokens / 7 disfluencies**
+(unaffected — detection path untouched).

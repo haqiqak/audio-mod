@@ -43,6 +43,16 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# Import paths.py FIRST (before numpy/torch are pulled in via profiling.asr) so
+# this benchmark runs under the same BLAS/OpenMP thread caps and cache routing
+# as the real app — otherwise inference here would use all CPU cores and report
+# a latency the app never actually delivers. paths.py uses setdefault(), so an
+# already-set HF_HOME (the on-disk model location) is preserved.
+try:
+    import paths  # noqa: F401
+except Exception:
+    pass
+
 from profiling.asr import CrisperWhisperASR
 
 
