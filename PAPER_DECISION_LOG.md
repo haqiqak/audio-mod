@@ -171,3 +171,41 @@ No latency table yet — model load OOM/segfaults at ~2.2 GB free RAM (needs
 3.2–6.4 GB). Harness + synthetic clips are ready; real numbers pending a
 16 GB run. Demo-fixture regression still **9 tokens / 7 disfluencies**
 (unaffected — detection path untouched).
+
+---
+
+## 2026-06-26 — Docs: fix stale OpenVINO comment (latency numbers deferred)
+
+**What was done**
+Corrected a stale comment in `CrisperWhisperASR.__init__`
+([profiling/asr.py](profiling/asr.py)) that claimed *"openvino is now the
+default fast path instead… so there's no separate tokenizer implementation to
+disagree with the model."* This directly contradicted the code: the default
+backend is `transformers`, and `_transcribe_openvino()` raises immediately
+(optimum-intel issue #561 — no `cross_attentions` for word timestamps). The
+comment now states the real situation. No behaviour change (comment only).
+
+The **latency-number** updates to `README.md`/`ARCHITECTURE.md`/`asr.py`
+(reconciling the three conflicting figures — `~650-680s`, `~47-50s`, `~30-50s`)
+are **deferred**: they must reflect the real benchmark, which is blocked on this
+machine (see Step 1c) and will run on a 16 GB device. Replacing them now would
+just swap one unverified figure for another.
+
+**Alternatives considered**
+- Also rewrite the latency figures now using the historical `~47-50s` from
+  ARCHITECTURE.md §3. Rejected: that number is itself unverified against the
+  current torch/transformers versions and clip-length scaling; this batch is
+  measurement-first.
+- Leave the OpenVINO comment as-is until the 16 GB run. Rejected: it's a pure
+  code/comment contradiction (flagged during orientation) and fixing it needs
+  no measurement.
+
+**Why this choice**
+Fix what can be verified from the code now (the contradiction); defer what
+requires hardware we don't have (the numbers). Keeps the docs honest without
+guessing.
+
+**Measured result**
+`python tests/test_asr_timing.py` → 3/3 pass; `asr.py` parses; demo regression
+**9 tokens / 7 disfluencies**. Comment-only change, no measurable behaviour
+delta.

@@ -241,10 +241,13 @@ class CrisperWhisperASR:
         # tokenizer wrapper hardcodes stock-Whisper special-token positions
         # and CrisperWhisper's fine-tune has a different layout, so it can
         # never find "<|startoftranscript|>" no matter how the model is
-        # converted. openvino is now the default fast path instead: it
-        # accelerates the SAME transformers model/tokenizer object we already
-        # know works, so there's no separate tokenizer implementation to
-        # disagree with the model.
+        # converted. OpenVINO was ALSO tried as a fast path and is likewise
+        # ruled out (for a different reason): its OVModelForSpeechSeq2Seq
+        # doesn't return the cross_attentions that return_timestamps="word"
+        # needs, so _transcribe_openvino() now raises immediately rather than
+        # crashing minutes in (see its docstring + the module header). The
+        # default backend is therefore "transformers" — the only one that
+        # currently produces correct word-level timestamps.
         self.backend = os.environ.get("ASR_BACKEND", "transformers").strip().lower()
         self.ct2_model_dir = os.environ.get(
             "CRISPERWHISPER_CT2_DIR",
