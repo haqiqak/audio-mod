@@ -209,3 +209,71 @@ guessing.
 `python tests/test_asr_timing.py` → 3/3 pass; `asr.py` parses; demo regression
 **9 tokens / 7 disfluencies**. Comment-only change, no measurable behaviour
 delta.
+
+---
+
+## 2026-06-27 — Step 1c (real run) + Step 3: measured latency & profiling
+
+**What was done**
+The benchmark was run on a 16 GB CPU machine (`venv`, Python 3.13, transformers
+backend) over four real recordings, and the README/ARCHITECTURE/asr.py latency
+claims were updated to match. Measured:
+
+| Clip | Duration | Load | Inference | RTF | Tokens | `max_new_tokens` budget | % of budget |
+|---|---|---|---|---|---|---|---|
+| 4sec  | 4.09 s  | 28.57 s | 54.00 s  | 13.19× | 7  | 44  | 16% |
+| 8sec  | 8.53 s  | 0.00 s  | 81.04 s  | 9.50×  | 17 | 71  | 24% |
+| 15sec | 15.53 s | 0.00 s  | 94.26 s  | 6.07×  | 26 | 113 | 23% |
+| 19sec | 19.71 s | 0.00 s  | 102.25 s | 5.19×  | 41 | 138 | 30% |
+
+**Step 3a — load-bound vs inference-bound.** **Inference-bound.** Model load is
+a one-time **28.57 s** on the first clip and **0.00 s** on every clip after —
+the `st.cache_resource` / `self._pipe` caching works exactly as intended
+(confirmed by the benchmark's warm-load row). The recurring cost the user feels
+is inference (54–102 s), not loading.
+
+**Correction to prior docs:** inference is **not** a fixed ~30 s-window cost
+"regardless of clip length." It scales: ~54 s (4 s clip) → ~102 s (20 s clip),
+fitting roughly **~44 s fixed encoder + ~1.4 s per generated word** on CPU
+(7→41 tokens added ~48 s). RTF is therefore *worse* for short clips (13×) than
+long ones (5×) — the fixed encoder cost is amortized over less audio. The old
+asr.py docstring ("~650-680 s regardless of clip length"; "decode loop barely
+matters") was a stale pre-transformers-4.47 figure and a wrong inference about
+where the cost lives; both fixed.
+
+**Step 3b — is the 6 tok/s `max_new_tokens` budget over-budgeted?** **No — the
+prior "reasonable, not over-budgeted" conclusion holds, with a sharper reason.**
+Real speech ran at **~1.7–2.1 tokens/sec**, so actual token counts (7/17/26/41)
+used only **16–30%** of the `int(dur*6)+20` budget (44/71/113/138). The cap is
+**never the binding constraint** — the model hits EOS and stops well below it,
+so the budget does not inflate normal-clip latency at all; it's purely a
+runaway-generation safety ceiling. Lowering it (e.g. to 3 tok/s) would *not*
+speed up normal transcription (clips already stop early); it would only truncate
+a pathological no-EOS run sooner. Left at 6 tok/s.
+
+**Doc updates made**
+- `README.md` "Live microphone recording": replaced "~30-50s for a short clip"
+  with the measured table + one-time load + scaling note.
+- `ARCHITECTURE.md`: new "Measured latency (2026-06-26 …)" subsection in §3
+  (table + the two corrections); updated the `transformers` backend row and the
+  two §7 inline `~47-50s` figures. The historical dev-timing table is kept and
+  explicitly labelled as superseded by the measured block.
+- `profiling/asr.py`: header note (RTF 5-13× not 2-8×; inference scales, not
+  fixed; old 650-680s figure marked pre-4.47) and the dormant faster_whisper
+  docstring's stale 650-680s reference.
+
+**Alternatives considered**
+- Lower `max_new_tokens` to claw back latency. Rejected: the cap isn't binding
+  on normal clips (3b), so there's nothing to claw back.
+- Keep the synthetic-clip plan. Superseded: the owner ran four real recordings
+  on a 16 GB device, so the table uses real token counts, not synthetic ones.
+
+**Why this choice**
+Numbers now come from a real run on representative hardware; the docs state what
+the code actually does today, and the two stale assumptions (fixed-cost encoder;
+2-8× RTF) are corrected at the source.
+
+**Measured result**
+See the table above. Cache confirmed (warm load 0.00 s). After the doc edits:
+tests 3/3 pass, benchmark `--self-test` passes, demo regression **9 tokens /
+7 disfluencies**.

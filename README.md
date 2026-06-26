@@ -203,12 +203,24 @@ The first real-audio run downloads CrisperWhisper (~3.2 GB) automatically —
 watch the terminal for download progress. All subsequent runs load from the
 local cache in `.cache/hf/`.
 
-**Expected inference time on CPU:** roughly 30-50s for a short clip (2-5s),
-scaling up with clip length — this is a real cost of running a ~3.2 GB
-seq2seq model on CPU, not a bug. The app logs elapsed time every 4 seconds
-so it never looks frozen; for a calibration read or longer clip, expect it
-to take noticeably longer (a few minutes is normal for a clip in the 5-10s
-range) — let it finish rather than assuming it's stuck.
+**Expected inference time on CPU** (measured 2026-06-26, transformers backend,
+16 GB CPU machine):
+
+| Clip length | Inference | Real-time factor |
+| ----------- | --------- | ---------------- |
+| ~4s         | ~54s      | ~13×             |
+| ~8s         | ~81s      | ~9.5×            |
+| ~15s        | ~94s      | ~6×              |
+| ~20s        | ~102s     | ~5×              |
+
+Plus a **one-time ~29s model load** on the first transcription of a session
+(it's cached after that — every later clip skips it). Inference scales with
+clip length (a fixed encoder pass of ~44s plus ~1.4s per generated word on
+CPU), so the real-time factor is *worse* for short clips (the fixed encoder
+cost is spread over less audio). This is a real cost of running a ~3.2 GB
+seq2seq model on CPU, not a bug. The app logs elapsed time every 4 seconds so
+it never looks frozen — let it finish rather than assuming it's stuck. (Numbers
+are reproducible with `python -m profiling.benchmark_asr`.)
 
 ---
 

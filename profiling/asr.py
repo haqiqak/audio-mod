@@ -25,16 +25,19 @@ Fixes applied vs. original:
      the UI shows a clear install message instead of spinning forever.
 
 Note on CPU latency: CrisperWhisper is a ~3.2 GB seq2seq model. On CPU,
-real-time-factor is typically 2-8x, meaning a 10-second clip can take
-20-80 seconds, and longer clips scale accordingly. This is expected
-model behaviour, not a bug — see app.py for the live progress logging
-that surfaces this to the user instead of looking frozen.
+real-time-factor is ~5-13x (measured 2026-06-26 via profiling/benchmark_asr.py:
+~54s for a 4s clip, ~102s for a 20s clip), plus a one-time ~29s model load on
+the first clip of a process. RTF is *worse* for short clips because the fixed
+encoder pass is spread over less audio. This is expected model behaviour, not a
+bug — see app.py for the live progress logging that surfaces this to the user.
 
-Backend note (added after measuring the above): the `transformers` pipeline
-above pads every clip to Whisper's fixed 30s window before the encoder runs,
-so the slow part is NOT the decode loop (max_new_tokens barely matters) —
-it's one fixed-cost ~30s-window encoder forward pass in plain PyTorch fp32.
-On CPU that was measured at ~650-680s regardless of clip length or token cap.
+Backend note: the `transformers` pipeline above pads every clip to Whisper's
+fixed 30s window before the encoder runs, so a short clip is dominated by that
+encoder pass (~44s fixed). But inference is NOT constant with clip length, as an
+earlier note here claimed: decode time grows visibly with token count (~1.4s per
+generated word on CPU — 7→41 tokens added ~48s across the benchmark clips). The
+old "~650-680s regardless of clip length" figure was the pre-transformers-4.47
+state (see ARCHITECTURE.md §3's timing history); it no longer holds.
 
 ASR_BACKEND controls which engine runs real audio (fixtures/.json/.txt never
 need either):
@@ -525,10 +528,10 @@ class CrisperWhisperASR:
     def _transcribe_faster_whisper(self, audio_for_asr: Path) -> list[dict[str, Any]]:
         """Fast path: CTranslate2-quantized CrisperWhisper.
 
-        Fixes the actual bottleneck found in the transformers path — Whisper
-        pads every clip to a fixed 30s window before the encoder runs, so the
-        encoder forward pass (not decode steps) is the fixed ~650-680s cost on
-        CPU/fp32. CTranslate2's int8 kernels target exactly that cost.
+        Targets the bottleneck in the transformers path — Whisper pads every
+        clip to a fixed 30s window before the encoder runs, so a short clip is
+        dominated by that encoder pass (~44s of the measured ~54s on CPU/fp32;
+        see ARCHITECTURE.md §3). CTranslate2's int8 kernels target that cost.
         """
         import time as _time
         _t0 = _time.perf_counter()

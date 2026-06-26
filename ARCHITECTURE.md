@@ -105,7 +105,7 @@ for seq2seq models — Whisper already does its own long-form chunking) or
 
 | Value | Behaviour |
 |---|---|
-| `transformers` (default) | The only backend that currently produces correct word-level timestamps, which every feature in this app depends on. Still has the ~30s-window encoder cost described above on CPU. |
+| `transformers` (default) | The only backend that currently produces correct word-level timestamps, which every feature in this app depends on. CPU latency is ~54s (4s clip) to ~102s (20s clip) plus a one-time ~29s load — see "Measured latency" below. |
 | `auto` | Currently identical to `transformers` — kept as an alias for if/when OpenVINO becomes usable again (see below). |
 | `openvino` | **Do not use.** Raises immediately with a clear error instead of attempting transcription — see the incident below for why. |
 | `faster_whisper` | Tried and ruled out — see below. Not auto-selected. |
@@ -193,6 +193,37 @@ per-thread scratch buffers at *load* time sized for every CPU core; a low cap
 avoids that load-time OOM without forcing every subsequent matmul onto a
 single core (which is what the original hardcoded `1` was accidentally doing
 to *inference* speed, not just load-time memory).
+
+### Measured latency (2026-06-26, real benchmark — supersedes the figures above)
+
+Run with `python -m profiling.benchmark_asr` (transformers backend, CPU, 16 GB
+machine, threads capped at 4 by `paths.py`):
+
+| Clip | Inference | RTF (infer ÷ clip) | Tokens |
+|---|---|---|---|
+| ~4s  | ~54s  | ~13×  | 7  |
+| ~8s  | ~81s  | ~9.5× | 17 |
+| ~15s | ~94s  | ~6×   | 26 |
+| ~20s | ~102s | ~5×   | 41 |
+
+Two things to take from this, both correcting earlier assumptions:
+
+1. **It's inference-bound, not load-bound.** Model load is a one-time ~29s on
+   the first clip of a process and **~0s on every clip after** (the
+   `st.cache_resource` path in `app.py` works — confirmed by the benchmark's
+   warm-load row reading 0.00s). So the recurring cost the user feels is
+   inference, not loading.
+2. **Inference scales with clip length — it is *not* a fixed ~30s-window cost.**
+   The numbers fit roughly "a ~44s fixed encoder pass + ~1.4s per generated
+   word on CPU": a short clip is dominated by the encoder (hence the *worse*
+   RTF — fixed cost spread over less audio), and longer clips add decoder time
+   per word. The earlier note that "the decode loop barely matters / it's one
+   fixed cost regardless of clip length" was wrong; decode time grows visibly
+   with token count (7 → 41 tokens added ~48s).
+
+The `~47-50s` development figure below the line was inference-only for a short
+clip and is in the right ballpark for the ~4s row; it just omitted the one-time
+load and the length-scaling, both now measured.
 
 ---
 
@@ -411,12 +442,13 @@ without performance lag." Two different things could satisfy that:
 
 1. **Faster processing of a single recorded clip** — partially solved.
    `transformers>=4.47`'s `WhisperSdpaAttention` got CPU inference for a
-   short clip from ~680s down to ~47-50s (§3). OpenVINO was meant to be the
-   next step in this direction but turned out not to be usable at all (§3's
-   incident writeup) — so the realistic next lever for "faster," if needed,
-   is a different one: profiling `_load_pipeline()`/`generate()` itself for
-   further CPU-side wins, or accepting the current ~50s figure as the
-   working baseline rather than assuming a quick backend swap will improve it.
+   short clip down to ~54s (4s clip; measured 2026-06-26, §3), scaling to
+   ~102s for a 20s clip. OpenVINO was meant to be the next step in this
+   direction but turned out not to be usable at all (§3's incident writeup) —
+   so the realistic next lever for "faster," if needed, is a different one:
+   profiling `_load_pipeline()`/`generate()` itself for further CPU-side wins,
+   or accepting the current ~54-102s range as the working baseline rather than
+   assuming a quick backend swap will improve it.
 2. **True streaming transcription** — processing audio incrementally as
    someone talks, rather than waiting for a full clip to be recorded and
    then transcribed. This is architecturally a different system: it needs
@@ -430,8 +462,9 @@ effort (different threading model, different UI, different correctness
 story for word timestamps near window boundaries), and this is presently a
 Streamlit research/clinical tool, not a phone app with a hard real-time
 latency requirement — that part of the reasoning hasn't changed. What has
-changed is that (1) is no longer "mostly solved": ~47-50s per short clip on
-CPU is the real current floor, not a stopgap on the way to a few seconds.
+changed is that (1) is no longer "mostly solved": ~54s for a short clip on CPU
+(scaling to ~102s at 20s; measured 2026-06-26) is the real current floor, not a
+stopgap on the way to a few seconds.
 If that latency turns out to be a genuine adoption blocker rather than a
 tolerable wait, it's worth treating as its own investigation (CPU
 profiling, a smaller/distilled model, or a GPU path) before reaching for
