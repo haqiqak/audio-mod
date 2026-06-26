@@ -115,6 +115,8 @@ audio-mod/
 └── profiling/
     ├── __init__.py
     ├── asr.py                 ← CrisperWhisper pipeline + resampler
+    ├── benchmark_asr.py       ← ASR latency benchmark (table + RTF, --self-test)
+    ├── acoustic.py            ← ASR-independent waveform disfluency cues (realtime foundation; not yet wired in)
     ├── detect.py              ← Rule-based disfluency detector
     ├── profile.py             ← SpeakerDifficultyProfile (EWMA + onset risk + difficulty model)
     ├── calibration.py         ← Speaker tempo baseline (calibration sentence + threshold adjustment)

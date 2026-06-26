@@ -333,3 +333,53 @@ timestamp-only paths are untouched.
   contrast that demonstrates the fix.
 Regression intact: `tests/test_asr_timing.py` 3/3, demo fixture **9 tokens /
 7 disfluencies** (no-audio path unchanged).
+
+---
+
+## 2026-06-27 — Realtime foundation: ASR-independent acoustic detection (Option B, step 1)
+
+**What was done**
+Added `profiling/acoustic.py` — a standalone, pure-NumPy module that derives
+disfluency cues straight from a waveform, with no ASR and no model:
+- frame-level RMS/ZCR features (`frame_features`),
+- voiced/silent segmentation (`segment_voiced`),
+- **prolongation candidates** (long, energetic, low-ZCR voiced segments) and
+  **block candidates** (long silences *flanked by* voiced segments, so
+  leading/trailing dead air isn't mistaken for a block),
+- `analyze(wav_bytes_or_array, config)` returning `AcousticAnalysis` with
+  time-ordered, serializable `Candidate`s; `AcousticConfig.from_detection_cfg`
+  reuses the same `profiling.detection` thresholds as the token detector.
+`tests/test_acoustic.py`: 8 tests (synthetic silence + 150 Hz tone).
+
+**Why this is the right next step for the dual goal**
+- *Realtime:* the benchmark proved transcription is inference-bound at ~5-13×
+  real time, so a realtime path cannot wait on ASR. Acoustic cues can be
+  computed on an audio *stream* with no model; the segmentation is windowable,
+  so this is the brick a sliding-window/streaming detector is built from.
+- *Research/accuracy:* it can catch disfluencies the ASR smooths away (sub-word
+  prolongations, silent blocks that never became a token) — the Option B / Tier 2
+  idea from the deleted `improve.md`.
+- It reuses the voiced-region thinking introduced in §1 Option A, at the level of
+  the whole waveform rather than a single ASR word span.
+
+**Deliberately NOT done yet**
+Not wired into `detect_disfluencies`. Merging acoustic candidates with the
+token-based detector (dedupe/reconcile, confidence fusion) changes live output
+and should be validated against **real stutter recordings** (e.g. on the 16 GB
+device, or SEP-28k/FluencyBank), not just synthetic tones — so it's a separate,
+deliberate step. Keeping this purely additive means zero regression risk now
+(demo fixture still 9/7; nothing imports `acoustic.py` yet).
+
+**Alternatives considered**
+- Wire it into the detector immediately. Rejected: can't validate fusion quality
+  on synthetic audio alone; premature live behaviour change.
+- Improve phonetic near-repetition instead. Deferred: valuable but nuanced to
+  validate without labelled data, and it doesn't advance the realtime goal.
+
+**Measured result**
+`python tests/test_acoustic.py` → 8/8 pass (segmentation boundaries within a
+frame of truth; 1.2 s tone → 1 prolongation; 0.3 s tone → none; voiced-silence-
+voiced → 1 block; edge silences → no block; all-silence → nothing;
+WAV-bytes end-to-end → 2 prolongations + 1 block, ordered & serializable).
+Full suite: acoustic 8/8, detect-acoustic 5/5, asr-timing 3/3, benchmark
+self-test pass, demo fixture **9 tokens / 7 disfluencies**.
