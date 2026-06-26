@@ -298,13 +298,20 @@ sensitivity below what an uncalibrated speaker gets.
 
 ### Known, currently-accepted limitations (not yet fixed — listed honestly)
 
-- **Near-repetition similarity is computed on spelling (edit distance), not
-  phonetics**, despite ARPAbet onsets already being available via
-  `phonetic.py`. This unfairly penalizes short words (`"a"` vs `"I"` reads as
-  0% similar) and can't distinguish a real stutter-repeat from two
-  genuinely different but similarly-spelled words ("strawberry" vs
-  "strawberries"). A phonetic-distance version for short words, falling back
-  to edit distance for longer ones, would be the natural fix — not yet done.
+- **Near-repetition: short words now compared phonetically, longer ones by
+  spelling** (partial fix of the old "spelling-only" limitation). Words ≤
+  `phonetic_short_max_chars` (default 4) are compared by ARPAbet phoneme edit
+  distance (`phonetic.phonemes()` + `_phonetic_similarity`), where a one-letter
+  spelling difference otherwise swamps the ratio; longer and out-of-vocabulary
+  words keep the edit-distance metric. The evidence string says which metric
+  fired ("phonetic"/"edit"). Verified by `tests/test_detect_phonetic.py`; demo
+  fixture still 9/7. **Caveat / known trade-off:** phonetic matching on
+  *consecutive* words can flag short homophones used legitimately ("to"/"too",
+  "no"/"know") as repetitions — the same false-positive class the spelling
+  metric already had for look-alike words, shifted to sound-alikes. Tune
+  `phonetic_short_max_chars` / `near_repetition_similarity` against real
+  recordings. The deeper ambiguity (a genuine stutter re-attempt vs. two
+  different but similar words) is inherent to any similarity rule and unsolved.
 - ~~**Phrase-repetition only checks 2-3 word windows**~~ — **fixed.** The scan
   now runs windows from `phrase_repetition_min_words` up to
   `phrase_repetition_max_words` (default 8, also capped at `len(tokens)//2`), so

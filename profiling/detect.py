@@ -43,6 +43,8 @@ from typing import Any, Iterable
 
 import numpy as np
 
+import phonetic
+
 from .config import load_config
 
 
@@ -124,6 +126,17 @@ def _similarity(a: str, b: str) -> float:
     if not a or not b:
         return 0.0
     return 1.0 - _edit_distance(a, b) / max(len(a), len(b))
+
+
+def _phonetic_similarity(a: str, b: str) -> float | None:
+    """Similarity of two words by ARPAbet phoneme edit distance, or None when
+    either word is out-of-vocabulary (no CMU pronunciation). `_edit_distance`
+    works on phoneme tuples as well as strings (it only compares elements)."""
+    pa = phonetic.phonemes(a)
+    pb = phonetic.phonemes(b)
+    if not pa or not pb:
+        return None
+    return 1.0 - _edit_distance(pa, pb) / max(len(pa), len(pb))
 
 
 # ── Acoustic feature extraction ───────────────────────────────────────────────
@@ -377,6 +390,11 @@ def detect_disfluencies(
         block_gap = adjusted["block_gap_seconds"]
         prolong_min = adjusted["prolongation_min_seconds"]
     near_rep_sim   = float(cfg.get("near_repetition_similarity",  0.75))
+    # For words this short or shorter, orthographic edit distance is noisy (one
+    # changed letter is a huge % of a 2-3 letter word), so we compare ARPAbet
+    # pronunciations instead — closer to what a stutter near-repeat actually is.
+    # Longer (and out-of-vocabulary) words keep the spelling metric.
+    phon_short_max = int(  cfg.get("phonetic_short_max_chars",    4))
     phrase_rep_len = int(  cfg.get("phrase_repetition_min_words", 2))
     # Confidence boost for sentence-initial disfluencies (clinically more
     # significant — stuttering almost always happens at word/sentence onset)
@@ -502,10 +520,19 @@ def detect_disfluencies(
 
             # ── Near-repetition ───────────────────────────────────────────────
             elif low and prev_low and len(low) >= 2 and len(prev_low) >= 2:
-                sim = _similarity(low, prev_low)
+                # Short words: compare pronunciations (phonetic); longer/OOV
+                # words: keep the spelling metric. See _phonetic_similarity.
+                metric = "edit"
+                sim: float | None = None
+                if len(low) <= phon_short_max and len(prev_low) <= phon_short_max:
+                    sim = _phonetic_similarity(low, prev_low)
+                    if sim is not None:
+                        metric = "phonetic"
+                if sim is None:
+                    sim = _similarity(low, prev_low)
                 if sim >= near_rep_sim:
                     add(i, "repetition", round(0.75 * sim, 3),
-                        f"near-repetition (similarity {sim:.2f}): "
+                        f"near-repetition ({metric} similarity {sim:.2f}): "
                         f"'{prev_word}' → '{word}'")
                 elif prev_word.endswith("-") and low.startswith(prev_low):
                     add(i, "repetition", 0.86, "sub-word fragment before this word")

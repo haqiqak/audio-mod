@@ -137,6 +137,22 @@ def onset(word: str) -> tuple[str, ...]:
     return _grapheme_onset(w)
 
 
+@lru_cache(maxsize=8192)
+def phonemes(word: str) -> tuple[str, ...]:
+    """Full ARPAbet phone sequence for *word* (stress digits stripped), e.g.
+    'know' -> ('N','OW'). Uses the CMU dict; returns () for out-of-vocabulary
+    words (callers should fall back to a spelling-based comparison there rather
+    than trust a grapheme guess of a whole pronunciation).
+    """
+    if not word:
+        return ()
+    w = word.strip().lower()
+    cmu = _cmu()
+    if cmu and w in cmu and cmu[w]:
+        return tuple(re.sub(r"\d", "", p) for p in cmu[w][0])
+    return ()
+
+
 @lru_cache(maxsize=2048)
 def normalize_pattern(text: str) -> tuple[str, ...]:
     """

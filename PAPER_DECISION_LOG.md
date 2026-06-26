@@ -470,3 +470,47 @@ flagged at the 2nd occurrence with correct length in the evidence; a non-repeat
 sentence yields no phrase event; demo fixture still 7 events. Regression sweep:
 detect-acoustic 5/5, detect-fusion 3/3, acoustic 8/8, demo **9 tokens /
 7 disfluencies**.
+
+---
+
+## 2026-06-27 — Quality: phonetic near-repetition for short words
+
+**What was done**
+Near-repetition compared consecutive words by spelling edit distance only, which
+is unreliable for short words (one changed letter is a huge fraction of a 2-3
+letter word). Added `phonetic.phonemes()` (full ARPAbet phone sequence, stress
+stripped, via CMU; `()` for OOV) and `_phonetic_similarity()` in detect.py
+(reuses `_edit_distance`, which works on phoneme tuples). The near-repetition
+branch now uses phonetic similarity when both words are ≤ `phonetic_short_max_`
+`chars` (new config key, default 4) and both are in CMU; otherwise it keeps the
+spelling metric. The evidence names the metric used. Added the config key,
+updated ARCHITECTURE §4, and `tests/test_detect_phonetic.py`.
+
+**Alternatives considered**
+- Use phonetic for *all* word lengths (or max of phonetic/spelling). Rejected:
+  broader behaviour change and more homophone false positives; the short-word
+  scope is where spelling is genuinely worst and matches the §4 recommendation.
+- Require a shared phonetic onset as an extra guard. Considered but not added:
+  it removes some legitimate matches and is better tuned against real data.
+- Skip this fix because of the homophone risk. Rejected: it's the same
+  false-positive class the spelling metric already carried (look-alike words),
+  just shifted to sound-alikes, and it's behind a threshold + a short-word cap +
+  tunable config — documented honestly for real-audio tuning.
+
+**Why this choice**
+Bounded, config-gated, fully model-free-testable improvement to a documented
+limitation, with zero change to the audio path or fixtures.
+
+**Known trade-off (flagged for real-audio tuning)**
+Consecutive short homophones used legitimately ("to"/"too", "no"/"know") can now
+be flagged as near-repetitions. Mitigated by the ≤4-char cap and the 0.75
+threshold; revisit `phonetic_short_max_chars` once there's labelled data.
+
+**Measured result**
+`python tests/test_detect_phonetic.py` → 5/5: `_phonetic_similarity` gives 1.0 for
+no/know and be/bee, <0.5 for cat/dog, None for OOV; "no"→"know" is flagged with
+"phonetic similarity" in the evidence (edit distance alone = 0.5, below
+threshold); long "walking"/"walkin" still uses the "edit" metric; dissimilar OOV
+shorts aren't flagged. **Full suite: 28 tests pass** (asr-timing 3, acoustic 8,
+detect-acoustic 5, detect-fusion 3, detect-phrase 4, detect-phonetic 5),
+benchmark self-test pass, demo fixture **9 tokens / 7 disfluencies**.

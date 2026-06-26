@@ -12,6 +12,10 @@ profiling:
     prolongation_min_seconds: 0.65
     block_gap_seconds: 0.55
     near_repetition_similarity: 0.75
+    # Words this short or shorter are compared by pronunciation (ARPAbet phoneme
+    # distance) rather than spelling, where one changed letter swamps the edit
+    # ratio. Longer / out-of-vocabulary words keep the spelling metric.
+    phonetic_short_max_chars: 4
     phrase_repetition_min_words: 2
     # Longest repeated phrase to scan for (e.g. "I want to I want to"). Raised
     # from the old hard-coded 2-3 word limit; capped here to bound the scan.
