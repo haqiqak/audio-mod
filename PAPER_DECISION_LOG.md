@@ -277,3 +277,59 @@ the code actually does today, and the two stale assumptions (fixed-cost encoder;
 See the table above. Cache confirmed (warm load 0.00 s). After the doc edits:
 tests 3/3 pass, benchmark `--self-test` passes, demo regression **9 tokens /
 7 disfluencies**.
+
+---
+
+## 2026-06-27 — §1 Option A: acoustic cross-validation of word timestamps
+
+**What was done**
+Implemented the lighter of the two §1 options (chosen over Option B per owner's
+"whatever you think is better" go-ahead, because it's a real accuracy fix that's
+locally testable without the 3.2 GB model and builds the energy-envelope
+primitives Option B / a future realtime acoustic detector will reuse).
+- `profiling/detect.py`: added `_AcousticContext.voiced_span()` and
+  `voiced_duration()` — frame-wise RMS trimming of leading/trailing silence
+  (edges only, so a mid-word energy dip doesn't shorten a sustained sound). A
+  new `_effective_duration()` in `detect_disfluencies` uses the voiced duration
+  when audio is available (else the raw timestamp duration), and feeds it to
+  **both** the 90th-percentile threshold and the per-word prolongation check.
+  Flagged prolongations now carry a `voiced_duration` field and say "voiced
+  duration …" in their evidence.
+- `tests/test_detect_acoustic.py`: 5 tests (no ASR model — WAV bytes built from
+  silence + a 150 Hz tone).
+- `ARCHITECTURE.md` §4: documented the fix as verified behaviour, with the
+  audio-required caveat.
+
+**The bug being fixed** (from the deleted `improve.md`): the ASR anchors a
+word's `start` to the chunk boundary, so clip-initial silence is billed to the
+first word. That (1) makes the first word look prolonged, and (2) — the subtler,
+more damaging half — inflates the clip-wide 90th-percentile prolongation
+threshold, so genuine prolongations *elsewhere* get suppressed.
+
+**Alternatives considered**
+- Option B (a parallel waveform-native detector module). Deferred: bigger, and
+  Option A's voiced-region work is its prerequisite anyway.
+- Only suppress the per-word false positive (leave the percentile alone).
+  Rejected: the test shows the percentile poisoning is the half that silently
+  hurts recall elsewhere; fixing both is the point.
+- Trim inside `word_is_prolonged` only. Rejected: the threshold is computed from
+  *all* tokens' durations, so the trim has to happen at the duration source to
+  reach the percentile too.
+
+**Why this choice**
+Highest-value, lowest-risk, fully testable here, and it advances the realtime
+goal indirectly (the energy-envelope/voiced-region code is the first brick of an
+acoustic-native detector). No behaviour change without audio, so fixtures and
+timestamp-only paths are untouched.
+
+**Measured result**
+`python tests/test_detect_acoustic.py` → 5/5 pass:
+- `voiced_duration(0..1.5)` over 1.0 s silence + 0.5 s tone ≈ 0.5 s; fully-silent
+  span ≈ 0; no-audio → None.
+- Silence-padded first word NOT flagged; genuine sustained word IS flagged
+  (`voiced_duration` ≈ 1.20 s).
+- With audio the real prolongation is recovered; **without** audio the same clip's
+  percentile is poisoned by the raw 1.38 s and the real one is missed — the
+  contrast that demonstrates the fix.
+Regression intact: `tests/test_asr_timing.py` 3/3, demo fixture **9 tokens /
+7 disfluencies** (no-audio path unchanged).

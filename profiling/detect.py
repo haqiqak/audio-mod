@@ -208,6 +208,54 @@ class _AcousticContext:
             return 0.5
         return _zcr(_slice(self.samples, self.sr, start, end))
 
+    def voiced_span(
+        self, start: float | None, end: float | None, frame_s: float = 0.02,
+    ) -> tuple[float, float] | None:
+        """Absolute-time (start, end) of the voiced portion within [start, end],
+        trimming leading/trailing silence by frame-wise RMS.
+
+        This is the core of the word-timestamp / audio cross-check: ASR anchors a
+        word's `start` to the chunk boundary, so clip-initial silence gets billed
+        to the first word. Trimming silent edges recovers the word's real voiced
+        extent. Only edges are trimmed (first..last voiced frame), so a brief
+        mid-word dip doesn't shorten a genuinely sustained sound.
+
+        Returns None when no audio is available or the span is empty; returns a
+        zero-length span at `start` when the whole span is below silence.
+        """
+        if not self.available or start is None or end is None:
+            return None
+        s, e = float(start), float(end)
+        i0 = max(0, int(s * self.sr))
+        i1 = min(len(self.samples), int(e * self.sr))
+        if i1 <= i0:
+            return None
+        chunk = self.samples[i0:i1]
+        fr = max(1, int(self.sr * frame_s))
+        n = len(chunk) // fr
+        if n == 0:
+            # Too short to frame — voiced iff the whole slice has energy.
+            return (s, e) if _rms(chunk) >= self.silence_rms else (s, s)
+        frames = chunk[: n * fr].reshape(n, fr)
+        frame_rms = np.sqrt(np.mean(frames ** 2, axis=1))
+        voiced = np.nonzero(frame_rms >= self.silence_rms)[0]
+        if len(voiced) == 0:
+            return (s, s)
+        v0, v1 = int(voiced[0]), int(voiced[-1])
+        vstart = s + (v0 * fr) / self.sr
+        vend = s + ((v1 + 1) * fr) / self.sr
+        return (min(e, vstart), min(e, vend))
+
+    def voiced_duration(
+        self, start: float | None, end: float | None,
+    ) -> float | None:
+        """Duration of the voiced portion within [start, end] (silent edges
+        trimmed), or None if no audio is available."""
+        span = self.voiced_span(start, end)
+        if span is None:
+            return None
+        return max(0.0, span[1] - span[0])
+
 
 # ── Sentence-boundary detection ───────────────────────────────────────────────
 
@@ -289,11 +337,30 @@ def detect_disfluencies(
     # significant — stuttering almost always happens at word/sentence onset)
     sent_init_boost = float(cfg.get("sentence_initial_boost", 0.08))
 
+    # ── Effective (voiced) duration ─────────────────────────────────────────────
+    # When audio is available, a word's duration for prolongation purposes is its
+    # VOICED extent (silent edges trimmed), not the raw ASR timestamp span. This
+    # fixes two coupled failures from clip-initial silence the ASR bills to the
+    # first word: (1) the word itself looking falsely prolonged, and (2) — just as
+    # important — that inflated value entering the percentile below and raising the
+    # bar so genuine prolongations elsewhere in the clip get suppressed. Without
+    # audio this is identical to the raw timestamp duration (prior behaviour), so
+    # fixtures and timestamp-only clips are unaffected.
+    def _effective_duration(tok: dict[str, Any]) -> float | None:
+        nominal = _duration(tok)
+        if nominal is None:
+            return None
+        if ac.available:
+            voiced = ac.voiced_duration(tok.get("start"), tok.get("end"))
+            if voiced is not None:
+                return voiced
+        return nominal
+
     # ── Prolongation threshold ─────────────────────────────────────────────────
     # Guard: with < 5 tokens the 90th-percentile is meaningless (every word
     # looks prolonged relative to itself). Use 1.5× the absolute minimum
     # for short clips so we don't flag every single word.
-    durations = [d for d in (_duration(t) for t in rows) if d is not None]
+    durations = [d for d in (_effective_duration(t) for t in rows) if d is not None]
     if len(durations) >= 5:
         prolong_threshold = max(prolong_min, _percentile(durations, prolong_pct))
     else:
@@ -436,7 +503,7 @@ def detect_disfluencies(
         # clean_low strips punctuation for filler-word matching so "uh." isn't
         # missed as a filler and then accidentally flagged as prolongation too.
         clean_low = _norm(clean)
-        dur = _duration(token)
+        dur = _effective_duration(token)
         if (
             dur is not None
             and dur >= prolong_threshold
@@ -452,8 +519,9 @@ def detect_disfluencies(
                     zcr_val = ac.word_zcr(start_t, end_t)
                     extra_fields["acoustic_rms"] = round(float(rms_val), 5)
                     extra_fields["acoustic_zcr"] = round(float(zcr_val), 4)
+                    extra_fields["voiced_duration"] = round(float(dur), 4)
                     evidence = (
-                        f"duration {dur:.2f}s on '{clean}' "
+                        f"voiced duration {dur:.2f}s on '{clean}' "
                         f"(confirmed: RMS={rms_val:.4f}, ZCR={zcr_val:.3f})"
                     )
                 else:

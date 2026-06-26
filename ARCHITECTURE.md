@@ -267,6 +267,22 @@ sensitivity below what an uncalibrated speaker gets.
   strips punctuation/case before comparison; sentence-initial detection is
   based purely on timing gap (≥1.5s), not punctuation, so this is correctly
   *not* double-counted as sentence-initial.
+- **Leading/trailing silence is trimmed before the prolongation check when
+  audio is available** (the §1 "word-timestamp acoustic cross-validation"
+  fix). The ASR anchors a word's `start` to the chunk boundary, so clip-initial
+  silence gets billed to the first word — making it look prolonged *and*
+  inflating the clip-wide 90th-percentile threshold so genuine prolongations
+  elsewhere get suppressed. `_AcousticContext.voiced_span()`/`voiced_duration()`
+  recover each word's voiced extent (frame-wise RMS, edges only — a mid-word dip
+  doesn't shorten a sustained sound), and that voiced duration feeds both the
+  percentile and the per-word check. Verified by direct test
+  (`tests/test_detect_acoustic.py`): a silence-padded first word is not flagged
+  while a genuinely sustained later word still is, and the with-audio vs
+  timestamp-only contrast shows the percentile-poisoning the fix removes.
+  **Caveat:** this needs the waveform — in timestamp-only mode (fixtures, or
+  audio the detector never received) the raw durations are still used, so the
+  bug can persist there. That's an inherent limit of cross-checking against
+  audio you don't have, not a regression.
 
 ### Known, currently-accepted limitations (not yet fixed — listed honestly)
 
