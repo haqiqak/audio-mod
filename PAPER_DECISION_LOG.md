@@ -383,3 +383,58 @@ voiced → 1 block; edge silences → no block; all-silence → nothing;
 WAV-bytes end-to-end → 2 prolongations + 1 block, ordered & serializable).
 Full suite: acoustic 8/8, detect-acoustic 5/5, asr-timing 3/3, benchmark
 self-test pass, demo fixture **9 tokens / 7 disfluencies**.
+
+---
+
+## 2026-06-27 — Fuse acoustic cues into the live detector (Option B, step 2)
+
+**What was done** (chosen via the owner's "fuse acoustic into live detector"
+answer.) `detect_disfluencies` now, **when audio is available**, runs
+`profiling/acoustic.py` over the same waveform and merges its prolongation/block
+candidates with the token-based events:
+- **Dedupe:** an acoustic candidate that overlaps an already-flagged event of the
+  same type is dropped — the token path wins, no double counting.
+- **Attribution:** a kept candidate is mapped to a token via
+  `_token_index_for_span` (max temporal overlap; else the word starting after the
+  region — for a silent block; else nearest by midpoint), so the event carries a
+  word/onset and flows into the profile like any other.
+- Acoustic-sourced events are tagged `source="acoustic"` with
+  `acoustic_start`/`acoustic_end` and an `"[acoustic] …"` evidence string.
+- Calibrated floors are honoured: the fused `AcousticConfig` uses the same
+  personalized `prolong_min`/`block_gap` the token path uses this run.
+`tests/test_detect_fusion.py`: 3 tests.
+
+**Why**
+This is the immediate accuracy payoff of the acoustic module: it catches
+sustained sounds and blocks the token path can't — e.g. a sustain that lands in a
+gap with no token of its own, or one the ASR's word timestamps under-shot. It
+keeps the detector a single signal (one event list, deduped) rather than two
+parallel outputs the UI would have to reconcile.
+
+**Guardrails / what to validate next**
+- **Zero change without audio:** the whole block is under `if ac.available`, so
+  fixtures and timestamp-only clips are byte-for-byte identical (demo still
+  9 tokens / 7 disfluencies; `source="acoustic"` never appears there).
+- **Needs real-audio tuning:** the dedupe-by-overlap and the gap→following-word
+  attribution are reasonable defaults validated on synthetic tones only. On real
+  recordings, watch for (a) acoustic false positives on noisy/voiced non-speech,
+  and (b) attribution landing on the "wrong" neighbouring word. Both are
+  threshold/heuristic tweaks, not structural — flagged for the 16 GB real-audio
+  pass.
+
+**Alternatives considered**
+- Keep acoustic candidates as a separate list surfaced beside the events.
+  Rejected: two overlapping signals are harder to read and to feed the profile;
+  fusion with dedupe is cleaner.
+- Confidence fusion (boost a token event that an acoustic candidate confirms,
+  rather than just dropping the duplicate). Deferred: adds a tuning knob better
+  set against real data; current behaviour is the conservative "don't double
+  count."
+
+**Measured result**
+`python tests/test_detect_fusion.py` → 3/3: acoustic catches a 1.4 s sustain in a
+token-less gap (attributed to the following word, `source="acoustic"`); an
+overlapping token-flagged prolongation is **not** double-counted (one event,
+token-sourced, carries `voiced_duration`); no audio → demo stays 7 events with no
+acoustic source. Full suite: acoustic 8/8, detect-acoustic 5/5, detect-fusion
+3/3, asr-timing 3/3, benchmark self-test pass, demo **9 tokens / 7 disfluencies**.

@@ -263,6 +263,51 @@ class _AcousticContext:
 # Stuttering at sentence-initial position is clinically more significant.
 _SENTENCE_BOUNDARY_GAP = 1.5  # seconds
 
+def _spans_overlap(a0: Any, a1: Any, b0: float, b1: float) -> bool:
+    """True if time span [a0,a1] overlaps [b0,b1] (a0/a1 may be None)."""
+    if a0 is None or a1 is None:
+        return False
+    try:
+        return min(float(a1), b1) > max(float(a0), b0)
+    except (TypeError, ValueError):
+        return False
+
+
+def _token_index_for_span(rows: list[dict[str, Any]], start: float, end: float) -> int | None:
+    """Token index best matching an acoustic time region: the token it overlaps
+    most; failing any overlap (e.g. a silent block between words) the first token
+    starting at/after the region; failing that the nearest by midpoint."""
+    best_idx, best_ov = None, 0.0
+    for i, r in enumerate(rows):
+        s, e = r.get("start"), r.get("end")
+        if s is None or e is None:
+            continue
+        try:
+            ov = min(end, float(e)) - max(start, float(s))
+        except (TypeError, ValueError):
+            continue
+        if ov > best_ov:
+            best_ov, best_idx = ov, i
+    if best_idx is not None and best_ov > 0:
+        return best_idx
+    after = [i for i, r in enumerate(rows)
+             if r.get("start") is not None and _maybe_ge(r["start"], start)]
+    if after:
+        return after[0]
+    mid = (start + end) / 2.0
+    near = [(abs((float(r["start"]) + float(r["end"])) / 2.0 - mid), i)
+            for i, r in enumerate(rows)
+            if r.get("start") is not None and r.get("end") is not None]
+    return min(near)[1] if near else None
+
+
+def _maybe_ge(value: Any, threshold: float) -> bool:
+    try:
+        return float(value) >= threshold
+    except (TypeError, ValueError):
+        return False
+
+
 def _sentence_initial_indices(rows: list[dict[str, Any]]) -> set[int]:
     """Return the set of token indices that start a new sentence.
 
@@ -529,5 +574,38 @@ def detect_disfluencies(
                 add(i, "prolongation",
                     min(0.95, dur / max(prolong_threshold, 0.01)),
                     evidence, extra_fields or None)
+
+    # ── Acoustic fusion (only when we actually have the waveform) ────────────────
+    # Cross-check with ASR-independent cues from profiling/acoustic.py: catch
+    # prolongations/blocks the token path missed — e.g. a sustained sound that
+    # falls in a gap with no token of its own, or one the ASR's word timestamps
+    # under-shot. Pure addition: when an acoustic candidate overlaps an event we
+    # already flagged of the same type, we defer to the existing one (no double
+    # counting). Each kept candidate is attributed to the best-matching token so
+    # it carries a word/onset for the profile. Skipped entirely without audio, so
+    # fixtures and timestamp-only clips are byte-for-byte unchanged.
+    if ac.available:
+        from .acoustic import (
+            AcousticConfig, detect_blocks, detect_prolongations, segment_voiced,
+        )
+        acfg = AcousticConfig.from_detection_cfg(cfg)
+        acfg.prolongation_min_seconds = prolong_min   # honour calibrated floors
+        acfg.block_min_seconds = block_gap
+        segs = segment_voiced(ac.samples, ac.sr, acfg)
+        for cand in detect_prolongations(segs, acfg) + detect_blocks(segs, acfg):
+            if any(
+                ev["type"] == cand.type
+                and _spans_overlap(ev.get("start"), ev.get("end"), cand.start, cand.end)
+                for ev in events
+            ):
+                continue   # already found by the token path — don't double count
+            idx = _token_index_for_span(rows, cand.start, cand.end)
+            if idx is None:
+                continue
+            add(idx, cand.type, cand.confidence,
+                f"[acoustic] {cand.evidence}",
+                {"source": "acoustic",
+                 "acoustic_start": round(cand.start, 3),
+                 "acoustic_end": round(cand.end, 3)})
 
     return sorted(events, key=lambda e: (e["index"], e["type"]))

@@ -283,6 +283,18 @@ sensitivity below what an uncalibrated speaker gets.
   audio the detector never received) the raw durations are still used, so the
   bug can persist there. That's an inherent limit of cross-checking against
   audio you don't have, not a regression.
+- **Acoustic candidates are fused in when audio is available** (`profiling/`
+  `acoustic.py`). After the token pass, the detector segments the waveform
+  (frame RMS/ZCR → voiced/silent regions) and derives prolongation/block
+  candidates *independent of the ASR text*, then merges them: a candidate
+  overlapping an existing event of the same type is dropped (token path wins, no
+  double counting), and a kept candidate is attributed to the best-matching
+  token (`_token_index_for_span`) and tagged `source="acoustic"`. This catches
+  sustains/blocks with no token of their own (e.g. in a gap, or where ASR word
+  timestamps under-shot). Same caveat as above: gated on `ac.available`, so the
+  fixture/timestamp-only path is unchanged (demo still 9/7). The overlap-dedupe
+  and gap→following-word attribution are tuned on synthetic audio so far —
+  pending validation on real recordings.
 
 ### Known, currently-accepted limitations (not yet fixed — listed honestly)
 
