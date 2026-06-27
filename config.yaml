@@ -9,7 +9,7 @@ profiling:
   detection:
     repetition_window: 2
     prolongation_percentile: 90
-    prolongation_min_seconds: 0.65
+    prolongation_min_seconds: 1.0
     block_gap_seconds: 0.55
     near_repetition_similarity: 0.75
     # Words this short or shorter are compared by pronunciation (ARPAbet phoneme

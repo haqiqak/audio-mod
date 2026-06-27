@@ -514,3 +514,56 @@ threshold); long "walking"/"walkin" still uses the "edit" metric; dissimilar OOV
 shorts aren't flagged. **Full suite: 28 tests pass** (asr-timing 3, acoustic 8,
 detect-acoustic 5, detect-fusion 3, detect-phrase 4, detect-phonetic 5),
 benchmark self-test pass, demo fixture **9 tokens / 7 disfluencies**.
+
+---
+
+## 2026-06-27 — Real-audio validation + prolongation threshold tune (Part D)
+
+**What was validated** (owner ran the app on the 16 GB device with real mic
+recordings — first real-audio test of the fusion + phonetic work):
+- ✅ Block on an intentional stuck start ("THIS P…PLACE") → flagged acoustically
+  (`[acoustic] silent gap 1.32s`).
+- ✅ Homophone check "I want to go **too**" → **no** false repetition (the phonetic
+  near-rep change did not misfire on to/too).
+- ✅ Exaggerated prolongations ("I…", "want…", "water…") all caught (1.24–1.42 s).
+- ⚠️ **False-positive prolongations on fluent speech:** "early" 0.69 s, "already"
+  0.69 s, "Later" 0.76 s, "my" 0.84 s, "going" 0.69 s — naturally-emphasised
+  vowels flagged as prolongations (most acoustic-sourced; "Later" was the token
+  path). Noise itself didn't hurt transcription.
+- ⚠️ **Long-recording transcription truncates** (separate issue, see below).
+
+**Decision: raise `prolongation_min_seconds` 0.65 → 1.0.**
+The data separates cleanly: every false positive was ≤ 0.84 s, every intended
+prolongation ≥ 1.24 s. 1.0 s sits in the middle (0.16 s above the worst FP,
+0.24 s below the mildest real one). The acoustic detector's floor *is*
+`prolongation_min_seconds` (set from the config/calibrated value), so this one
+knob suppresses both the acoustic and token-path FPs at once. In short clips
+(<5 tokens) the token path's `prolong_min*1.5` fallback becomes 1.5 s, so the
+acoustic floor (1.0 s) becomes the effective detector there and still catches the
+1.24 s+ real prolongations.
+
+**Alternatives considered**
+- 0.9 s: also clears the observed FPs but only 0.06 s above the worst one — too
+  thin a margin against the next emphatic vowel. 1.0 s is more robust; lower it
+  toward 0.85–0.9 if real prolongations start getting missed.
+- A relative/percentile guard inside the acoustic detector (instead of a flat
+  floor). Deferred: more code; the floor bump fixes every observed FP now and the
+  percentile already governs the token path on longer clips.
+
+**Why this choice**
+Pure config, directly derived from the owner's measured numbers, fixes all
+observed prolongation false positives while keeping every intended detection;
+demo and tests unaffected.
+
+**Measured result**
+Demo fixture still **9 tokens / 7 disfluencies** (its 1.29 s "something"
+prolongation still clears the new floor); full suite 28/28 pass. Real-audio
+re-validation (owner) pending.
+
+**Open issue — long-recording ASR truncation (NOT yet fixed)**
+On a long fluent passage the recording completed but the transcript stopped early
+(omitted later words); inference ran ~116 s. Consistent with the "Whisper did not
+predict an ending timestamp … audio cut off" warnings: most likely the
+`max_new_tokens` ceiling (256 in `_max_new_tokens_for`) and/or long-form
+word-timestamp chunking. Needs investigation on a machine that can load the model
+(can't be reproduced on the 2.2 GB dev box). Tracked as the next task.
