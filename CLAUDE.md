@@ -1,0 +1,72 @@
+# CLAUDE.md
+
+Orientation for a Claude Code session starting cold in this repository.
+Kept short on purpose — it points at the other files rather than
+duplicating them. Read `DOCS.md` next for the full documentation map.
+
+## What this project is
+
+`audio-mod` is a Streamlit app that takes a speech recording and detects,
+classifies, and localizes stuttering disfluencies (fillers, repetitions,
+blocks, prolongations, etc.) — audio-based detection, not just
+transcription. Transcription (CrisperWhisper ASR) is scaffolding for that
+goal, not the end product. See `README.md` for what it does; `ARCHITECTURE.md`
+for how the code implements it today.
+
+## Where the project is right now
+
+**Phase 1 (Validation, Benchmarking, Analysis) closed 2026-08-03.** See
+`PHASE_1_SUMMARY.md` for the full closing summary and `ROADMAP.md` for
+current Phase 2 priorities, in order, each linked to the specific finding
+that justifies it. If you're about to suggest a next step, check
+`ROADMAP.md` first — it's very likely already there with reasoning, and a
+change of plan should update it, not silently diverge from it.
+
+## Standing rules for working in this repo
+
+These are established conventions from how this project has actually been
+run, not aspirational — follow them by default:
+
+1. **Pre-register methodology before implementing it, for anything
+   evaluation-related.** Write the exact metric/protocol/success-criteria
+   into `VALIDATION.md` *before* writing the code that produces the result.
+   If a deviation turns out to be necessary once implementation starts,
+   record it as a dated addendum, not a silent edit. See `VALIDATION.md`
+   §5.1 for the canonical example of this pattern.
+2. **Document continuously, not retroactively.** Every non-trivial decision,
+   result, bug, or finding gets a `PAPER_DECISION_LOG.md` entry (What was
+   done / Alternatives considered / Why this choice / Measured result) the
+   same day, plus a one-line pointer in `CHANGELOG.md`. `PAPER_DECISION_LOG.md`
+   is append-only — never edit or delete a past entry, even a wrong one; a
+   later entry corrects it explicitly instead.
+3. **Audit surprising results before trusting them.** This project has
+   caught multiple real bugs this way (a `soundfile` dtype bug that silently
+   zeroed real audio; a scoring-approximation gap in a decomposition
+   formula) — a dramatic-looking number is a reason to check harder, not a
+   reason to report faster. Small samples get an explicit "too small to
+   trust" caveat, not a confident headline.
+4. **Never tune thresholds/config in response to an evaluation result
+   without explicit go-ahead.** Findings get recorded as evidence
+   (`VALIDATION.md`); acting on them is a separate, explicitly-approved step.
+5. **Docs drift — verify against the running code before trusting a claim in
+   any `.md` file**, this one included, for anything consequential. See
+   `DOCS.md`'s documentation philosophy for the full reasoning.
+6. **Never commit or push without being explicitly asked, every time.** A
+   past approval doesn't carry forward to the next commit. Follow the
+   project's own git conventions (new commits, not amends; no
+   force-push/`--no-verify` without an explicit ask).
+7. **ASCII-only in any print-reachable string.** This Windows/`cp1252`
+   console has broken on non-ASCII characters (em-dashes, section signs,
+   arrows) in evaluation-harness output three separate times — see
+   `ROADMAP.md`'s standing item to turn this into a lint rule.
+
+## Where to look for what
+
+See `DOCS.md` for the full map. Quick pointers:
+- A specific measured number or evaluation result → `VALIDATION.md` §8/§9
+  (and check §7 for that finding's known limitations before citing it)
+- Why a piece of code is the way it is → `PAPER_DECISION_LOG.md`
+- Whether something is already planned → `ROADMAP.md`
+- Config keys and defaults → `README.md`'s configuration table, cross-checked
+  against `config.yaml` directly (the table has drifted from the real
+  defaults before)

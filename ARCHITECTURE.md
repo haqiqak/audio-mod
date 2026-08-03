@@ -240,8 +240,10 @@ boundaries (an acoustic candidate that overlapped a token-path event was
 always dropped, regardless of which signal was actually more confident). That
 was found to conflict directly with the project's stated mission — detecting
 disfluency from the audio signal itself, with the transcript as a mapping
-layer, not the trigger — and was restructured. See `august.md` for the full
-research trail and reasoning; summary of what changed:
+layer, not the trigger — and was restructured. See `PAPER_DECISION_LOG.md`'s 2026-08-03 entries for the
+full research trail and reasoning (`august.md`, the original working-notes
+file for this round, is now a retired stub pointing there); summary of what
+changed:
 
 - **Standard 5-class taxonomy.** `repetition` split into `sound_repetition`
   (a sub-word fragment repeated, e.g. "b- buy"), `word_repetition` (a whole
@@ -249,7 +251,7 @@ research trail and reasoning; summary of what changed:
   `phrase_repetition` (an immediately-repeated multi-word phrase). Combined
   with `filler`, `stutter_marker`, `block`, `prolongation`, this now matches
   SEP-28k / FluencyBank / KSoF's taxonomy, so output is directly
-  benchmarkable — see `profiling/evaluate.py`.
+  benchmarkable — see `profiling/evaluation/` (methodology in `VALIDATION.md`).
 - **Acoustic corroboration for filler/stutter_marker.** When audio is
   available, a voiced-energy check (`_AcousticContext.has_voiced_energy` /
   the same `word_rms` primitive block/prolongation already used) adjusts
@@ -365,8 +367,16 @@ sensitivity below what an uncalibrated speaker gets.
   sustains/blocks with no token of their own (e.g. in a gap, or where ASR word
   timestamps under-shot). Same caveat as above: gated on `ac.available`, so the
   fixture/timestamp-only path is unchanged (demo still 9/7). The overlap-dedupe
-  and gap→following-word attribution are tuned on synthetic audio so far —
-  pending validation on real recordings.
+  and gap→following-word attribution logic itself is unchanged since it was
+  written on synthetic audio, but the *architecture it's part of* has since
+  been validated at scale against real audio (499 real LibriStutter clips,
+  `VALIDATION.md` §8.3) — aggregate `Any`-label F1 improved 0.773 → 0.835
+  with audio active, essentially all of it a precision gain at ~0 recall
+  cost, which is the outcome this fusion logic was designed to produce. Not
+  validated in isolation from the rest of the audio-native layer (VAD,
+  Praat) at that scale, and not yet validated against real (non-synthetic)
+  stuttered speech — see `VALIDATION.md` §7.2 for the current, honestly
+  scoped generalization limits of that evaluation.
 
 ### Known, currently-accepted limitations (not yet fixed — listed honestly)
 

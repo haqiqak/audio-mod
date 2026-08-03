@@ -44,6 +44,20 @@ ENV/
 benchmark_clips/*
 !benchmark_clips/.gitkeep
 
+# ── Evaluation results ───────────────────────────────────────────────────────
+# Timestamped JSON result files from profiling/evaluation/track_a.py (and
+# later track_b.py) — depend on whatever real dataset is on the local
+# machine, so they're not portable/reproducible as committed files. Keep the
+# folder in git, ignore its contents. See VALIDATION.md §8 for where the
+# actual results get recorded for the record (that file, not this folder).
+eval_results/*
+!eval_results/.gitkeep
+
+# ── Evaluation datasets (large, externally licensed) ─────────────────────────
+# LibriStutter/SEP-28k/etc. downloads a user points --data-dir at. Never
+# commit real speech data or podcast audio to this repo.
+eval_datasets/
+
 # ── Logs ──────────────────────────────────────────────────────────────────
 *.log
 

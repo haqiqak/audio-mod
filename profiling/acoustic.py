@@ -83,6 +83,7 @@ class AcousticConfig:
     # stricter than the RMS/ZCR baseline when unavailable — see docstring) ──
     use_vad: bool = True                # gate voiced segments against Silero VAD when it fires on this clip
     vad_min_coverage: float = 0.30      # min fraction of a voiced segment VAD must confirm as speech
+    use_praat: bool = True              # compute pitch/jitter/shimmer/HNR corroboration at all
     jitter_max: float = 0.02            # local jitter (F0 period-to-period) below this = stable voicing
     shimmer_max: float = 0.08           # local shimmer (amplitude) below this = stable voicing
     pitch_std_max_hz: float = 25.0      # F0 std-dev within a segment below this = stable pitch (sustained vowel)
@@ -102,6 +103,7 @@ class AcousticConfig:
             block_min_seconds=float(cfg.get("block_gap_seconds", 0.55)),
             use_vad=bool(ac.get("use_vad", True)),
             vad_min_coverage=float(ac.get("vad_min_coverage", 0.30)),
+            use_praat=bool(ac.get("use_praat", True)),
             jitter_max=float(ac.get("jitter_max", 0.02)),
             shimmer_max=float(ac.get("shimmer_max", 0.08)),
             pitch_std_max_hz=float(ac.get("pitch_std_max_hz", 25.0)),
@@ -346,9 +348,10 @@ def segment_voiced(samples: np.ndarray, sr: int, cfg: AcousticConfig) -> list[Se
             if seg_voiced and (end_t - start_t) >= cfg.min_praat_segment_seconds:
                 if vad_applicable:
                     vad_coverage = _range_coverage(start_t, end_t, vad_ranges)
-                feats = _praat_features(samples, sr, start_t, end_t)
-                pitch_hz, pitch_std_hz = feats["pitch_hz"], feats["pitch_std_hz"]
-                jitter, shimmer, hnr = feats["jitter"], feats["shimmer"], feats["hnr"]
+                if cfg.use_praat:
+                    feats = _praat_features(samples, sr, start_t, end_t)
+                    pitch_hz, pitch_std_hz = feats["pitch_hz"], feats["pitch_std_hz"]
+                    jitter, shimmer, hnr = feats["jitter"], feats["shimmer"], feats["hnr"]
 
             segments.append(Segment(
                 start=start_t, end=end_t, voiced=seg_voiced,

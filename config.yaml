@@ -73,6 +73,7 @@ profiling:
       # genuinely sustained vowel has stable pitch and low jitter/shimmer.
       # None of these ever REJECT a candidate the RMS/ZCR gate already
       # passed — they only adjust confidence up or down.
+      use_praat: true
       jitter_max: 0.02
       shimmer_max: 0.08
       pitch_std_max_hz: 25.0

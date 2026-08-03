@@ -50,7 +50,7 @@ acoustically corroborated.
 
 Event types follow the field's standard taxonomy (matching SEP-28k /
 FluencyBank / KSoF, so output is directly comparable to public benchmarks —
-see `profiling/evaluate.py`):
+see `profiling/evaluation/` and `VALIDATION.md`):
 
 | Type                   | How it's detected                                                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -138,7 +138,15 @@ audio-mod/
     ├── benchmark_asr.py       ← ASR latency benchmark (table + RTF, --self-test)
     ├── acoustic.py            ← Audio-native disfluency cues: RMS/ZCR + Silero VAD + Praat pitch/jitter/shimmer/HNR
     ├── detect.py              ← Disfluency detector — audio-native-primary, weighted-confidence fusion with text/timing checks
-    ├── evaluate.py            ← Accuracy harness against LibriStutter-format labeled data (--self-test)
+    ├── evaluate.py            ← Backward-compatible shim over profiling/evaluation/ (see below)
+    ├── evaluation/            ← Accuracy evaluation package — see VALIDATION.md for methodology
+    │   ├── loaders.py          ← Per-dataset loading (LibriStutter word-level; SEP-28k clip-level labels)
+    │   ├── metrics.py          ← Precision/recall/F1, confusion matrices, IoU localization, "Any" label
+    │   ├── alignment.py        ← Track B: ASR-hypothesis <-> reference word alignment (Levenshtein, biased)
+    │   ├── track_a.py          ← Detector-only runner, ASR bypassed (--self-test)
+    │   ├── track_b.py          ← Full-pipeline runner: real ASR + alignment + per-clip caching (--self-test)
+    │   ├── run_ablations.py    ← Config-variant sweep runner (VAD/Praat/fusion-weight/threshold)
+    │   └── report.py           ← Table rendering + timestamped, reproducible result files
     ├── profile.py             ← SpeakerDifficultyProfile (EWMA + onset risk + difficulty model)
     ├── calibration.py         ← Speaker tempo baseline (calibration sentence + threshold adjustment)
     ├── coldstart.py           ← Population priors + self-report seeding
@@ -258,10 +266,15 @@ are reproducible with `python -m profiling.benchmark_asr`.)
 | `profiling.weights.frequency`                   | `0.20`  | Weight of word rarity                                                                      |
 | `profiling.weights.grammatical_class`           | `0.10`  | Weight of content-word penalty                                                            |
 | `profiling.detection.block_gap_seconds`         | `0.55`  | Global-floor minimum silence gap counted as a block (raised per speaker once calibrated)  |
-| `profiling.detection.prolongation_min_seconds`  | `0.65`  | Global-floor minimum token duration counted as prolongation (same calibration behaviour)  |
+| `profiling.detection.prolongation_min_seconds`  | `1.0`   | Global-floor minimum token duration counted as prolongation (same calibration behaviour). Raised from `0.65` after real-mic false positives (`PAPER_DECISION_LOG.md`, Part D); `VALIDATION.md` §9's ablation later found the aggregate-optimal value on the (synthetic, reconstructed-timing) LibriStutter sample is higher still (1.2–1.4) — not yet re-tuned, see `ROADMAP.md`. |
 | `profiling.detection.prolongation_percentile`   | `90`    | Percentile threshold for prolongation detection                                           |
 | `profiling.detection.near_repetition_similarity`| `0.75`  | Edit-distance similarity above which two consecutive words count as a near-repetition     |
+| `profiling.detection.phrase_repetition_max_words`| `8`    | Longest repeated phrase scanned for (also capped at `len(tokens)//2`)                     |
 | `profiling.detection.sentence_initial_boost`    | `0.08`  | Confidence bonus for disfluencies at sentence-initial position                            |
+| `profiling.detection.detectors`                 | all 8   | Enable-list of which named checks run (`filler`, `stutter_marker`, `phrase_repetition`, `word_repetition`, `sound_repetition`, `block`, `prolongation`, `acoustic_fusion`) — toggle without touching code |
+| `profiling.detection.fusion_weights.rule` / `.acoustic` | `1.0` / `1.0` | Per-source confidence weighting where the token-path and acoustic-native detectors compete for the same event; acoustic only wins on a strictly higher weighted confidence |
+| `profiling.detection.acoustic.use_vad`          | `true`  | Silero VAD gates/down-weights acoustic prolongation confidence; self-disabling (no-op) on clips where VAD finds no speech at all (e.g. synthetic test tones) |
+| `profiling.detection.acoustic.use_praat`        | `true`  | Praat pitch/jitter/shimmer/HNR as additional prolongation-corroborating evidence (confidence adjustment only, never a hard gate) |
 
 ---
 

@@ -42,6 +42,20 @@ silero-vad>=5.1
 #   model download; pure C-extension wheel.
 praat-parselmouth>=0.4.3
 
+# ── Evaluation / research tooling (profiling/evaluation/) ────────────────────
+# Not needed to RUN the app itself (Streamlit, ASR, detection) — only for
+# python -m profiling.evaluation.* (accuracy benchmarking against labeled
+# datasets) and the fetch_*.py dataset-acquisition scripts. See VALIDATION.md.
+#
+# soundfile: decodes LibriStutter's real audio format (FLAC) for
+#   audio-enabled Track A evaluation (--audio-dir). Wraps libsndfile.
+soundfile>=0.14
+# requests: used by the fetch_libristutter_*.py acquisition scripts. Very
+#   likely already present transitively (huggingface_hub depends on it), but
+#   listed explicitly since profiling/evaluation/ isn't allowed to assume
+#   that regardless of the rest of the app's dependency tree.
+requests>=2.31
+
 # ── Do NOT install: optimum[openvino] ─────────────────────────────────────────
 # Tried as a faster CPU backend, but optimum-intel's OVModelForSpeechSeq2Seq
 # can't produce word-level timestamps (confirmed upstream bug,
