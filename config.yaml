@@ -30,6 +30,29 @@ profiling:
       - er
       - erm
       - like
+    # Which named detectors run. Config-driven extensibility hook: adding a
+    # future detector is a registration here + one function in detect.py, not
+    # a rewrite of its control flow. All on by default.
+    detectors:
+      - filler
+      - stutter_marker
+      - phrase_repetition
+      - word_repetition
+      - sound_repetition
+      - block
+      - prolongation
+      - acoustic_fusion
+    # Per-source confidence weighting used only where two sources compete for
+    # the same (index, type) — currently just the acoustic-native detector
+    # vs. the token-path detector on block/prolongation. The acoustic
+    # candidate only replaces the token-path event when its weighted
+    # confidence is STRICTLY higher; on a tie the token-path event is kept
+    # (it carries word-level grounding audio alone doesn't have). Raise
+    # "acoustic" above 1.0 to trust the audio-native signal more; this does
+    # not affect anything when no audio is provided.
+    fusion_weights:
+      rule: 1.0
+      acoustic: 1.0
     acoustic:
       # RMS energy below this = silence (confirms blocks are real, not ASR gaps)
       # Raise if background noise is suppressing real blocks.
@@ -39,6 +62,21 @@ profiling:
       # Zero-crossing rate below this = voiced sound (vowel/sonorant).
       # High ZCR = unvoiced consonant or noise — not clinically meaningful prolongation.
       voiced_zcr_threshold: 0.15
+      # Silero VAD (a small pretrained real-speech voice-activity model) gates
+      # acoustic-native prolongation confidence: a voiced-by-RMS segment that
+      # VAD does NOT confirm as real speech gets down-weighted, not rejected.
+      # Automatically a no-op on any clip where VAD finds no speech at all
+      # (e.g. synthetic test tones) — see profiling/acoustic.py's module note.
+      use_vad: true
+      vad_min_coverage: 0.30
+      # Praat-derived voice-quality corroboration for prolongation: a
+      # genuinely sustained vowel has stable pitch and low jitter/shimmer.
+      # None of these ever REJECT a candidate the RMS/ZCR gate already
+      # passed — they only adjust confidence up or down.
+      jitter_max: 0.02
+      shimmer_max: 0.08
+      pitch_std_max_hz: 25.0
+      min_praat_segment_seconds: 0.15
 rewrite:
   lambda: 0.55
   mu: 0.12

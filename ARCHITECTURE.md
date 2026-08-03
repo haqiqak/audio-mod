@@ -6,6 +6,9 @@ actually does today (verified by reading and running it), not just what an
 earlier design intended. Where an earlier note turned out to be stale relative
 to the live code, that's called out explicitly rather than silently dropped.
 
+This file describes the *current state only* — for why it evolved this way,
+see `PAPER_DECISION_LOG.md`; for the full documentation map, see `DOCS.md`.
+
 ---
 
 ## 1. What this project is
@@ -227,13 +230,82 @@ load and the length-scaling, both now measured.
 
 ---
 
-## 4. profiling/detect.py — rule-based disfluency detector
+## 4. profiling/detect.py — audio-native-primary disfluency detector
 
-Five event types: filler, stutter marker, repetition (exact / near /
-fragment / filler-sandwiched / phrase-level), block, prolongation. All take
-`audio_bytes` for acoustic confirmation when available (RMS for
-silence/voicing, zero-crossing rate to distinguish voiced sustain from noise)
-and degrade gracefully to timestamp-only when it isn't.
+**2026-08 restructuring.** Previously this detector was transcript-first with
+acoustic confirmation bolted on: filler/stutter-marker trusted ASR flags with
+zero audio grounding, all repetition variants were pure text comparison, and
+block/prolongation only used audio as a post-hoc veto on ASR-derived
+boundaries (an acoustic candidate that overlapped a token-path event was
+always dropped, regardless of which signal was actually more confident). That
+was found to conflict directly with the project's stated mission — detecting
+disfluency from the audio signal itself, with the transcript as a mapping
+layer, not the trigger — and was restructured. See `august.md` for the full
+research trail and reasoning; summary of what changed:
+
+- **Standard 5-class taxonomy.** `repetition` split into `sound_repetition`
+  (a sub-word fragment repeated, e.g. "b- buy"), `word_repetition` (a whole
+  word repeated — exact, near/phonetic, or filler-sandwiched), and
+  `phrase_repetition` (an immediately-repeated multi-word phrase). Combined
+  with `filler`, `stutter_marker`, `block`, `prolongation`, this now matches
+  SEP-28k / FluencyBank / KSoF's taxonomy, so output is directly
+  benchmarkable — see `profiling/evaluate.py`.
+- **Acoustic corroboration for filler/stutter_marker.** When audio is
+  available, a voiced-energy check (`_AcousticContext.has_voiced_energy` /
+  the same `word_rms` primitive block/prolongation already used) adjusts
+  confidence up (genuinely voiced) or down (near-silent — a plausible ASR
+  mistag/hallucination) rather than trusting the ASR flag blindly. Deliberately
+  simple (a voiced-energy presence check, not a more elaborate offset-shape
+  heuristic) — see the module docstring for why.
+- **Weighted-confidence fusion, not fixed priority.** An acoustic-native
+  candidate (from `profiling/acoustic.py`, itself enriched this round — see
+  §4a) that overlaps a token-path event of the same type now only replaces it
+  when its (optionally source-weighted, `profiling.detection.fusion_weights`)
+  confidence is *strictly higher*; on a tie the token-path event is kept
+  deliberately, since it carries word-level grounding an audio-only candidate
+  doesn't have on its own. Verified directly by `tests/test_detect_taxonomy_
+  and_fusion.py` (forces the crossover via `fusion_weights.acoustic` rather
+  than hunting for a naturally-occurring one).
+- **Config-driven detector enable-list** (`profiling.detection.detectors`) —
+  each named check (filler, stutter_marker, phrase_repetition,
+  word_repetition, sound_repetition, block, prolongation, acoustic_fusion) can
+  be toggled without touching this file, the extensibility hook for adding a
+  future detector.
+
+All checks still degrade gracefully to their original timestamp/text-only
+behaviour when `audio_bytes` is `None` — the demo fixture stays 9 tokens / 7
+events (`word_repetition` now where `repetition` used to appear; see
+README.md's "Verify it works" walkthrough).
+
+### 4a. profiling/acoustic.py — enriched with pretrained corroborating signals
+
+Two pretrained, zero-training-required signals were added this round, both
+strictly additive (see the module's own note for why):
+
+- **Silero VAD** (`silero-vad`, <2MB, real-time-on-CPU, published >95%
+  accuracy) gates/down-weights acoustic-native prolongation confidence
+  against real speech, replacing a single hand-picked RMS constant as the
+  "is this really voiced speech" signal — but only when VAD actually fires on
+  a given clip. VAD is trained on real speech and correctly finds *nothing*
+  on this project's synthetic sine-tone test fixtures (confirmed directly:
+  `get_speech_timestamps` on a pure 150 Hz tone returns `[]`), so gating on it
+  unconditionally would have silently broken the entire synthetic-audio test
+  suite. Instead: when a clip yields zero VAD detections anywhere, VAD
+  gating is a no-op for that clip and behaviour is byte-for-byte the original
+  RMS/ZCR-only logic — this is what makes it safe to ship without
+  invalidating the project's model-free testing philosophy.
+- **Praat/Parselmouth** (`praat-parselmouth`) adds pitch (F0), jitter,
+  shimmer, and harmonics-to-noise ratio as prolongation-corroborating
+  evidence — the standard feature set in the clinical-speech literature,
+  beyond the RMS/ZCR-only signal this module started with. Computed per
+  voiced segment (not per-frame) to keep cost bounded; None on failure/
+  unavailability, never used to fail a check that would otherwise pass.
+
+Both features are exposed on `Segment` (`vad_coverage`, `pitch_hz`,
+`pitch_std_hz`, `jitter`, `shimmer`, `hnr`) and folded into
+`detect_prolongations()`'s confidence as adjustments, not new hard gates — the
+original RMS/ZCR/duration gate is unchanged, so `tests/test_acoustic.py`'s
+existing synthetic-tone assertions pass unmodified.
 
 ### Threshold personalization (calibration.py integration)
 

@@ -39,7 +39,11 @@ def _toks(words: list[str], step: float = 0.3) -> list[dict]:
 
 
 def _reps(events: list[dict]) -> list[dict]:
-    return [e for e in events if e["type"] == "repetition"]
+    # Near-repetition (phonetic or edit-distance) is word-level under the
+    # standard 5-class taxonomy (block/prolongation/sound_repetition/
+    # word_repetition/interjection) — see profiling/detect.py's module
+    # docstring point 1.
+    return [e for e in events if e["type"] == "word_repetition"]
 
 
 def test_phonetic_similarity_helper() -> None:

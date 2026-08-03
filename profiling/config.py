@@ -28,6 +28,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "prolongation_min_seconds": 0.65,
             "block_gap_seconds": 0.55,
             "filler_words": ["uh", "um", "er", "erm", "like"],
+            "detectors": [
+                "filler", "stutter_marker", "phrase_repetition",
+                "word_repetition", "sound_repetition", "block",
+                "prolongation", "acoustic_fusion",
+            ],
+            "fusion_weights": {"rule": 1.0, "acoustic": 1.0},
         },
     },
     "rewrite": {

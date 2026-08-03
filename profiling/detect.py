@@ -1,36 +1,48 @@
-"""Rule-based disfluency detection over verbatim ASR tokens.
+"""Rule-based, audio-native-primary disfluency detection over verbatim ASR tokens.
 
-Improvements over the previous version
-───────────────────────────────────────
-1. Punctuation-stripped prolongation threshold
-   Words like "recording." no longer skew the per-clip duration percentile —
-   punctuation is stripped before all duration comparisons and word matching.
+Restructured (2026-08) so the audio signal is a first-class detector, not just
+a confirmation filter bolted onto ASR-derived boundaries. Concretely:
 
-2. Sentence-position awareness
-   Stuttering is overwhelmingly sentence-initial (first word, or first word
-   after a sentence-boundary pause). Events at those positions get a small
-   confidence boost (+0.08) and their evidence strings note the position.
+1. Standard 5-class taxonomy
+   The old generic "repetition" type is split into `sound_repetition` (a
+   sub-word/fragment repeated, e.g. "b- buy"), `word_repetition` (a whole
+   word repeated, exactly or near-exactly, including filler-sandwiched and
+   phrase-adjacent single-word repeats), and `phrase_repetition` (an
+   immediately-repeated multi-word phrase). Combined with the existing
+   `block`, `prolongation`, and `filler` types, this now matches the field's
+   standard taxonomy (SEP-28k / FluencyBank / KSoF: block, prolongation,
+   sound repetition, word repetition, interjection) instead of an ad hoc set
+   — the point being that output is now directly benchmarkable against public
+   datasets, not just internally self-consistent.
 
-3. Short-clip prolongation guard
-   With fewer than 5 tokens the 90th-percentile is meaningless (every word
-   looks prolonged). For short clips we fall back to a flat 1.5× the absolute
-   minimum instead of the percentile, preventing every single word from being
-   flagged as a prolongation.
+2. Acoustic corroboration for filler / stutter-marker events
+   These previously trusted the ASR's `is_filler`/`is_stutter` flags (or a
+   trailing "-") with zero audio grounding — the weakest link in the
+   pipeline, since even fine-tuned verbatim ASR models are known to mis-tag
+   these tokens. When audio is available, a quick voiced-energy check now
+   corroborates or down-weights these events, the same way block/prolongation
+   have always been acoustically confirmed.
 
-4. Interjection-sandwiched repetition ("I uh I")
-   A filler between two identical words is a classic stuttering pattern not
-   caught by back-to-back exact-match alone. Now detected as a repetition on
-   the second word with a note that a filler intervened.
+3. Weighted-confidence fusion (not fixed priority)
+   The acoustic-native detector (profiling/acoustic.py) used to be dropped
+   outright whenever it overlapped a token-path event of the same type —
+   "token always wins," even if the token-derived confidence was weaker. It
+   now only yields to the token-path event when that event's confidence is
+   at least as high; a materially more confident acoustic-native candidate
+   replaces the weaker token-path guess instead of being silently discarded.
+   On a tie, the token-path event is kept deliberately: it carries word-level
+   grounding (which word, which onset) that a signal-only candidate doesn't
+   have on its own.
 
-5. Acoustic validation (carried over from previous version)
-   Blocks confirmed by near-zero gap RMS; prolongations confirmed by sustained
-   voiced energy + low zero-crossing rate.
-
-6. Near-repetition + phrase repetition (carried over)
+4. Config-driven detector enable-list
+   `profiling.detection.detectors` in config.yaml lists which named checks
+   run. Adding a future detector is a registration in that list plus one
+   function, not a rewrite of this file's control flow.
 
 All acoustic thresholds are configurable in config.yaml under
-profiling.detection.acoustic.*. Detector degrades gracefully to
-timestamp-only mode when audio_bytes is None.
+profiling.detection.acoustic.*. Every check here still degrades gracefully to
+its original timestamp/text-only behaviour when audio_bytes is None — see
+ARCHITECTURE.md for the regression-tested demo-fixture contract.
 """
 
 from __future__ import annotations
@@ -221,6 +233,18 @@ class _AcousticContext:
             return 0.5
         return _zcr(_slice(self.samples, self.sr, start, end))
 
+    def has_voiced_energy(self, start: float | None, end: float | None) -> bool:
+        """Cheap plausibility check for filler/stutter-marker corroboration:
+        is there any real acoustic energy here at all, or is the ASR flag
+        sitting on what's actually near-silence (a known ASR mistag/
+        hallucination failure mode)? Deliberately simple — see module
+        docstring point 2; a more elaborate offset-shape check for stutter
+        fragments specifically is a documented future refinement, not done
+        here without real recordings to validate it against."""
+        if not self.available:
+            return True  # no audio to check against -> don't penalize
+        return self.word_rms(start, end) >= self.silence_rms
+
     def voiced_span(
         self, start: float | None, end: float | None, frame_s: float = 0.02,
     ) -> tuple[float, float] | None:
@@ -341,7 +365,34 @@ def _sentence_initial_indices(rows: list[dict[str, Any]]) -> set[int]:
     return result
 
 
+# ── Phrase-repetition pre-pass ────────────────────────────────────────────────
+
+def _find_phrase_repetitions(
+    norms: list[str], phrase_rep_len: int, phrase_rep_max: int,
+) -> dict[int, int]:
+    """Start index of the 2nd occurrence of an immediately-repeated phrase ->
+    phrase length (in words). Scans window lengths from phrase_rep_len up to
+    min(phrase_rep_max, len(norms)//2) — a phrase can't repeat within fewer
+    than twice its own length. Longest match wins per start index."""
+    spans: dict[int, int] = {}
+    upper = min(max(phrase_rep_len, phrase_rep_max), len(norms) // 2)
+    for wlen in range(phrase_rep_len, upper + 1):
+        for i in range(wlen * 2, len(norms) + 1):
+            seq_a = tuple(norms[i - wlen * 2: i - wlen])
+            seq_b = tuple(norms[i - wlen: i])
+            if len(seq_a) == wlen and seq_a == seq_b and all(s for s in seq_a):
+                start = i - wlen
+                spans[start] = max(spans.get(start, 0), wlen)
+    return spans
+
+
 # ── Main detector ─────────────────────────────────────────────────────────────
+
+_ALL_DETECTORS = (
+    "filler", "stutter_marker", "phrase_repetition", "word_repetition",
+    "sound_repetition", "block", "prolongation", "acoustic_fusion",
+)
+
 
 def detect_disfluencies(
     tokens: Iterable[Any],
@@ -349,13 +400,14 @@ def detect_disfluencies(
     audio_bytes: bytes | None = None,
     speaker_baseline: "Any | None" = None,
 ) -> list[dict[str, Any]]:
-    """Flag repetitions, prolongations, blocks, fillers, and ASR stutter marks.
+    """Flag disfluencies against the standard taxonomy: filler, stutter_marker,
+    sound_repetition, word_repetition, phrase_repetition, block, prolongation.
 
     Parameters
     ----------
     tokens           : iterable of VerbatimToken or dict with word/start/end fields
     config           : optional profiling config dict (loaded from config.yaml if None)
-    audio_bytes      : optional 16 kHz mono WAV bytes for acoustic validation.
+    audio_bytes      : optional 16 kHz mono WAV bytes for acoustic validation/fusion.
     speaker_baseline : optional calibration.SpeakerBaseline. When provided and
                         usable, block_gap_seconds and prolongation_min_seconds
                         are personalized to the speaker's own calibrated tempo
@@ -367,7 +419,7 @@ def detect_disfluencies(
     -------
     Sorted list of event dicts: word, index, start, end, type, confidence, evidence.
     Optional extra fields: source, profile_safe, acoustic_rms, acoustic_zcr,
-    sentence_initial.
+    voiced_duration, sentence_initial, acoustic_corroborated.
     """
     rows = [_as_dict(t) for t in tokens]
     if not rows:
@@ -375,6 +427,10 @@ def detect_disfluencies(
 
     cfg           = config or load_config().get("profiling", {}).get("detection", {})
     ac            = _AcousticContext(audio_bytes, cfg)
+
+    enabled       = set(cfg.get("detectors", list(_ALL_DETECTORS)))
+    fusion_weights = cfg.get("fusion_weights", {"rule": 1.0, "acoustic": 1.0})
+    acoustic_weight = float(fusion_weights.get("acoustic", 1.0))
 
     filler_words   = set(cfg.get("filler_words", ["uh", "um", "er", "erm", "like"]))
     block_gap      = float(cfg.get("block_gap_seconds",           0.55))
@@ -433,26 +489,11 @@ def detect_disfluencies(
     norms      = [_norm(str(r.get("word", ""))) for r in rows]
     sent_init  = _sentence_initial_indices(rows)
 
-    # ── Phrase-repetition pre-pass ────────────────────────────────────────────
-    # Detect an immediately-repeated phrase of ANY length from phrase_rep_len up
-    # to a cap (previously only 2-3 word windows, so "I want to I want to" or
-    # longer repeats fell through silently). Longer matches win for the evidence
-    # string. Capped at phrase_repetition_max_words (and at len(rows)//2, since a
-    # phrase can't repeat within fewer than twice its length) to bound the scan.
     phrase_rep_max = int(cfg.get("phrase_repetition_max_words", 8))
-    phrase_rep_spans: dict[int, int] = {}   # start index of 2nd occurrence -> phrase length
-    upper = min(max(phrase_rep_len, phrase_rep_max), len(rows) // 2)
-    for wlen in range(phrase_rep_len, upper + 1):
-        for i in range(wlen * 2, len(rows) + 1):
-            seq_a = tuple(norms[i - wlen * 2 : i - wlen])
-            seq_b = tuple(norms[i - wlen : i])
-            if (
-                len(seq_a) == wlen
-                and seq_a == seq_b
-                and all(s for s in seq_a)
-            ):
-                start = i - wlen
-                phrase_rep_spans[start] = max(phrase_rep_spans.get(start, 0), wlen)
+    phrase_rep_spans = (
+        _find_phrase_repetitions(norms, phrase_rep_len, phrase_rep_max)
+        if "phrase_repetition" in enabled else {}
+    )
 
     # ── Event accumulator ─────────────────────────────────────────────────────
     events: list[dict[str, Any]] = []
@@ -464,10 +505,10 @@ def detect_disfluencies(
         confidence: float,
         evidence: str,
         extra: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         key = (index, kind)
         if key in seen:
-            return
+            return None
         seen.add(key)
         is_sent_init = index in sent_init
         event: dict[str, Any] = {
@@ -487,6 +528,16 @@ def detect_disfluencies(
         if extra:
             event.update(extra)
         events.append(event)
+        return event
+
+    def discard(event: dict[str, Any]) -> None:
+        """Remove a previously-added event so a stronger candidate for the
+        same (index, type) can take its place — see the fusion note below."""
+        try:
+            events.remove(event)
+        except ValueError:
+            pass
+        seen.discard((event["index"], event["type"]))
 
     # ── Per-token loop ────────────────────────────────────────────────────────
     for i, token in enumerate(rows):
@@ -496,29 +547,47 @@ def detect_disfluencies(
         if not low:
             continue
 
-        # ── Filler ───────────────────────────────────────────────────────────
-        if token.get("is_filler") or low in filler_words:
-            add(i, "filler", 0.90, "ASR filler marker or known filler word")
+        # ── Filler (acoustically corroborated when audio is available) ───────
+        if "filler" in enabled and (token.get("is_filler") or low in filler_words):
+            conf, note = 0.90, "ASR filler marker or known filler word"
+            if ac.available:
+                rms_val = ac.word_rms(token.get("start"), token.get("end"))
+                if rms_val >= ac.silence_rms:
+                    conf = min(0.95, conf * 1.05)
+                    note += f" (acoustic-confirmed: RMS={rms_val:.4f})"
+                else:
+                    conf *= 0.6
+                    note += f" (acoustic check: near-silent, RMS={rms_val:.4f} — possible ASR misfire)"
+            add(i, "filler", conf, note)
 
-        # ── Stutter marker ────────────────────────────────────────────────────
-        if token.get("is_stutter") or word.endswith("-"):
-            add(i, "stutter_marker", 0.85, "ASR stutter marker or trailing fragment")
+        # ── Stutter marker (same acoustic-plausibility corroboration) ────────
+        if "stutter_marker" in enabled and (token.get("is_stutter") or word.endswith("-")):
+            conf, note = 0.85, "ASR stutter marker or trailing fragment"
+            if ac.available:
+                rms_val = ac.word_rms(token.get("start"), token.get("end"))
+                if rms_val >= ac.silence_rms:
+                    conf = min(0.95, conf * 1.05)
+                    note += f" (acoustic-confirmed: RMS={rms_val:.4f})"
+                else:
+                    conf *= 0.6
+                    note += f" (acoustic check: near-silent, RMS={rms_val:.4f} — possible ASR misfire)"
+            add(i, "stutter_marker", conf, note)
 
         # ── Phrase repetition ─────────────────────────────────────────────────
-        if i in phrase_rep_spans:
+        if "phrase_repetition" in enabled and i in phrase_rep_spans:
             wlen = phrase_rep_spans[i]
-            add(i, "repetition", 0.88,
+            add(i, "phrase_repetition", 0.88,
                 f"{wlen}-word phrase repeated starting at token {i}")
 
         if i > 0:
             prev_low  = norms[i - 1]
             prev_word = str(rows[i - 1].get("word", ""))
 
-            # ── Exact back-to-back repetition ─────────────────────────────────
-            if low and prev_low and low == prev_low:
-                add(i, "repetition", 0.92, "same token repeated back-to-back")
+            # ── Exact back-to-back repetition (word-level) ────────────────────
+            if "word_repetition" in enabled and low and prev_low and low == prev_low:
+                add(i, "word_repetition", 0.92, "same word repeated back-to-back")
 
-            # ── Near-repetition ───────────────────────────────────────────────
+            # ── Near-repetition (word-level) / sound-level fragment repeat ───
             elif low and prev_low and len(low) >= 2 and len(prev_low) >= 2:
                 # Short words: compare pronunciations (phonetic); longer/OOV
                 # words: keep the spelling metric. See _phonetic_similarity.
@@ -530,18 +599,20 @@ def detect_disfluencies(
                         metric = "phonetic"
                 if sim is None:
                     sim = _similarity(low, prev_low)
-                if sim >= near_rep_sim:
-                    add(i, "repetition", round(0.75 * sim, 3),
+                if "word_repetition" in enabled and sim >= near_rep_sim:
+                    add(i, "word_repetition", round(0.75 * sim, 3),
                         f"near-repetition ({metric} similarity {sim:.2f}): "
                         f"'{prev_word}' → '{word}'")
-                elif prev_word.endswith("-") and low.startswith(prev_low):
-                    add(i, "repetition", 0.86, "sub-word fragment before this word")
+                elif ("sound_repetition" in enabled
+                      and prev_word.endswith("-") and low.startswith(prev_low)):
+                    add(i, "sound_repetition", 0.86,
+                        "sub-word fragment repeated before this word")
 
             # ── Interjection-sandwiched repetition ("I uh I") ─────────────────
             # Pattern: token[i-2] == token[i] and token[i-1] is a filler.
             # The speaker said the word, stuttered into a filler, then
-            # repeated the word — all three together form one event.
-            if i >= 2:
+            # repeated the word — all three together form one word-level event.
+            if "word_repetition" in enabled and i >= 2:
                 two_back_low = norms[i - 2]
                 mid_low      = norms[i - 1]
                 if (
@@ -550,78 +621,86 @@ def detect_disfluencies(
                     and low == two_back_low
                     and mid_low in filler_words
                 ):
-                    add(i, "repetition", 0.89,
+                    add(i, "word_repetition", 0.89,
                         f"filler-sandwiched repetition: "
                         f"'{rows[i-2].get('word','')}' + "
                         f"'{rows[i-1].get('word','')}' + '{word}'")
 
             # ── Block (with acoustic confirmation) ────────────────────────────
-            prev_end  = rows[i - 1].get("end")
-            curr_start = token.get("start")
-            if prev_end is not None and curr_start is not None:
-                try:
-                    gap = float(curr_start) - float(prev_end)
-                    if gap >= block_gap:
-                        if ac.gap_is_silent(float(prev_end), float(curr_start)):
-                            extra_fields: dict[str, Any] = {}
-                            if ac.available:
-                                rms_val = ac.word_rms(float(prev_end), float(curr_start))
-                                extra_fields["acoustic_rms"] = round(float(rms_val), 5)
-                                evidence = (
-                                    f"silent gap {gap:.2f}s "
-                                    f"(confirmed: RMS={rms_val:.4f})"
-                                )
-                            else:
-                                evidence = f"silent gap {gap:.2f}s"
-                            add(i, "block",
-                                min(0.95, gap / max(block_gap, 0.01)),
-                                evidence, extra_fields or None)
-                except Exception:
-                    pass
+            if "block" in enabled:
+                prev_end  = rows[i - 1].get("end")
+                curr_start = token.get("start")
+                if prev_end is not None and curr_start is not None:
+                    try:
+                        gap = float(curr_start) - float(prev_end)
+                        if gap >= block_gap:
+                            if ac.gap_is_silent(float(prev_end), float(curr_start)):
+                                extra_fields: dict[str, Any] = {}
+                                if ac.available:
+                                    rms_val = ac.word_rms(float(prev_end), float(curr_start))
+                                    extra_fields["acoustic_rms"] = round(float(rms_val), 5)
+                                    evidence = (
+                                        f"silent gap {gap:.2f}s "
+                                        f"(confirmed: RMS={rms_val:.4f})"
+                                    )
+                                else:
+                                    evidence = f"silent gap {gap:.2f}s"
+                                add(i, "block",
+                                    min(0.95, gap / max(block_gap, 0.01)),
+                                    evidence, extra_fields or None)
+                    except Exception:
+                        pass
 
         # ── Prolongation (with acoustic confirmation + punctuation-aware) ─────
         # Use _norm-stripped low for filler check, but duration comes from
         # the raw timestamps — unaffected by punctuation.
         # clean_low strips punctuation for filler-word matching so "uh." isn't
         # missed as a filler and then accidentally flagged as prolongation too.
-        clean_low = _norm(clean)
-        dur = _effective_duration(token)
-        if (
-            dur is not None
-            and dur >= prolong_threshold
-            and clean_low not in filler_words
-            and low not in filler_words
-        ):
-            start_t = token.get("start")
-            end_t   = token.get("end")
-            if ac.word_is_prolonged(start_t, end_t):
-                extra_fields = {}
-                if ac.available:
-                    rms_val = ac.word_rms(start_t, end_t)
-                    zcr_val = ac.word_zcr(start_t, end_t)
-                    extra_fields["acoustic_rms"] = round(float(rms_val), 5)
-                    extra_fields["acoustic_zcr"] = round(float(zcr_val), 4)
-                    extra_fields["voiced_duration"] = round(float(dur), 4)
-                    evidence = (
-                        f"voiced duration {dur:.2f}s on '{clean}' "
-                        f"(confirmed: RMS={rms_val:.4f}, ZCR={zcr_val:.3f})"
-                    )
-                else:
-                    evidence = f"duration {dur:.2f}s on '{clean}'"
-                add(i, "prolongation",
-                    min(0.95, dur / max(prolong_threshold, 0.01)),
-                    evidence, extra_fields or None)
+        if "prolongation" in enabled:
+            clean_low = _norm(clean)
+            dur = _effective_duration(token)
+            if (
+                dur is not None
+                and dur >= prolong_threshold
+                and clean_low not in filler_words
+                and low not in filler_words
+            ):
+                start_t = token.get("start")
+                end_t   = token.get("end")
+                if ac.word_is_prolonged(start_t, end_t):
+                    extra_fields = {}
+                    if ac.available:
+                        rms_val = ac.word_rms(start_t, end_t)
+                        zcr_val = ac.word_zcr(start_t, end_t)
+                        extra_fields["acoustic_rms"] = round(float(rms_val), 5)
+                        extra_fields["acoustic_zcr"] = round(float(zcr_val), 4)
+                        extra_fields["voiced_duration"] = round(float(dur), 4)
+                        evidence = (
+                            f"voiced duration {dur:.2f}s on '{clean}' "
+                            f"(confirmed: RMS={rms_val:.4f}, ZCR={zcr_val:.3f})"
+                        )
+                    else:
+                        evidence = f"duration {dur:.2f}s on '{clean}'"
+                    add(i, "prolongation",
+                        min(0.95, dur / max(prolong_threshold, 0.01)),
+                        evidence, extra_fields or None)
 
     # ── Acoustic fusion (only when we actually have the waveform) ────────────────
     # Cross-check with ASR-independent cues from profiling/acoustic.py: catch
     # prolongations/blocks the token path missed — e.g. a sustained sound that
     # falls in a gap with no token of its own, or one the ASR's word timestamps
-    # under-shot. Pure addition: when an acoustic candidate overlaps an event we
-    # already flagged of the same type, we defer to the existing one (no double
-    # counting). Each kept candidate is attributed to the best-matching token so
-    # it carries a word/onset for the profile. Skipped entirely without audio, so
-    # fixtures and timestamp-only clips are byte-for-byte unchanged.
-    if ac.available:
+    # under-shot. Each kept candidate is attributed to the best-matching token so
+    # it carries a word/onset for the profile.
+    #
+    # Weighted-confidence fusion (not fixed priority): an acoustic candidate that
+    # overlaps an existing event of the same type only replaces it when the
+    # acoustic candidate is MORE confident (after fusion_weights.acoustic scaling)
+    # than that event's own confidence. On a tie, the existing (token-path) event
+    # is kept deliberately — it carries word-level grounding an audio-only
+    # candidate doesn't have on its own. When it wins, the weaker event is
+    # discarded and the acoustic one takes its place, so exactly one event
+    # survives per (index, type) either way — no double counting.
+    if "acoustic_fusion" in enabled and ac.available:
         from .acoustic import (
             AcousticConfig, detect_blocks, detect_prolongations, segment_voiced,
         )
@@ -630,16 +709,28 @@ def detect_disfluencies(
         acfg.block_min_seconds = block_gap
         segs = segment_voiced(ac.samples, ac.sr, acfg)
         for cand in detect_prolongations(segs, acfg) + detect_blocks(segs, acfg):
-            if any(
-                ev["type"] == cand.type
+            weighted_conf = min(0.99, cand.confidence * acoustic_weight)
+            overlapping = [
+                ev for ev in events
+                if ev["type"] == cand.type
                 and _spans_overlap(ev.get("start"), ev.get("end"), cand.start, cand.end)
-                for ev in events
-            ):
-                continue   # already found by the token path — don't double count
+            ]
+            if overlapping:
+                best = max(overlapping, key=lambda e: e["confidence"])
+                if weighted_conf <= best["confidence"]:
+                    # Existing (token-path) event already at least as confident —
+                    # annotate it with the acoustic corroboration, don't duplicate.
+                    if not best.get("acoustic_corroborated"):
+                        best["acoustic_corroborated"] = True
+                        best["evidence"] += f" [acoustic corroboration: {cand.evidence}]"
+                    continue
+                for ev in overlapping:
+                    discard(ev)
+
             idx = _token_index_for_span(rows, cand.start, cand.end)
             if idx is None:
                 continue
-            add(idx, cand.type, cand.confidence,
+            add(idx, cand.type, weighted_conf,
                 f"[acoustic] {cand.evidence}",
                 {"source": "acoustic",
                  "acoustic_start": round(cand.start, 3),

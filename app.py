@@ -169,11 +169,13 @@ div[role="radiogroup"] p { font-weight: 600 !important; font-size: .88rem !impor
     font-size: .73rem; font-weight: 700; margin: .12rem .18rem;
     color: #fff !important;
 }
-.am-pill-repetition     { background: #c2453b; }
-.am-pill-block          { background: #b5750a; }
-.am-pill-filler         { background: #6c4fc4; }
-.am-pill-prolongation   { background: #1d6fb8; }
-.am-pill-stutter_marker { background: #1f8a4c; }
+.am-pill-word_repetition   { background: #c2453b; }
+.am-pill-sound_repetition  { background: #a83232; }
+.am-pill-phrase_repetition { background: #d9685f; }
+.am-pill-block             { background: #b5750a; }
+.am-pill-filler            { background: #6c4fc4; }
+.am-pill-prolongation      { background: #1d6fb8; }
+.am-pill-stutter_marker    { background: #1f8a4c; }
 
 /* ── stat tiles ─────────────────────────────────────────────────────────── */
 .am-stats { display: flex; gap: .75rem; flex-wrap: wrap; margin: .6rem 0 1rem; }
@@ -615,17 +617,37 @@ def run_pipeline(
 
         with st.expander("Event table", expanded=bool(events)):
             if events:
-                st.dataframe(
-                    [{
+                # Acoustic-sourced events (source == "acoustic") carry the
+                # attributed word's full nominal span in start/end (needed for
+                # word-mapping/profile purposes) but the actual detected region
+                # is narrower and stored separately in acoustic_start/
+                # acoustic_end. Show that precise region when present — showing
+                # the wider nominal span here would misrepresent exactly what
+                # this app's Event table exists to report: WHERE the disfluency
+                # was actually detected, not which word it got attributed to.
+                def _span(e: dict) -> tuple[float | None, float | None]:
+                    if e.get("acoustic_start") is not None:
+                        return e["acoustic_start"], e.get("acoustic_end")
+                    return e.get("start"), e.get("end")
+
+                rows_out = []
+                for e in events:
+                    s, en = _span(e)
+                    rows_out.append({
                         "Word": e["word"],
                         "Type": e["type"],
                         "Confidence": f"{e['confidence']:.2f}",
-                        "Start (s)": f"{e['start']:.2f}" if e.get("start") is not None else "—",
-                        "End (s)": f"{e['end']:.2f}" if e.get("end") is not None else "—",
+                        "Start (s)": f"{s:.2f}" if s is not None else "—",
+                        "End (s)": f"{en:.2f}" if en is not None else "—",
                         "Evidence": e.get("evidence", ""),
-                    } for e in events],
-                    width="stretch", hide_index=True,
-                )
+                    })
+                st.dataframe(rows_out, width="stretch", hide_index=True)
+                if any(e.get("source") == "acoustic" for e in events):
+                    st.caption(
+                        "Rows marked [acoustic] show the precisely detected region "
+                        "(from the waveform), not the full span of the word they're "
+                        "attributed to."
+                    )
             else:
                 st.success("No disfluencies detected.")
 

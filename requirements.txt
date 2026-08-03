@@ -25,6 +25,23 @@ numpy>=1.24
 # ── Config ───────────────────────────────────────────────────────────────────
 PyYAML>=6.0
 
+# ── Audio-native disfluency detection (profiling/acoustic.py) ────────────────
+# Both are pretrained/zero-training, CPU-friendly, and strictly additive: if
+# either is missing, detect.py and acoustic.py degrade gracefully to their
+# original RMS/ZCR-only behaviour (see profiling/acoustic.py's module note).
+#
+# silero-vad: <2MB, real-time-on-CPU voice-activity model (published >95%
+#   accuracy). Corroborates/gates the acoustic-native prolongation detector
+#   against real speech rather than a single hand-tuned RMS constant. Pulls
+#   in torchaudio as a dependency (torch is already required above).
+silero-vad>=5.1
+# praat-parselmouth: Python binding to Praat. Adds pitch (F0), jitter,
+#   shimmer, and harmonics-to-noise ratio as prolongation-corroborating
+#   evidence — the standard acoustic feature set in the clinical-speech
+#   literature, beyond the RMS/ZCR-only signal this app started with. No
+#   model download; pure C-extension wheel.
+praat-parselmouth>=0.4.3
+
 # ── Do NOT install: optimum[openvino] ─────────────────────────────────────────
 # Tried as a faster CPU backend, but optimum-intel's OVModelForSpeechSeq2Seq
 # can't produce word-level timestamps (confirmed upstream bug,

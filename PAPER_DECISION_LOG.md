@@ -567,3 +567,296 @@ predict an ending timestamp … audio cut off" warnings: most likely the
 `max_new_tokens` ceiling (256 in `_max_new_tokens_for`) and/or long-form
 word-timestamp chunking. Needs investigation on a machine that can load the model
 (can't be reproduced on the 2.2 GB dev box). Tracked as the next task.
+
+---
+
+## 2026-08-03 — Vision alignment review + architecture decision
+
+**What was done**
+The project's owner restated the mission explicitly: audio-mod's primary
+purpose is to detect and localize speech disfluencies *from the audio
+signal itself*; verbatim transcription is scaffolding for that, not the end
+goal. The full codebase was re-read against that framing (every file in
+`profiling/` plus `app.py`, `auth.py`, `paths.py`, etc.), and a literature/
+dataset/model review was conducted: ~25 papers and 6 datasets (SEP-28k,
+FluencyBank Timestamped, LibriStutter, KSoF, UCLASS, plus AS-70/Boli for
+multilingual context) covering clip-level classifiers (StutterNet,
+wav2vec2-embedding classifiers, multi-task/adversarial learning), region/
+word-level localization architectures (YOLO-Stutter, Stutter-Solver,
+Self-supervised WavLM word-level detection, Dysfluent WFST, SSDM/SSDM 2.0),
+a direct comparative study across four representative architectures, a
+comprehensive analysis of rule-based/interpretable systems, and the
+end-user-alignment literature (stakeholder-need surveys for stuttering
+research broadly).
+
+**Finding**: the existing detector (`profiling/detect.py`) was
+architecturally transcript-first with acoustic confirmation bolted on, not
+audio-first. Filler and stutter-marker events trusted ASR flags with zero
+audio grounding; all repetition detection was pure text comparison; block/
+prolongation only used audio as a post-hoc veto on ASR-derived boundaries,
+never as the originating signal; an acoustic candidate overlapping a
+token-path event was always dropped regardless of which was more confident.
+This directly inverted the restated mission.
+
+**Alternatives considered**
+- Replace the two-stage (ASR + detector) pipeline with an end-to-end
+  audio→dysfluency-region model (YOLO-Stutter/Stutter-Solver/SSDM-class).
+  **Rejected**: these architectures still require a speech-text alignment as
+  input — they don't eliminate the ASR stage, only replace the detector with
+  something heavier. A 2025 comparative study (arXiv:2509.00058) directly
+  benchmarking YOLO-Stutter, FluentNet, UDM, and SSDM found the simplest/most
+  interpretable approach (UDM) had the best accuracy/interpretability
+  balance, while SSDM — the most complex — **could not be reproduced by the
+  paper's own independent authors**. Given this project has no GPU/training
+  pipeline and is a solo/small-team effort, adopting the field's most complex
+  architecture against evidence it isn't even independently reproducible was
+  judged an unjustifiable risk.
+- Discard the rule-based/acoustic detection tier entirely in favor of a
+  learned model. **Rejected**: "Revisiting Rule-Based Stuttering Detection"
+  (arXiv:2508.16681, 2025) found rule-based systems remain near-SOTA
+  specifically for prolongation detection (97–99% reported accuracy) and
+  recommended enhancement (richer acoustic features, hierarchical decision
+  structure), not replacement.
+- Replace CrisperWhisper. **Rejected**: its own paper (arXiv:2408.16589)
+  confirms it as the right tool specifically for verbatim transcription +
+  accurate word timestamps, which is exactly the role it plays here; no
+  evidence found suggests a better choice for that sub-task.
+
+**Why this choice**
+Keep the two-stage design (validated for the ASR stage specifically), but
+restructure Stage 2 to be audio-native-primary rather than
+transcript-first-with-confirmation — enhance the existing rule/acoustic tier
+(more features, corroboration, weighted fusion) using only pretrained/
+zero-training components, since no training pipeline exists yet and the
+comparative-study evidence favors interpretable-and-simpler over
+complex-and-unreproducible for a project at this stage. A learned classifier
+tier (frozen WavLM/wav2vec2) is identified as the clear future step, not
+this round's work — see `ROADMAP.md`.
+
+**Measured result**
+Not applicable — this entry is the analysis and decision; see the next entry
+for what was implemented and its verification.
+
+---
+
+## 2026-08-03 — Audio-native-primary detector restructuring
+
+**What was done**
+Implementing the decision above:
+- `profiling/detect.py`: taxonomy split — the generic `repetition` type
+  became `sound_repetition` (sub-word fragment repeats), `word_repetition`
+  (exact/near/filler-sandwiched whole-word repeats), `phrase_repetition`
+  (multi-word repeats) — matching the SEP-28k/FluencyBank/KSoF standard
+  5-class taxonomy. Acoustic corroboration added for `filler` and
+  `stutter_marker` (a voiced-energy presence check via the existing
+  `_AcousticContext.word_rms` primitive — previously these had zero audio
+  grounding). Token-vs-acoustic fusion changed from fixed priority ("token
+  path always wins on overlap") to weighted-confidence: the acoustic
+  candidate replaces the token-path event only when its
+  (`fusion_weights.acoustic`-scaled) confidence is strictly higher; ties
+  keep the token-path event deliberately (it carries word-level grounding an
+  audio-only candidate doesn't have). Config-driven `detectors` enable-list
+  added.
+- `profiling/acoustic.py`: enriched with Silero VAD and Praat/Parselmouth
+  (pitch, jitter, shimmer, HNR) as corroborating evidence for prolongation
+  detection.
+- New `profiling/evaluate.py` (v1): the first accuracy harness for this
+  detector, timestamp-only, LibriStutter-schema-compatible, with a bundled
+  synthetic self-test sample.
+- `config.yaml` / `profiling/config.py`: new `detectors`, `fusion_weights`,
+  and expanded `acoustic.*` keys, documented in both the YAML and the Python
+  hardcoded-fallback defaults.
+- `app.py`, `README.md`, `ARCHITECTURE.md` updated to match.
+
+**Alternatives considered**
+- Hard-replace RMS/ZCR voiced-segment classification with Silero VAD
+  outright. **Rejected after direct testing**: Silero VAD is trained on real
+  speech and was confirmed (`get_speech_timestamps` on a pure 150 Hz sine
+  tone) to return zero speech regions on this project's entire synthetic-tone
+  test suite — a hard swap would have silently broken every existing
+  synthetic-audio test. Implemented instead as a corroboration signal that
+  self-disables (opts out entirely) on any clip where VAD finds no speech
+  anywhere, preserving the project's model-free testing philosophy while
+  still gating real recordings against a validated model instead of one
+  hand-picked constant.
+- Build an elaborate offset-shape/abrupt-energy-drop acoustic check for
+  `stutter_marker` specifically (a cut-off fragment's characteristic energy
+  profile). **Deferred**: no real recordings existed yet to validate such a
+  heuristic against; shipped the simpler voiced-energy-presence check instead
+  (still closes the "zero audio grounding" gap) and flagged the more
+  elaborate version as future work (`ROADMAP.md`) pending real validation
+  data.
+
+**Why this choice**
+Closes the audio-grounding gap identified in the prior entry for the three
+event families that had none (filler, stutter_marker, and — via the
+acoustic tier finally being co-equal rather than subordinate — block/
+prolongation), while remaining fully buildable with pretrained/zero-training
+components on CPU-only, no-GPU hardware.
+
+**Measured result**
+Full test suite: 38/38 passing (28 pre-existing tests + 10 new tests in
+`tests/test_detect_taxonomy_and_fusion.py` covering the taxonomy split,
+filler/stutter_marker acoustic corroboration in both directions, the
+weighted-fusion replacement path — forced deterministically via
+`fusion_weights.acoustic=10.0` rather than relying on a naturally-occurring
+crossover — and the detector enable-list). Only 2 of 28 pre-existing tests
+needed a deliberate update (their type-filter helpers, `"repetition"` →
+`"word_repetition"`/`"phrase_repetition"`); every other pre-existing test,
+including the demo fixture's exact 9-token/7-event count, passed unmodified.
+`python -m profiling.benchmark_asr --self-test` and
+`python -m profiling.evaluate --self-test` both pass. The demo fixture run
+through the real `config.yaml` (not a test-provided config dict) reproduces
+9 tokens / 7 events with `word_repetition ×2` in place of the old
+`repetition ×2`.
+
+---
+
+## 2026-08-03 — Real-audio validation pass + event-table display fix
+
+**What was done**
+Two real microphone recordings were tested end-to-end by the project owner
+against the restructured detector (a self-introduction sentence, 31 tokens;
+"I went to the shop and bought a banana," 9 tokens, with deliberate word
+repetition). Reviewing the results surfaced:
+1. **A genuine, pre-existing UI bug** (predates this round's restructuring):
+   `app.py`'s Event table showed, for acoustic-sourced events, the full
+   nominal span of whichever word the event got attributed to
+   (`rows[index].start/end`) rather than the actual detected region
+   (`acoustic_start`/`acoustic_end`, computed but never rendered). Confirmed
+   by direct reproduction: one case showed a displayed span that barely
+   overlapped the true detected region at all. Fixed: the Event table now
+   prefers `acoustic_start`/`acoustic_end` when present.
+2. **A missed word repetition** — the speaker repeated "went" and "shop"
+   deliberately, but the transcript (9 tokens) contained no repeated words at
+   all, meaning CrisperWhisper's own transcription smoothed the repetition
+   away before the (purely text-based) repetition detector ever saw it.
+3. **Four "block" flags the speaker felt were just normal pauses**, while
+   the one disfluency they self-reported (stuttering on the word
+   "stuttering") wasn't flagged as anything.
+
+**Alternatives considered**
+- Retune `block_gap_seconds` (or add a similar quick threshold change) in
+  response to finding #3. **Rejected**: a single 2-clip, one-speaker,
+  no-ground-truth anecdotal test cannot distinguish a genuinely oversensitive
+  threshold from normal speech variation the speaker didn't consciously
+  register as a pause — exactly the ambiguity `VALIDATION.md` exists to
+  resolve with actual labeled data. Threshold changes based on this session's
+  anecdotal evidence were explicitly deferred to after real evaluation
+  numbers exist.
+- Attempt an acoustic-native repetition detector as a quick fix for finding
+  #2. **Rejected as "quick"**: real acoustic-native repetition detection
+  (recognizing that two acoustically similar segments were produced, without
+  relying on the transcript agreeing they're the same word) is a nontrivial,
+  currently-unbuilt capability, not a small patch — logged as a `ROADMAP.md`
+  item instead of rushed.
+
+**Why this choice**
+Fix what's unambiguously a bug (display, #1) immediately since it's small,
+low-risk, and purely presentational; explicitly do not act on findings #2/#3
+without ground truth, per the project's own measurement-first convention
+(established in this file's earlier entries) and the owner's explicit
+instruction to stop tuning based on anecdotal single-speaker tests.
+
+**Measured result**
+Fix #1 verified directly: reproducing the fusion test scenario from
+`tests/test_detect_fusion.py` showed the old logic would have displayed
+Start=2.40/End=2.80 (the attributed word "now"'s own tiny span) for an event
+whose actual detected sustained region was 0.58–2.00s — a materially
+different, non-overlapping-in-spirit span. After the fix, the displayed span
+matches `acoustic_start`/`acoustic_end` exactly. Full 38/38 test suite still
+passes (the fix is `app.py`-only, doesn't touch `detect.py`'s data model).
+`app.py` parses cleanly (`ast.parse`).
+
+---
+
+## 2026-08-03 — Evaluation methodology research (VALIDATION.md)
+
+**What was done**
+Following the real-audio validation pass above, and per the owner's explicit
+request to establish rigorous, reproducible, dataset-based evaluation before
+any further detection-algorithm changes, researched and documented (in the
+new `VALIDATION.md`) a complete evaluation methodology: dataset comparison
+and prioritization (LibriStutter Tier 1, SEP-28k Tier 2, KSoF/UCLASS Tier 3),
+a two-track evaluation design (Track A: detector-only against ground-truth
+transcripts; Track B: full pipeline including this project's own ASR, with
+hypothesis-to-reference alignment), metrics (per-type precision/recall/F1,
+per-type binary confusion matrices — not a single multi-class matrix, per the
+field's multi-label literature — IoU≥0.5 localization accuracy, EER,
+speaker-exclusive split discipline), required preprocessing/alignment work,
+a proposed `profiling/evaluation/` package redesign, and honestly-stated
+limitations (no dataset covers the full 7-type taxonomy; SEP-28k audio
+acquisition is fragile; annotator disagreement sets a non-1.0 ceiling; the
+Track B alignment step is itself a source of error requiring hand-validation).
+
+**Alternatives considered**
+- Treat the existing `profiling/evaluate.py` (built the same day, prior
+  entry) as sufficient. **Rejected**: it validates its own scoring math and
+  runs a synthetic smoke-test, but has never touched real labeled data, has
+  no localization or confusion-matrix metrics, and only implements one of
+  the two meaningfully different evaluation modes (Track A). Explicitly
+  judged insufficient for "scientifically rigorous, reproducible, and
+  comparable with published research" per the owner's stated goal.
+- Build the evaluation package immediately. **Not done**: the owner
+  explicitly requested a plan first, with implementation deferred until
+  after committing the current state as a baseline — see the sequencing
+  question asked and answered (wait for go-ahead) at the end of this session.
+
+**Why this choice**
+A rigorous evaluation methodology needs to be agreed and recorded *before*
+implementation, not discovered ad hoc while writing code — and the owner's
+own reasoning (an anecdotal 2-clip test can't disambiguate detector error
+from natural speech variation) is the direct, concrete justification for why
+this matters now rather than later.
+
+**Measured result**
+Not applicable — this entry is a research/planning step; no code was
+written. See `VALIDATION.md` §8 for the (currently empty, templated) results
+this methodology is meant to produce once implemented.
+
+---
+
+## 2026-08-03 — Documentation architecture established
+
+**What was done**
+Given the project's stated intent to grow into a research-quality system
+supporting an eventual paper, restructured the project's documentation set:
+added `DOCS.md` (a map explaining every file's purpose, audience, and update
+cadence), `VALIDATION.md` (methodology from the prior entry, plus living
+Results/Ablations/Benchmark-comparison sections — currently templated,
+awaiting real runs), `ROADMAP.md` (a single consolidated forward-looking
+priority list), and `CHANGELOG.md` (a terse, reverse-chronological index
+reconstructed from this file's full history, for fast scanning without
+reading every entry's full reasoning). This file's entries above were added
+retroactively for this session's work. `august.md` (the working notes from
+this session, written before this restructuring) was retired to a short stub
+— its content is now split between this file (reasoning) and `VALIDATION.md`
+(methodology).
+
+**Alternatives considered**
+- Keep `august.md` as a standalone, permanent record of this session
+  alongside this file. **Rejected**: this file already exists, predates
+  `august.md`, was purpose-built (per its own header) for exactly this kind
+  of record, and is explicitly append-only/chronological — maintaining two
+  parallel narrative histories would inevitably drift out of sync. Since
+  nothing in this session had been committed to git yet, there was no
+  external reference to `august.md` to preserve, making this the right time
+  to consolidate rather than after a commit made the file's URL/path
+  load-bearing.
+- Skip a dedicated `ROADMAP.md`/`CHANGELOG.md` and rely on this file alone.
+  **Rejected**: this file is deliberately full-reasoning and append-only,
+  which makes it the wrong shape for "what's the fast-scan summary" or
+  "what's next" — those are genuinely different queries a reader (or a
+  future paper draft) will make, and conflating them would make this file
+  worse at its own actual job.
+
+**Why this choice**
+Matches the stated goal directly: documentation that lets someone understand
+months from now exactly how the project evolved, why, what evidence
+supported each change, and how to continue — without reconstructing any of
+it from memory or git archaeology.
+
+**Measured result**
+Not applicable — documentation-only change. Self-review performed before
+recommending a commit checkpoint (see `DOCS.md` and this session's final
+message to the owner).

@@ -7,6 +7,10 @@ removes), builds a personalized profile of which sounds and word types are
 most difficult for that speaker, and calibrates detection to that speaker's
 own natural speaking tempo instead of a one-size-fits-all threshold.
 
+> This is one of several project docs — see [`DOCS.md`](DOCS.md) for the
+> full map (architecture, decision history, evaluation methodology,
+> roadmap). This file covers setup and usage only.
+
 ---
 
 ## What it does
@@ -34,20 +38,36 @@ odd read doesn't permanently skew the baseline.
 
 ### 3 — Disfluency detection
 
-The rule-based detector (`profiling/detect.py`) flags five event types:
+The detector (`profiling/detect.py`) is **audio-native-primary, not just
+ASR-transcript-confirmed**: the acoustic-native module (`profiling/acoustic.py`)
+independently derives its own candidates straight from the waveform (energy,
+zero-crossing rate, Silero VAD voice-activity, and Praat pitch/jitter/shimmer),
+and is reconciled with the text/timing-based checks through **weighted-confidence
+fusion** — the more confident signal wins per event, not a fixed "transcript
+always wins" priority. Filler and stutter-marker events, which previously
+trusted the ASR's own flags with no audio grounding at all, are now also
+acoustically corroborated.
 
-| Type               | How it's detected                                                                                              |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Repetition**      | Same word twice in a row, near-duplicate words (edit-distance similarity), a trailing fragment (`word-`) before the same word, or the same word recurring after an intervening filler ("I uh I") |
-| **Filler**          | Token matches a known filler list (`uh`, `um`, `er`, `erm`, `like`) or is marked `is_filler` by CrisperWhisper |
-| **Stutter marker**  | Token ends with `-` (sub-word fragment) or is marked `is_stutter` by CrisperWhisper |
-| **Block**           | Silent gap between two consecutive words exceeding the (calibrated, if available) block threshold, confirmed against actual audio silence when the waveform is available |
-| **Prolongation**    | Token duration exceeding the (calibrated, if available) prolongation threshold, confirmed against sustained voiced energy when the waveform is available |
+Event types follow the field's standard taxonomy (matching SEP-28k /
+FluencyBank / KSoF, so output is directly comparable to public benchmarks —
+see `profiling/evaluate.py`):
+
+| Type                   | How it's detected                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Sound repetition**    | A sub-word fragment (`word-`) repeated immediately before the word it fragments, e.g. "b- buy" |
+| **Word repetition**     | Same word twice in a row, near-duplicate words (phonetic similarity for short words, edit-distance for longer/OOV words), or the same word recurring after an intervening filler ("I uh I") |
+| **Phrase repetition**   | An immediately-repeated multi-word phrase (any length from 2 up to a configurable cap), e.g. "I want to I want to" |
+| **Filler**              | Token matches a known filler list (`uh`, `um`, `er`, `erm`, `like`) or is marked `is_filler` by CrisperWhisper — acoustically corroborated (voiced-energy check) when audio is available |
+| **Stutter marker**      | Token ends with `-` (sub-word fragment) or is marked `is_stutter` by CrisperWhisper — same acoustic corroboration as filler |
+| **Block**               | Silent gap between two consecutive words exceeding the (calibrated, if available) block threshold, confirmed against actual audio silence, then cross-checked against the independent acoustic-native block detector |
+| **Prolongation**        | Token duration exceeding the (calibrated, if available) prolongation threshold, confirmed against sustained voiced energy (RMS, ZCR) and, when available, stable pitch/low jitter/low shimmer — then cross-checked against the independent acoustic-native prolongation detector |
 
 Disfluencies at the start of a sentence get a small confidence boost —
 stuttering is overwhelmingly sentence-initial, so this is clinically
-meaningful, not just a stylistic weighting. All thresholds are configurable
-in `config.yaml`.
+meaningful, not just a stylistic weighting. All thresholds — including which
+detectors run and how much weight the acoustic-native signal gets in fusion —
+are configurable in `config.yaml` (`profiling.detection.detectors` and
+`profiling.detection.fusion_weights`).
 
 ### 4 — Speaker difficulty profile
 
@@ -116,8 +136,9 @@ audio-mod/
     ├── __init__.py
     ├── asr.py                 ← CrisperWhisper pipeline + resampler
     ├── benchmark_asr.py       ← ASR latency benchmark (table + RTF, --self-test)
-    ├── acoustic.py            ← ASR-independent waveform disfluency cues (realtime foundation; not yet wired in)
-    ├── detect.py              ← Rule-based disfluency detector
+    ├── acoustic.py            ← Audio-native disfluency cues: RMS/ZCR + Silero VAD + Praat pitch/jitter/shimmer/HNR
+    ├── detect.py              ← Disfluency detector — audio-native-primary, weighted-confidence fusion with text/timing checks
+    ├── evaluate.py            ← Accuracy harness against LibriStutter-format labeled data (--self-test)
     ├── profile.py             ← SpeakerDifficultyProfile (EWMA + onset risk + difficulty model)
     ├── calibration.py         ← Speaker tempo baseline (calibration sentence + threshold adjustment)
     ├── coldstart.py           ← Population priors + self-report seeding
@@ -175,7 +196,7 @@ Expected output in under 3 seconds:
 - Green log box completing the pipeline steps.
 - Transcript with orange-highlighted disfluent words.
 - Stats: 9 tokens, 7 disfluencies, 22.2% fluency rate.
-- Badges: `repetition ×2`, `stutter marker ×2`, `block ×1`, `filler ×1`, `prolongation ×1`.
+- Badges: `word repetition ×2`, `stutter marker ×2`, `block ×1`, `filler ×1`, `prolongation ×1`.
 - **Profile** tab showing risk bars for `B`, `T`, `S`.
 
 If all of that appears the full pipeline is working end-to-end without needing

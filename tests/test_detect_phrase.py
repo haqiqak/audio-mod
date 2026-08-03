@@ -41,7 +41,9 @@ def _toks(words: list[str], step: float = 0.3) -> list[dict]:
 
 
 def _phrase_events(events: list[dict]) -> list[dict]:
-    return [e for e in events if e["type"] == "repetition" and "phrase" in e["evidence"]]
+    # Phrase repetition is its own type under the standard taxonomy — see
+    # profiling/detect.py's module docstring point 1.
+    return [e for e in events if e["type"] == "phrase_repetition" and "phrase" in e["evidence"]]
 
 
 def test_two_word_phrase_repeat() -> None:
