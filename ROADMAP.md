@@ -325,6 +325,131 @@ confidence-stats run re-surfaced (§9.3.1); items 15-16 both require an
 explicit acquisition go-ahead per their own text above and are the
 larger lift.
 
+## Phase 3 architecture review is done (2026-08-04)
+
+Before starting Phase 3 implementation, the project owner asked for a
+first-principles challenge to the ASR-first two-stage architecture
+itself — not just its components — grounded in Phase 1/2's own evidence
+plus a fresh 2024-2026 literature pass. Full review: `PHASE_3_
+ARCHITECTURE_REVIEW.md`. **Headline: the two-stage architecture is kept**
+(no alternative found — SSL classifiers, end-to-end audio-region models,
+joint ASR+detection training — is decisively more accurate at this
+project's task granularity without infrastructure this project doesn't
+have), **but the review surfaced one new, well-evidenced, actionable
+item, added below as item 17.** See `PHASE_2_SUMMARY.md` §7 for the rest
+of Phase 3's evidence-ranked shortlist (items 9, 14, 10/16, 15, and a VAD/
+Praat-complexity revisit) — item 17 below now sits alongside that list,
+not separate from it.
+
+17. **[New, 2026-08-04, from `PHASE_3_ARCHITECTURE_REVIEW.md` §5.1/§8,
+    refined same day via an adversarial self-review] Extend
+    audio-native-primary detection to `word_repetition`/
+    `sound_repetition`/`filler` — staged, evidence-gated, starting from
+    CrisperWhisper's own encoder representations.** These three types
+    remain almost entirely token-text-dependent today (`ARCHITECTURE.md`:
+    the acoustic-native detector "has no repetition or filler logic at
+    all") — the same architectural gap `block` (Phase 1) and
+    `prolongation` (Phase 2) each closed by becoming less token-dependent
+    and more acoustic-native, both times with a measured accuracy
+    improvement. Independently corroborated by outside literature
+    (`PHASE_3_ARCHITECTURE_REVIEW.md` §3.6): ASR damages exactly these
+    three types most severely (35-47% WER impact) while damaging `block`
+    least (~20%).
+
+    **Staged plan** (full reasoning: `PHASE_3_ARCHITECTURE_REVIEW.md`
+    §5.1, §8):
+    1. **Stage 1**: CrisperWhisper's own last-layer encoder hidden
+       states (already computed on every clip via the pipeline's
+       existing forward pass — bypassing `pipeline()`'s wrapper is the
+       only new engineering cost; no new model, no new forward pass,
+       zero added latency) as a zero-training, non-parametric
+       corroboration signal, the same fusion role VAD/Praat already
+       play. Best available specific evidence: a Whisper encoder's last
+       layer alone reached F1 0.88/0.85/0.87 on SEP-28k+FluencyBank
+       clip-level classification (arXiv:2406.05784) — not word-level,
+       not CrisperWhisper-specific, a real gap this project's own Stage
+       1 evaluation would close.
+    2. **Explicit escalation trigger, fixed before Stage 1 runs**: a
+       weak/null Stage 1 result is itself the evidence that justifies
+       Stage 1b below, not a reason to quietly drop the whole idea.
+    3. **Stage 1b (evidence-gated)**: a frozen **WavLM-Large** pass — a
+       genuinely new model and a real added-latency cost this project
+       doesn't pay today, honestly priced as such, but the strongest
+       theoretical candidate if Stage 1 fails: no competing ASR training
+       objective diluting its acoustic sensitivity, the best published
+       word-level stuttering F1 found in this review (0.554,
+       arXiv:2409.10704), and a comparable-to-Whisper showing in the one
+       direct paralinguistic head-to-head found (arXiv:2502.19387, tone
+       classification, not disfluency-specific — a stated caveat).
+    4. **Stage 2 (either path)**: a small trained classification head,
+       only with explicit go-ahead — the first real departure from this
+       project's zero-training-component philosophy, decided
+       deliberately rather than backed into.
+
+    **Stage 1: done, 2026-08-04 — clear, stable, large-effect-size
+    result.** Pre-registered (`VALIDATION.md` §11), implemented, run at
+    30 then 90 clips: `word_repetition` Cohen's d = +1.047, `Any` d =
+    +1.116 (both well past the revised `|d| >= 0.5` bar, stable across
+    both sample sizes). CrisperWhisper's encoder carries information the
+    transcript alone does not. A real, unconfirmed duration/word-identity
+    confound named explicitly (`VALIDATION.md` §11.6), not hidden by the
+    positive headline. **Stage 1b (WavLM-Large) is therefore not
+    triggered** — the escalation condition (a weak/null Stage 1 result)
+    did not occur. **Stage 2 (a trained classification head, or
+    possibly a simpler zero-training threshold on the same distance
+    measure — an option this result itself surfaced, not originally
+    planned) awaits an explicit go-ahead, per `VALIDATION.md` §11.5 and
+    standing rule 4** — a clear result does not self-authorize the next
+    step. See `PAPER_DECISION_LOG.md`'s 2026-08-04 "Stage 1 result" entry
+    for the full audit and the stated limitation.
+
+    **Corroboration-mechanism review, same day**: re-opened the "what
+    happens with this signal" question from first principles rather than
+    defaulting to Stage 2 as originally scoped — see
+    `PHASE_3_ARCHITECTURE_REVIEW.md` §9. Found the mechanism question
+    (threshold vs. relative threshold vs. classifier) and the signal
+    question (distance-to-centroid vs. a new, untested repeat-pair
+    self-similarity candidate) are separable, and that at least three
+    combinations remain genuinely plausible — resolved by a pre-registered
+    5-fold cross-validated comparison (`VALIDATION.md` §12), not by
+    argument.
+
+    **Comparison result, same day: the classifier wins clearly — the
+    opposite of this project's own pre-registered prediction.**
+    `word_repetition` F1: threshold 0.588 vs. **classifier 0.749**;
+    `Any` F1: threshold 0.755 vs. **classifier 0.888** — beating the
+    threshold in 5/5 folds in both slices (verified directly, not just
+    from the mean). `VALIDATION.md` §12.4 had predicted a large Cohen's
+    d would leave little room for a classifier to improve on a
+    threshold; this is the opposite result, reported as a contradicted
+    prediction, not reframed as expected. The new repeat-pair-similarity
+    signal did not outperform the threshold either — a real, reported
+    negative result for a candidate this review specifically proposed.
+    **Real limitations named alongside the strong result**: modest
+    sample (93-130 events across 5 folds), untuned L2 regularization
+    strength, still LibriStutter's reconstructed-timing data.
+
+    **Reasoned decision, same day, under the new evidence-constrained-
+    architecture standing rule (`CLAUDE.md` rule 8)**: the §12.5 result
+    is real and positive enough to change this project's *working
+    expectation* — a learned corroboration signal is, on current
+    evidence, more likely the right direction for these two types than a
+    hand-calibrated threshold. **Not yet strong enough to ship as the
+    default**, for three named, evidence-based reasons (not a preference
+    for simplicity): a high-dimensional classifier's cross-validated
+    estimate is inherently less trustworthy than a threshold's at this
+    same small sample size; the regularization strength was fixed, not
+    tuned; and LibriStutter's reconstructed timing has fooled a
+    higher-capacity mechanism in this exact project before
+    (`VALIDATION.md` §8.3's prolongation-threshold history). **Next step
+    pre-registered, not run this session**: a larger-scale re-run with
+    nested-CV-tuned regularization and a fixed decision rule
+    (`VALIDATION.md` §12.6) — if the classifier's advantage holds,
+    implementation becomes the justified next step; if it doesn't, the
+    threshold (or no new mechanism) remains the default, recorded with
+    equal rigor either way. See `PAPER_DECISION_LOG.md`'s 2026-08-04
+    "Standing principle established" entry for the full reasoning.
+
 ## Near-term
 
 - **Validate `block` against SEP-28k/KSoF specifically** — LibriStutter's
@@ -385,6 +510,22 @@ larger lift.
   first place, and a second heavy model wasn't justified without evidence
   the existing timestamps are the bottleneck). Revisit only if `VALIDATION.md`
   results show word-boundary precision is actually a limiting factor.
+- **[New, 2026-08-04, from `PHASE_3_ARCHITECTURE_REVIEW.md` §3.8] Joint
+  ASR + disfluency-detection multi-task training** — the most direct
+  literature-found challenge to this project's two-stage assumption
+  (arXiv:2505.22005 reports a 37.71% relative CER reduction *and* a
+  46.58% relative detection-F1 improvement from training the two tasks
+  jointly rather than as separate stages, on Mandarin data). Not adopted
+  now: requires fine-tuning an ASR model jointly with detection labels,
+  which needs both a training pipeline this project doesn't have and a
+  paired transcript+word-level-disfluency English dataset this project
+  doesn't have (SEP-28k/LibriStutter don't pair the two the way this
+  training regime needs). This project has also already found that even
+  *swapping* ASR backends without retraining breaks compatibility
+  (faster-whisper's tokenizer incompatibility, `ARCHITECTURE.md` §3) —
+  fine-tuning the model itself is a substantially larger lift. Revisit
+  only if a training pipeline and a suitable paired English dataset both
+  become available.
 
 ## Explicitly rejected
 
@@ -396,7 +537,13 @@ dropped — do not re-litigate without new evidence.
   ASR-then-detector pipeline. Rejected: still require a speech-text alignment
   as input (don't remove the ASR stage), and a 2025 comparative study found
   the most complex of these (SSDM) irreproducible by an independent team —
-  see `PAPER_DECISION_LOG.md`'s 2026-08 restructuring entry.
+  see `PAPER_DECISION_LOG.md`'s 2026-08 restructuring entry. **Reaffirmed,
+  2026-08-04**, in the pre-Phase-3 architecture review: SSDM 2.0 (SSDM's
+  direct successor) is heavier still (adds a neural articulatory flow and
+  an LLM-integration pipeline, needs specialized corpora this project has
+  no access to) — the field's most complex end is getting more
+  specialized, not more accessible. See `PHASE_3_ARCHITECTURE_REVIEW.md`
+  §3.7.
 - **OpenVINO as the ASR backend** — confirmed upstream bug (optimum-intel
   #561), can't produce word timestamps this app depends on for everything.
   See `ARCHITECTURE.md` §3.

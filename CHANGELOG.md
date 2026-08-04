@@ -8,6 +8,137 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-04
 
+- **Standing principle established: architectural decisions are
+  evidence-constrained, not preservation-constrained (`CLAUDE.md` rule
+  8) — applied immediately to today's own open question.** Current
+  architecture and every prior decision are hypotheses, not defaults to
+  protect; simplicity/interpretability/ML/rule-based/pretrained/trained
+  are all engineering choices, none privileged by default. Applied to
+  the classifier-vs-threshold question: decided the evidence is real and
+  positive enough to shift this project's *working expectation* toward
+  the learned signal, but not yet decisive enough to ship (three named,
+  evidence-based reasons — small-sample classifier variance, untuned
+  regularization, reconstructed-timing overfitting risk — not a
+  simplicity preference). Pre-registered the specific follow-up
+  (`VALIDATION.md` §12.6: larger scale, nested-CV-tuned regularization,
+  a fixed decision rule) rather than guessing or stalling. → *PAPER_
+  DECISION_LOG.md, "Standing principle established: architectural
+  decisions are evidence-constrained..."*
+- **Corroboration-mechanism comparison result: the classifier wins
+  clearly — the opposite of this project's own pre-registered
+  prediction.** 5-fold CV: (S1, M1) threshold F1=0.588/0.755
+  (word_repetition/Any) vs. **(S1, M3) classifier F1=0.749/0.888** —
+  beating the threshold in 5/5 folds in both slices, verified directly
+  before trusting the claim. The new repeat-pair-similarity signal (S2)
+  did not outperform the threshold either. `VALIDATION.md` §12.4 had
+  predicted the opposite (large Cohen's d -> limited classifier
+  headroom) — reported as a contradicted prediction, not reframed as
+  expected. Real limitations named alongside the strong result (modest
+  sample, untuned regularization, reconstructed-timing data). Does not
+  itself authorize implementation — the real costs of shipping this
+  project's first trained-model artifact remain a separate decision. →
+  *PAPER_DECISION_LOG.md, "Corroboration-mechanism comparison result:
+  the classifier wins clearly..."*; full results in `VALIDATION.md`
+  §12.5.
+- **Corroboration-mechanism review: neither threshold nor classifier
+  assumed as the answer — a broader candidate space reviewed, a
+  comparison pre-registered.** Separated "which signal" from "which
+  decision mechanism" (previously conflated), evaluated against all nine
+  dimensions the owner named, found a new untested signal candidate
+  (repeat-pair self-similarity) and corrected a framing error (the
+  architecture never actually shared one strategy across types — it
+  already uses type-specific signals under one shared fusion mechanism).
+  Pre-registered a 5-fold, clip-split cross-validated comparison of
+  three candidates (`VALIDATION.md` §12). Built the measurement
+  infrastructure (raw-embedding collection, numpy logistic regression —
+  not scikit-learn, to avoid a new dependency) and smoke-tested it on
+  synthetic data before spending real compute. Full suite 59/59. Real
+  comparison running. → *PAPER_DECISION_LOG.md, "Corroboration-mechanism
+  review: neither 'threshold' nor 'classifier' assumed..."*; full review
+  in `PHASE_3_ARCHITECTURE_REVIEW.md` §9.
+- **Stage 1 result: a clear, stable, large-effect-size signal.**
+  90-clip run: `word_repetition` Cohen's d = +1.047, `Any` d = +1.116 —
+  both well past the revised `|d| >= 0.5` bar, and stable in sign and
+  magnitude from the 30-clip pilot. CrisperWhisper's own encoder
+  representation carries information the ASR transcript alone does not
+  (a genuine vs. coincidental repeated word produce identical tokens but
+  measurably different embeddings). A real, unconfirmed duration/word-
+  identity confound named explicitly, not hidden by the headline result.
+  Per pre-registration, this does not itself authorize implementing
+  Stage 2 — that remains a separate, explicit decision. → *PAPER_DECISION_
+  LOG.md, "Stage 1 result: a clear, stable, large-effect-size signal..."*;
+  full results in `VALIDATION.md` §11.6.
+- **30-clip Stage 1 pilot: a real, non-trivial gap found (`Any` +0.0895,
+  15-20x the VAD/Praat null result's magnitude) — but a real gap in the
+  pre-registration's own success criteria found first, and fixed before
+  drawing any conclusion.** The original criteria specified a direction,
+  not a rigorous way to judge magnitude against sample noise. Added
+  Cohen's d + stdev to `encoder_distance_stats()` (mirroring why Wilson
+  intervals were added in Phase 2), revised the success bar to require
+  `|Cohen's d| >= 0.5`, and — since the 30-clip pilot didn't save raw
+  per-event distances needed to compute it retroactively — launched a
+  90-clip run directly rather than re-running 30 twice. → *PAPER_DECISION_
+  LOG.md, "30-clip pilot: a real, non-trivial gap found; a real gap in
+  the pre-registration's own success criteria found and fixed..."*
+- **Stage 1 implemented exactly as pre-registered.**
+  `profiling/evaluation/encoder_features.py` (extraction/pooling/
+  distance), `metrics.encoder_distance_stats()`, `report.
+  format_encoder_distance_stats()`, `run_encoder_signal_stage1.py`. 12 new
+  unit tests, real-model smoke test passed. **Real cost discovered by
+  measurement, not estimated**: the encoder pass alone is ~38s/clip
+  (Whisper's fixed 30s-window encoder pass dominates transcription
+  latency regardless of clip length) — a full 499-clip run is ~6 hours,
+  not stated in the original pre-registration. Runner now defaults to a
+  30-clip pilot, mirroring Track B's own pilot-then-scale precedent, not
+  a methodology change. A real bug (a literal em-dash in a new `print()`
+  call) was caught immediately by the existing ASCII lint rule. Full
+  suite 57/57. → *PAPER_DECISION_LOG.md, "Stage 1 implemented exactly as
+  pre-registered; a real cost discovered and priced..."*
+- **Stage 1 (encoder-representation corroboration signal) pre-registered
+  before any implementation.** Exact methodology fixed in `VALIDATION.md`
+  §11: extract CrisperWhisper's last-layer encoder hidden states per
+  event span, test a zero-training cosine-distance-to-fluent-centroid
+  signal (reusing Phase 2's `confidence_stats()` TP-vs-FP-gap shape) on
+  the 499-clip LibriStutter sample, restricted to `word_repetition`/
+  `sound_repetition`/`filler`. Success criteria fixed in advance,
+  including that a null result triggers the already-agreed Stage 1b
+  escalation (frozen WavLM-Large) rather than being treated as a dead
+  end. A real methodological subtlety caught during this pass: testing
+  this signal requires running CrisperWhisper's encoder over real audio
+  even under Track A, which normally bypasses ASR entirely. No code
+  written yet. → *PAPER_DECISION_LOG.md, "Stage 1 (encoder-representation
+  corroboration signal) pre-registered before implementation"*.
+- **Encoder-reuse candidate refined to a specific, staged mechanism, then
+  adversarially challenged from a clean-slate design stance.** Refined:
+  compared cross-attention/encoder-hidden-states/decoder-confidence on
+  accessibility (all free — already computed by the existing
+  `pipeline()` call, just discarded) and evidence; encoder hidden states
+  won, staged as zero-training corroboration first, trained classifier
+  only later with explicit go-ahead. Then challenged: is an ASR-trained
+  encoder even the right representation family vs. a purpose-built SSL
+  encoder (wav2vec2/HuBERT/WavLM/SeamlessM4T)? Found the objection real
+  and unresolved (no direct disfluency-specific head-to-head exists), so
+  the plan now has an explicit, pre-stated escalation trigger to a frozen
+  WavLM-Large pass if the cheap first test fails, rather than picking a
+  winner by argument. → *PAPER_DECISION_LOG.md, "Encoder-reuse refined to
+  a specific, staged mechanism; then adversarially challenged..."*; full
+  reasoning in `PHASE_3_ARCHITECTURE_REVIEW.md` §5.1/§8.
+- **Pre-Phase-3 architecture review: is ASR-first the right foundation? Kept, with a scoped extension identified.**
+  Fresh 2024-2026 literature pass (newer Whisper models, disfluency-trained
+  ASR, SSL representations, acoustic embeddings, hybrid/end-to-end
+  architectures, joint ASR+detection training) cross-referenced against
+  this project's own Track A/B findings. **Conclusion: two-stage
+  architecture kept** (no alternative found is decisively more accurate at
+  this project's task granularity without infrastructure this project
+  doesn't have) **but a real next step identified: extend
+  audio-native-primary detection (already proven for `block`/
+  `prolongation`) to `word_repetition`/`sound_repetition`/`filler` via
+  CrisperWhisper's own encoder representations** — the lowest-cost
+  "richer representation" option since the forward pass already runs.
+  Not implemented — a Phase 3 candidate requiring its own pre-registration
+  first. → *PAPER_DECISION_LOG.md, "Pre-Phase-3 architecture review: is
+  ASR-first the right foundation?"*; full review in
+  `PHASE_3_ARCHITECTURE_REVIEW.md`.
 - **Prolongation redesign decided: Praat-gating adopted as the new
   default, rate-normalization rejected.** Pre-registered 4-variant
   ablation (13-variant full re-run) against the 499-clip real-audio

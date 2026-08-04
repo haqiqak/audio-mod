@@ -113,6 +113,42 @@ def format_confidence_stats(stats: dict[str, dict[str, float | int | None]]) -> 
     return "\n".join(out)
 
 
+def format_encoder_distance_stats(stats: dict[str, dict[str, float | int | None]]) -> str:
+    """Readable table for metrics.encoder_distance_stats' output
+    (VALIDATION.md §11, Phase 3 Stage 1) — mean cosine distance-to-fluent-
+    centroid of TP vs. FP events, per type. Positive gap (TP-FP) is the
+    "signal present" direction per the pre-registered hypothesis — the
+    opposite-looking-but-equivalent convention to format_confidence_stats,
+    since distance and confidence point in opposite semantic directions.
+    Includes Cohen's d (§11.4.1's dated addendum) so a modest-looking gap
+    on a small sample isn't judged by the raw number alone."""
+    headers = ["Type", "TP mean dist", "FP mean dist", "Gap (TP-FP)", "Cohen's d", "n_TP", "n_FP"]
+    body = []
+    for t, s in stats.items():
+        tp_m, fp_m = s.get("tp_mean_distance"), s.get("fp_mean_distance")
+        gap = (tp_m - fp_m) if (tp_m is not None and fp_m is not None) else None
+        d = s.get("cohens_d")
+        body.append([
+            t,
+            "n/a" if tp_m is None else f"{tp_m:.4f}",
+            "n/a" if fp_m is None else f"{fp_m:.4f}",
+            "n/a" if gap is None else f"{gap:+.4f}",
+            "n/a" if d is None else f"{d:+.3f}",
+            str(s.get("n_tp", 0)), str(s.get("n_fp", 0)),
+        ])
+    widths = [len(h) for h in headers]
+    for cells in body:
+        for i, cell in enumerate(cells):
+            widths[i] = max(widths[i], len(cell))
+
+    def line(cells: list[str]) -> str:
+        return "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(cells))
+
+    out = [line(headers), "  ".join("-" * w for w in widths)]
+    out.extend(line(cells) for cells in body)
+    return "\n".join(out)
+
+
 def git_commit() -> str | None:
     """Current commit hash, or None if not in a git repo / git unavailable —
     never raises, since a missing commit hash shouldn't block saving a run."""

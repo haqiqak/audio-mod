@@ -40,6 +40,20 @@ anything is untested or undecided:
   not intuition), new confidence-sensitive/interval-based measurement
   infrastructure, and several explicitly-documented negative and
   inconclusive results. → **`PHASE_2_SUMMARY.md`**
+- **Phase 3 (not yet started) opened with an architecture review, same
+  2026-08-04**: before writing any Phase 3 code, the project owner asked
+  for a first-principles challenge to the ASR-first two-stage
+  architecture itself. **Conclusion: kept as the foundation** — no
+  alternative found (self-supervised classifiers, end-to-end audio-native
+  models, joint ASR+detection training) is decisively more accurate at
+  this project's task granularity without infrastructure this project
+  doesn't have — **but one scoped, evidence-backed extension was
+  identified as the top Phase 3 candidate**: extend audio-native-primary
+  detection to `word_repetition`/`sound_repetition`/`filler` (currently
+  the most token-text-dependent, and per fresh literature, the types ASR
+  damages most) using CrisperWhisper's own encoder representations.
+  Not yet implemented or even pre-registered. → **`PHASE_3_ARCHITECTURE_
+  REVIEW.md`**, `ROADMAP.md` item 17.
 
 **If you are about to suggest "what should we do next," don't guess —
 read `ROADMAP.md` first.** It is very likely already there, in priority
@@ -82,9 +96,17 @@ for a first read:
    any Phase 2 code changed. Read this if you're touching detection logic
    for a specific disfluency type and want to know what the clinical/
    computational literature says about it.
-9. **`CLAUDE.md`** — short, stable orientation and the standing rules
-   (condensed again in §5 below). Loaded automatically for a Claude Code
-   session; read it directly if you're a human or a different tool.
+9. **`PHASE_3_ARCHITECTURE_REVIEW.md`** — a first-principles challenge to
+   the ASR-first two-stage architecture itself (not just its components),
+   written before any Phase 3 code changed. Read this before proposing or
+   implementing anything that touches the ASR/detector boundary — it
+   already weighs newer ASR models, self-supervised representations,
+   end-to-end audio-native architectures, and joint ASR+detection
+   training against this project's own evidence, and names a specific,
+   scoped next step (item 17 in `ROADMAP.md`).
+10. **`CLAUDE.md`** — short, stable orientation and the standing rules
+    (condensed again in §5 below). Loaded automatically for a Claude Code
+    session; read it directly if you're a human or a different tool.
 
 ## 4. What's proven vs. what's still a hypothesis
 
@@ -152,6 +174,20 @@ run (full text: `CLAUDE.md`). They are not aspirational:
    now by `tests/test_ascii_console_output.py` — the Windows `cp1252`
    console has broken on non-ASCII characters in evaluation-harness
    output three separate times before this check existed.
+8. **Architectural decisions are evidence-constrained, not preservation-
+   constrained.** The current architecture and every prior design
+   decision are hypotheses that earned their place through evidence, not
+   defaults to protect — simplicity, interpretability, rule-based logic,
+   ML, pretrained and newly-trained components are all engineering
+   choices, none automatically privileged. Decide confidently once
+   evidence supports it (and record why); when it doesn't, name the
+   specific uncertainty, pre-register what would resolve it, run that,
+   then decide — never guess, and never default to the simpler/existing
+   option just because it's simpler or existing. See `PHASE_3_
+   ARCHITECTURE_REVIEW.md` and `VALIDATION.md` §12 for the standard this
+   was first applied to, and `PAPER_DECISION_LOG.md`'s 2026-08-04
+   "Standing principle established" entry for a worked example of
+   applying it to a real, not-yet-fully-decisive result.
 
 ## 6. Getting productive quickly
 

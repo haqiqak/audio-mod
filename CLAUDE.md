@@ -29,11 +29,17 @@ correct, found two real gaps (see that file), and set the actual order of
 Phase 2 work; that work is now done (two detector fixes, a prolongation
 redesign decided by pre-registered ablation, new confidence/CI measurement
 infrastructure, and several documented negative/inconclusive results —
-see `PHASE_2_SUMMARY.md`). `ROADMAP.md` reflects the post-Phase-2 state:
-current priorities, in order, each linked to the specific finding that
-justifies it. If you're about to suggest a next step, check `ROADMAP.md`
-first — it's very likely already there with reasoning, and a change of
-plan should update it, not silently diverge from it.
+see `PHASE_2_SUMMARY.md`). **Phase 3 has not started implementation yet**
+— it opened with a first-principles architecture review (`PHASE_3_
+ARCHITECTURE_REVIEW.md`, 2026-08-04) that kept the ASR-first two-stage
+architecture but identified one scoped, evidence-backed extension
+(`ROADMAP.md` item 17) as the top candidate; read that review before
+proposing anything that touches the ASR/detector boundary. `ROADMAP.md`
+reflects the current state: priorities in order, each linked to the
+specific finding that justifies it. If you're about to suggest a next
+step, check `ROADMAP.md` first — it's very likely already there with
+reasoning, and a change of plan should update it, not silently diverge
+from it.
 
 ## Standing rules for working in this repo
 
@@ -74,6 +80,29 @@ run, not aspirational — follow them by default:
    by `tests/test_ascii_console_output.py` (an AST-based check on `print()`
    calls under `profiling/`) — but the check's scope is that directory
    only, so stay disciplined in anything new outside it too.
+8. **Architectural decisions are evidence-constrained, not preservation-
+   constrained** (project owner, 2026-08-04). The current architecture,
+   implementation style, and every prior design decision are hypotheses
+   that earned their place through evidence — not defaults to protect for
+   their own sake. Simplicity, interpretability, rule-based logic, machine
+   learning, hybrid methods, pretrained components, and newly-trained
+   components are all *engineering choices*, not objectives in themselves;
+   none gets automatic priority over the others. The one question that
+   governs an architectural decision: *which approach most effectively
+   serves accurate disfluency detection/classification/localization, and
+   what evidence supports that conclusion?* Autonomy to decide is granted,
+   but it is evidence-constrained: reach a decision once real evidence
+   supports it confidently (and record the reasoning so a future reader
+   can see why, not just what), or — if the evidence doesn't yet support
+   a confident call — say so explicitly, name exactly what's uncertain,
+   pre-register the specific validation that would resolve it, run it, and
+   only then decide. Do not guess, and do not default to the
+   simpler/existing option just because it's simpler or existing. This
+   sits alongside, not in tension with, rule 4: rule 4 is about not
+   silently retuning a config value in response to noise; this rule is
+   about who has standing to make a *considered, evidenced* architecture
+   call once real evidence exists — see `PHASE_3_ARCHITECTURE_REVIEW.md`
+   and `VALIDATION.md` §12 for the standard this was first applied to.
 
 ## Where to look for what
 

@@ -55,6 +55,7 @@ from profiling.evaluation.metrics import (
     ANY_LABEL,
     TypeCounts,
     confidence_stats,
+    encoder_distance_stats,
     format_confusion_matrix,
     localization_rate,
     score_word_level,
@@ -422,6 +423,48 @@ def run_self_test() -> int:
           stats["filler"]["n_tp"] == 2 and stats["filler"]["n_fp"] == 2, str(stats["filler"]))
     check("confidence_stats: Any-label present and matches filler here (single-type case)",
           stats[ANY_LABEL]["n_tp"] == 2 and stats[ANY_LABEL]["n_fp"] == 2, str(stats[ANY_LABEL]))
+
+    # 8. encoder_distance_stats (VALIDATION.md §11, Phase 3 Stage 1) —
+    # hand-constructed TP/FP distance gap. Same shape as section 7's
+    # confidence_stats test, reading "encoder_distance" instead of
+    # "confidence" — TP > FP is the "signal present" direction here too
+    # (a genuine disfluency is hypothesised to sit farther from the
+    # clip's fluent centroid than a false positive).
+    dist_clip = LabeledClip(
+        name="dist", tokens=[{"word": w, "start": i * 0.3, "end": i * 0.3 + 0.2}
+                              for i, w in enumerate(["a", "b", "c", "d"])],
+        ground_truth={0: "filler", 2: "filler"},
+    )
+    dist_events = [
+        {"index": 0, "type": "filler", "encoder_distance": 0.80},  # TP, far from fluent centroid
+        {"index": 1, "type": "filler", "encoder_distance": 0.10},  # FP, close to fluent centroid
+        {"index": 2, "type": "filler", "encoder_distance": 0.70},  # TP, far from fluent centroid
+        {"index": 3, "type": "filler", "encoder_distance": 0.15},  # FP, close to fluent centroid
+    ]
+    dstats = encoder_distance_stats([dist_clip], [dist_events], ("filler",))
+    check("encoder_distance_stats: TP mean distance computed correctly",
+          abs(dstats["filler"]["tp_mean_distance"] - 0.75) < 1e-9, str(dstats["filler"]))
+    check("encoder_distance_stats: FP mean distance computed correctly",
+          abs(dstats["filler"]["fp_mean_distance"] - 0.125) < 1e-9, str(dstats["filler"]))
+    check("encoder_distance_stats: TP mean > FP mean in this hand-constructed gap case",
+          dstats["filler"]["tp_mean_distance"] > dstats["filler"]["fp_mean_distance"], str(dstats["filler"]))
+    check("encoder_distance_stats: events missing encoder_distance are ignored, not errors",
+          encoder_distance_stats([dist_clip], [[{"index": 0, "type": "filler"}]], ("filler",))
+          ["filler"]["n_tp"] == 0)
+    # 8b. Cohen's d / stdev addendum (VALIDATION.md §11.4.1, added the same
+    # day as this metric's first real run, once a modest-looking gap on a
+    # small pilot sample showed the original criteria needed a real effect
+    # size to judge, not just the raw gap number).
+    check("encoder_distance_stats: tp_stdev computed correctly",
+          abs(dstats["filler"]["tp_stdev"] - 0.0707106781) < 1e-6, str(dstats["filler"]["tp_stdev"]))
+    check("encoder_distance_stats: cohens_d is large and positive for this clean, well-separated case",
+          dstats["filler"]["cohens_d"] is not None and dstats["filler"]["cohens_d"] > 1.0,
+          str(dstats["filler"]["cohens_d"]))
+    single_sample_stats = encoder_distance_stats(
+        [dist_clip], [[{"index": 0, "type": "filler", "encoder_distance": 0.5}]], ("filler",),
+    )
+    check("encoder_distance_stats: cohens_d is None (not 0.0) when a group has <2 samples",
+          single_sample_stats["filler"]["cohens_d"] is None, str(single_sample_stats["filler"]))
 
     print(f"\n{'ALL PASS' if not failures else str(failures) + ' FAILURE(S)'}")
     return 1 if failures else 0

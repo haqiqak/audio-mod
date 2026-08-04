@@ -244,6 +244,95 @@ def confidence_stats(
     return out
 
 
+# ── Stage 1 encoder-representation signal ──────────────────────────────────
+
+def encoder_distance_stats(
+    clips: list[LabeledClip],
+    predictions: list[list[dict]],
+    scorable_types: Iterable[str],
+) -> dict[str, dict[str, float | int | None]]:
+    """Mean `encoder_distance` (cosine distance to the clip's own fluent-
+    token centroid, attached by `encoder_features.attach_encoder_distances`)
+    of true-positive vs. false-positive events, per type and combined
+    ("Any"). Pre-registered `VALIDATION.md` §11 (Phase 3, Stage 1): the
+    working hypothesis is that a genuine disfluency's encoder embedding
+    sits measurably *farther* from the clip's fluent baseline than a
+    false-positive detection's does — so, unlike `confidence_stats()`
+    (where TP > FP indicates a working signal), here TP mean distance >
+    FP mean distance is the "signal present" direction; a near-zero or
+    inverted gap is a valid, reportable null result, not a bug.
+
+    Deliberately the exact same shape as `confidence_stats()` (reading
+    `encoder_distance` instead of `confidence`) so it plugs into the same
+    reporting/CI machinery and is directly comparable to that earlier
+    result.
+
+    Also reports each group's standard deviation and Cohen's d (pooled)
+    for the TP-vs-FP gap. Added 2026-08-04, the same day as this
+    function's first real run, as a dated addendum to §11's own
+    pre-registration (`VALIDATION.md` §11.4.1): the original success
+    criteria ("meaningfully higher... consistently in the expected
+    direction") turned out to be under-specified for judging a real but
+    modest-looking gap on a small pilot sample without a real effect-size
+    number to anchor the judgment — the same kind of gap this project
+    already closed once for small-n recall claims via Wilson intervals
+    (`VALIDATION.md` §8.4.3). This does not change what was measured,
+    only how rigorously the same numbers are judged.
+    """
+    scorable_types = tuple(scorable_types)
+    tp_dist: dict[str, list[float]] = {t: [] for t in scorable_types}
+    fp_dist: dict[str, list[float]] = {t: [] for t in scorable_types}
+    tp_dist[ANY_LABEL] = []
+    fp_dist[ANY_LABEL] = []
+
+    for clip, events in zip(clips, predictions):
+        for e in events:
+            t = e.get("type")
+            dist = e.get("encoder_distance")
+            if t not in scorable_types or dist is None:
+                continue
+            true_type = clip.ground_truth.get(e["index"])
+            (tp_dist[t] if t == true_type else fp_dist[t]).append(dist)
+            has_true = true_type in scorable_types
+            (tp_dist[ANY_LABEL] if has_true else fp_dist[ANY_LABEL]).append(dist)
+
+    def _mean(xs: list[float]) -> float | None:
+        return (sum(xs) / len(xs)) if xs else None
+
+    def _stdev(xs: list[float]) -> float | None:
+        if len(xs) < 2:
+            return None
+        m = sum(xs) / len(xs)
+        return (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
+
+    def _cohens_d(tp: list[float], fp: list[float]) -> float | None:
+        """Pooled-SD Cohen's d for the TP-vs-FP gap. None when either group
+        has fewer than 2 samples (no variance to pool) -- an honest "not
+        enough data to estimate an effect size", not a silently-wrong 0.0."""
+        if len(tp) < 2 or len(fp) < 2:
+            return None
+        s_tp, s_fp = _stdev(tp), _stdev(fp)
+        n_tp, n_fp = len(tp), len(fp)
+        pooled_var = ((n_tp - 1) * s_tp ** 2 + (n_fp - 1) * s_fp ** 2) / (n_tp + n_fp - 2)
+        pooled_sd = pooled_var ** 0.5
+        if pooled_sd == 0:
+            return None
+        return (_mean(tp) - _mean(fp)) / pooled_sd
+
+    out: dict[str, dict[str, float | int | None]] = {}
+    for t in list(scorable_types) + [ANY_LABEL]:
+        out[t] = {
+            "tp_mean_distance": _mean(tp_dist[t]),
+            "fp_mean_distance": _mean(fp_dist[t]),
+            "tp_stdev": _stdev(tp_dist[t]),
+            "fp_stdev": _stdev(fp_dist[t]),
+            "cohens_d": _cohens_d(tp_dist[t], fp_dist[t]),
+            "n_tp": len(tp_dist[t]),
+            "n_fp": len(fp_dist[t]),
+        }
+    return out
+
+
 # ── Localization (IoU) ─────────────────────────────────────────────────────
 
 def _iou(a0: float, a1: float, b0: float, b1: float) -> float:
