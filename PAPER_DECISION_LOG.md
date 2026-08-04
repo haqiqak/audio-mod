@@ -1940,3 +1940,1251 @@ New `CLAUDE.md`. Full regression suite re-verified after all doc-only
 changes (no source code was modified in this entry — `detect.py`,
 `acoustic.py`, and the evaluation package's logic are all unchanged from
 the previous entry).
+
+---
+
+## 2026-08-03 — Phase 2 opening literature review: is our taxonomy scientifically sound?
+
+**What was done**
+Before any Phase 2 implementation, the project owner asked whether the
+current 7-type taxonomy (`filler`, `sound_repetition`, `word_repetition`,
+`phrase_repetition`, `block`, `prolongation`, `stutter_marker`) is
+scientifically optimal, or an artifact of Phase 1's own baseline that
+hasn't been checked against the literature. Reviewed: clinical
+speech-pathology taxonomy (the stuttering-like vs. other-disfluencies
+distinction, Ambrose & Yairi's framework), acoustic/computational detection
+literature (per-type detection strategies, a recent rule-based-detection
+preprint directly comparable to this project's own architecture), and
+re-confirmed dataset annotation conventions (SEP-28k, FluencyBank, KSoF,
+UCLASS) against a wider literature sweep than Phase 1's original dataset
+comparison. Full write-up, citations, and the resulting structured Phase 2
+plan: `PHASE_2_RESEARCH_PLAN.md` (new file — this is a literature review
+and research plan, not a results/methodology document, so it doesn't belong
+in `VALIDATION.md`).
+
+**Headline conclusion: the core 5-type taxonomy is scientifically sound
+and correctly matches the field — no wholesale redesign is justified.**
+Every major dataset reviewed (SEP-28k, FluencyBank, KSoF) uses essentially
+the same 5 types (block, prolongation, sound repetition, word repetition,
+interjection) Phase 1 already aligned with. This review's value is in what
+it found *within* and *around* that already-correct core, not in
+overturning it:
+
+1. **A real, literature-backed distinction our `word_repetition` type
+   ignores**: clinically, monosyllabic word repeats ("her-her-her") are
+   stuttering-like (motoric), while polysyllabic word repeats are
+   classified as ordinary linguistic-planning disfluencies, not
+   stuttering — a distinction with real diagnostic significance that costs
+   nothing to add (syllable count is already computed elsewhere in this
+   codebase for `profile.difficulty()`) and doesn't break any existing
+   dataset benchmark (additive metadata, not a new required label).
+2. **A real, previously-undocumented architectural gap**: verified directly
+   against `profiling/detect.py`/`acoustic.py` that the `block` detector
+   only implements the *silent* block sub-type (`gap_is_silent()` is a pure
+   RMS-below-threshold check) — the literature identifies a second,
+   acoustically distinct "audible/struggle" block sub-type (sustained
+   low-amplitude tension energy, not silence) that this project has no code
+   path for at all. Also confirmed as the type where even the literature's
+   own rule-based systems perform worst (largest neural-vs-rule-based gap
+   of any type) — a genuinely hard problem generally, not unique to this
+   codebase.
+3. **A convergent, three-source case for prolongation as Phase 2's
+   highest-confidence detector-side target**: Phase 1's own ablation study
+   already found `prolongation_min_seconds` dominates measured performance
+   by an order of magnitude; the literature independently identifies
+   prolongation as the type rule-based methods handle best, given
+   speaking-rate normalization and multi-feature (spectral-stability +
+   F0-stability + HNR) core detection rules instead of duration-threshold
+   alone; and prolongation is the type with the strongest, most uniform
+   dataset support across every candidate corpus. This project already
+   computes most of the needed Praat features but only uses them as
+   post-hoc confidence adjustments (confirmed inert to the current metric
+   by Phase 1's own §9.3 finding) — using them as *core* detection criteria
+   instead is the specific, well-evidenced candidate change identified.
+4. **Independent, cross-project corroboration of two things Phase 1 already
+   found on its own**: a completely different codebase/dataset's error
+   analysis reports the same class of confusion this project's Track B
+   analysis found (adjacent disfluency types — sound-repetition-before-
+   prolongation, word-repetition-vs-phrase-repetition — getting conflated),
+   and a separate synthetic-disfluency-data study independently confirms
+   the generalization concern Phase 1's own closing review raised about
+   LibriStutter's synthetic splicing (`VALIDATION.md` §7.2 item 3). Neither
+   changes a prior conclusion; both raise confidence the prior conclusions
+   were identifying real, general phenomena, not project-specific quirks.
+5. **Confirmed, not newly found: `phrase_repetition` and `stutter_marker`
+   have zero dataset support anywhere in the literature reviewed** (already
+   known from Phase 1's own dataset comparison, now confirmed across a
+   wider sweep) — and `phrase_repetition` specifically maps to the clinical
+   "Other Disfluencies" category, i.e. lower diagnostic significance even
+   where clinically recognized at all, not just an annotation gap.
+6. **One existing architectural choice validated, not challenged**: the
+   field's own literature (Bayerl et al., "A Stutter Seldom Comes Alone")
+   argues stuttering detection should be a multi-label problem, not forced
+   single-class — this project's event structure already allows multiple
+   simultaneous labels per token. No change indicated.
+
+**Recommendation on subset focus**: yes — Phase 2 should concentrate
+detector-side effort on a deliberately narrowed, evidence-ranked subset
+rather than optimizing all 7 types at once. Full ranked list and reasoning:
+`PHASE_2_RESEARCH_PLAN.md` §6.
+
+**Recommendation on Phase 2's actual opening step**: not a single answer —
+a specific ordering across taxonomy refinement, ASR validation, and
+detector redesign, not one winner-take-all direction. (1) Cheap,
+low-risk taxonomy/documentation refinements first (the syllable-count
+sub-tag, explicit dataset-validation-status labeling, documenting the
+silent-only block gap) — additive, no new Track A/B runs needed to trust.
+(2) In parallel, Phase 1's own already-top-ranked `ROADMAP.md` priority
+(ASR-backend/speaker-diversity validation) proceeds unchanged — this
+review reinforces why it matters rather than superseding it. (3) The
+prolongation core-detection redesign, evidence-gated on (2)'s outcome and
+pre-registered before implementation, per this project's standing
+discipline — the single highest-confidence architecture-level change this
+review found. (4) The already-scoped word/sound-repetition
+type-classification fix. Full reasoning: `PHASE_2_RESEARCH_PLAN.md` §7.
+
+**Alternatives considered**
+- Treat this as confirmation to proceed straight to detector implementation
+  (e.g., start building the prolongation redesign immediately).
+  **Rejected**: the project owner was explicit that this session is
+  philosophy/planning only, and Step 3 is itself explicitly gated on Step
+  2's outcome (ASR-backend validation) — implementing now would pre-empt
+  evidence not yet gathered.
+- Treat the taxonomy as needing a deeper redesign (e.g., splitting
+  `word_repetition` into two first-class types instead of a computed
+  sub-tag on the existing type). **Rejected for now**: no dataset labels
+  this split directly, so a first-class type split would create a type
+  with *weaker* dataset validation than the sub-tag approach, for the same
+  clinical information — the sub-tag achieves the literature-motivated
+  goal without the compatibility cost.
+- Build audible/tense block detection now, since it's a real, clearly
+  identified gap. **Rejected, deferred with reasoning**: no available
+  dataset can validate it (§5 of the research plan), which would repeat
+  the exact anecdotal-validation mistake Phase 1 was built to avoid.
+  UCLASS's possible finer annotations are flagged as worth verifying
+  directly before deciding this is buildable with real validation at all.
+- Rely on the two preprints found (arXiv:2508.16681, arXiv:2505.22029) as
+  settled findings. **Rejected**: explicitly weighted as suggestive,
+  non-peer-reviewed evidence, given the most weight where they
+  independently corroborate something this project already found on its
+  own rather than standing alone.
+
+**Why this choice**
+Directly answers what the project owner asked: do not assume Phase 1's
+taxonomy is optimal just because it was the baseline; check it against the
+literature; keep any redesign compatible with the existing validation
+strategy; decide whether Phase 2 should focus on a subset; and produce a
+structured, evidence-justified plan before any implementation begins.
+
+**Measured result**
+No code changed — this is a research/planning entry. Deliverable:
+`PHASE_2_RESEARCH_PLAN.md` (full literature review, gap analysis,
+dataset-compatibility analysis, and structured plan). `ROADMAP.md` updated
+to reflect the refined Phase 2 ordering (§ pointer in that file). Full
+regression suite not re-run for this entry (no code touched) — last
+verified green in the previous entry.
+
+---
+
+## 2026-08-03 — Adversarial self-review of the Phase 2 plan, and its first implementation milestone (Step 1)
+
+**What was done**
+Per the project owner's explicit instruction, actively tried to disprove
+`PHASE_2_RESEARCH_PLAN.md`'s own conclusions before proceeding to
+implementation — not treat the prior literature review as self-evidently
+correct. Re-searched specifically for counter-evidence: stronger/
+peer-reviewed sources for the prolongation-first claim, alternative
+taxonomies (continuous/phonetic dysfluency representations, e.g. SSDM/
+Dysfluent-WFST), and the field's dominant deep-learning trend as a
+challenge to staying rule-based. Full write-up: `PHASE_2_RESEARCH_PLAN.md`
+§9.
+
+**Result: the plan's ordering held up, but its evidentiary grounding was
+measurably weak in one place and is now fixed.** The original
+prolongation-first case leaned on a single non-peer-reviewed preprint.
+Found two independent, peer-reviewed sources that were missing: Esmaili et
+al. 2017 (*J. Medical Signals and Sensors*, 99%/97.1% prolongation
+accuracy on UCLASS/Persian corpora via the same rate-normalization
+technique) and a genuine PMC-indexed systematic review of 14 studies
+independently confirming prolongation/interjection are the easiest types
+to detect reliably and blocks the hardest. The preprint is demoted to
+tertiary evidence; these two are now the primary citations. A real
+discrepancy was also caught and flagged rather than quietly resolved
+(UCLASS's recording count is reported as 118 by one source, 457 by
+another — not yet independently verified by this project). The
+rule-based-vs-deep-learning tension was addressed directly rather than
+ignored: the field's own systematic review confirms deep learning
+dominates raw performance, but explainability is a co-equal, explicitly
+stated project objective, so staying interpretable-first is a deliberate,
+justified choice for this project specifically, not a universal claim — a
+scoped, block-specific future role for pretrained embeddings (as an
+auxiliary confidence signal, not a replacement) was identified as the most
+targeted place a learned component could eventually go, if a suitable
+dataset ever exists to validate it. **No direction found (continuous
+taxonomy, deep-learning-first, different dataset priority, different first
+step) was strong enough to change the plan's ordering.**
+
+**First implementation milestone (Step 1 of the plan's §7): taxonomy/
+documentation refinements, implemented and benchmarked.**
+
+1. **`word_repetition` SLD/OD sub-tag.** `_word_repetition_extra()`
+   (`profiling/detect.py`) computes `syllable_count` (via the existing
+   `phonetic._syllable_count()`, already used by `profile.py`'s
+   `difficulty()`) and `likely_sld` (`syllable_count <= 1`) for every
+   `word_repetition` event — monosyllabic repeats tagged stuttering-like
+   per the Ambrose & Yairi clinical framework, polysyllabic tagged an
+   ordinary linguistic-planning disfluency. Wired into all three
+   `word_repetition` call sites (exact back-to-back, near/phonetic repeat,
+   filler-sandwiched repeat). Surfaced in `app.py`'s Event table as a
+   "Class" column (SLD/OD), with an explicit caption stating it is a
+   descriptive heuristic, not a validated clinical measure.
+2. **Explicit dataset-validation-status labeling.** `README.md`'s taxonomy
+   table now states plainly that `phrase_repetition`/`stutter_marker` are
+   not annotated as a distinct category in any public benchmark dataset
+   this project validates against — extended from `VALIDATION.md` §2 (where
+   this was already noted) to the user-facing docs and the app's own event
+   table caption.
+3. **Silent-only `block` gap documented.** `ARCHITECTURE.md`'s known-
+   limitations section and §4 now state directly (verified against the
+   source, not inferred) that `block` detection has no code path for the
+   literature's "audible/struggle" sub-type — confirmed by reading
+   `_AcousticContext.gap_is_silent()`, a pure RMS-below-threshold check.
+
+**Benchmarked against the frozen Phase 1 baseline, not assumed safe.**
+Re-ran Track A on the identical 499-clip LibriStutter+audio sample used for
+`VALIDATION.md` §8.3. Result: **byte-for-byte identical** to the frozen
+baseline across every type and the `Any` label (`Any` TP=801, FP=308, FN=8,
+Precision=0.722, Recall=0.990, F1=0.835 — matches §8.3 exactly). Confirms
+the change is purely additive metadata with zero effect on detection or
+scoring, as designed. New unit test
+(`test_word_repetition_sld_tag_by_syllable_count`,
+`tests/test_detect_taxonomy_and_fusion.py`) directly asserts the tag's
+behavior on both a monosyllabic ("her her") and polysyllabic ("happy
+happy") repeat; full suite now 39/39 (was 38/38), all pass.
+
+**Alternatives considered**
+- Treat the original literature review as sufficient without an adversarial
+  pass. **Rejected**: the project owner explicitly asked for the plan to be
+  actively challenged, and doing so found a real, fixable evidentiary gap
+  (the preprint-only sourcing) — confirming the review was worth doing, not
+  a formality.
+- Make the SLD/OD tag a hard reclassification (e.g. split `word_repetition`
+  into two first-class types) instead of additive metadata on the existing
+  type. **Rejected**, consistent with `PHASE_2_RESEARCH_PLAN.md` §5's own
+  reasoning: no dataset labels this split, so a first-class type split
+  would have *weaker* dataset validation than the existing `word_repetition`
+  type for the same clinical information: the sub-tag achieves the
+  literature-motivated goal without that compatibility cost, and keeps the
+  change provably non-breaking (confirmed by the identical-baseline result
+  above).
+- Skip the Track A re-benchmark since the change is "obviously" additive.
+  **Rejected**: "obviously safe" is exactly the kind of unverified
+  assumption this project's own discipline exists to catch — the benchmark
+  cost minutes and turned an assumption into a measured fact.
+
+**Why this choice**
+Directly follows the project owner's instruction: challenge the plan
+adversarially, update the documentation to reflect whatever the review
+finds (reinforcement or revision), and then continue forward with the
+strongest-evidenced first implementation step rather than treating the
+review as a stopping point.
+
+**Measured result**
+`PHASE_2_RESEARCH_PLAN.md` §9 (adversarial review). Code:
+`profiling/detect.py` (`_word_repetition_extra`, 3 call sites),
+`app.py` (Event table "Class" column + caption), `README.md` (taxonomy
+table), `ARCHITECTURE.md` (§4, known-limitations). Tests:
+`tests/test_detect_taxonomy_and_fusion.py`, 11/11 (was 10/10). Full suite:
+39/39 (was 38/38). Track A benchmark: identical to `VALIDATION.md` §8.3's
+frozen baseline (`Any` F1 0.835, unchanged) — no raw result file saved for
+this confirmation run (`--no-save`), since it intentionally reproduces an
+already-recorded baseline rather than producing a new one.
+
+---
+
+## 2026-08-03 — Per-type definition audit: literature vs. dataset vs. implementation
+
+**What was done**
+The project owner asked for one more foundational check before further
+Phase 2 implementation: for each of the 7 disfluency types, does our
+code's exact operational trigger condition actually detect the phenomenon
+as the clinical/scientific literature defines it, or does it only
+approximate the dataset's own operational shortcut for labeling it — and
+where these differ, why, and what should be done about it. Per the
+owner's explicit "if you already did this, pull it up" instruction,
+started by reviewing what `PHASE_2_RESEARCH_PLAN.md` §2–§4 already
+established (taxonomy structure, per-type detection strategies, the
+dataset-compatibility gap table) before doing new research, to avoid
+re-deriving already-settled ground. Then did targeted new research
+specifically on what hadn't been pinned down precisely: SEP-28k's exact
+annotator-count-to-label convention (re-verified directly against
+`profiling/evaluation/loaders.py`'s own schema comment, not just recalled),
+LibriStutter's exact synthesis mechanism (Kourkounakis et al.: splicing
+onto Google-Cloud-Speech-to-Text-timestamped LibriSpeech audio, "random"
+placement — not modeled on real per-speaker disfluency statistics), a
+clinical minimum-duration standard for prolongation (none universal found;
+the field's dominant approach is speaking-rate-*relative*, not absolute —
+Esmaili et al. 2017's validated `T_min = α/speaking_rate` formula), and
+SSI-4's block-scoring criteria (duration + "physical concomitants" —
+struggle signs like facial grimaces, not present in audio at all). Full
+write-up, citations, and the per-type verdicts: `PHASE_2_RESEARCH_PLAN.md`
+§10.
+
+**Two real, previously-general findings sharpened into specific,
+actionable gaps — both already this project's top two detector-side
+priorities, now with precise mechanisms rather than general direction:**
+
+1. **`prolongation`'s threshold is empirically-tuned, not
+   literature-derived, and the gap is now quantified.** Computed precisely
+   from `detect.py`: the effective threshold is
+   `max(prolongation_min_seconds=1.0s, 90th-percentile-of-the-clip's-own-
+   token-durations)`, and typical adult word durations rarely push a
+   clip's own 90th percentile above 1.0s — so **the flat 1.0s floor is the
+   binding threshold in most real clips**, not the percentile term. The
+   literature's rate-normalized formula (Esmaili 2017,
+   `T_min = 1.2/speaking_rate`) gives ~0.24–0.30s at typical conversational
+   rate, ~0.48s even at a slow rate — our effective threshold is roughly
+   2–4× higher. Not a mistake: it was a deliberate, documented response to
+   real false positives on this project's own real-mic testing (Part D
+   tune, this log, 2026-06-27) — but it means the current number is
+   calibrated for a specific precision/recall trade-off on limited data,
+   not derived from or validated against the rate-normalized standard the
+   field treats as default. This sharpens (does not add to) the already-
+   planned Step 3 prolongation redesign: specifically test rate
+   normalization, evaluated via Track A/B, not just add Praat features as
+   core criteria in the abstract.
+2. **`block`'s silence-only rule tests a necessary-but-not-sufficient
+   proxy for the clinical definition, and this project's own benchmark
+   dataset shows the gap directly.** The clinical definition is
+   effort/struggle-based (SSI-4 scores "physical concomitants" — signs not
+   present in audio at all); SEP-28k's own CSV schema has a **separate
+   `NaturalPause` column** distinct from `Block` (confirmed directly from
+   the schema comment in `loaders.py`), meaning SEP-28k's trained
+   annotators already make a pause-vs-block distinction our detector
+   structurally cannot (`gap >= block_gap_seconds and gap_is_silent()` —
+   pure duration + silence, no effort signal, no way to tell a thinking
+   pause from a struggle). This is the same silent-only gap found in the
+   2026-08-03 literature review (`PHASE_2_RESEARCH_PLAN.md` §2.2) — now
+   with the specific reason a pure-silence rule is expected to
+   underperform, not just the empirical observation that it does.
+
+**Every other type's simplification is one this project's own benchmark
+datasets also make** (`filler`'s word-list-vs-discourse-judgment gap,
+`sound_repetition`'s lack of iteration counting, `stutter_marker` having
+no external definition at all to diverge from) — recorded as known,
+honest simplifications, not actioned, since a fix couldn't be validated
+against any current dataset either. `word_repetition` was found already
+aligned (the §7 Step 1 sub-tag). `phrase_repetition` was found to be an
+unusual case where **this project's implementation is arguably more
+faithful to the literature's real definition than any available dataset's
+own label** (LibriStutter approximates it as a single-word marker; SEP-28k/
+KSoF/FluencyBank have no equivalent column at all) — reframing its
+"unvalidated" status as a dataset limitation, not an implementation one.
+
+**General principle recorded for future definitional questions**: this
+project's discipline is not "always move closer to the scientific
+definition" — it is "move closer exactly where doing so remains
+benchmarkable against real data, and otherwise document the simplification
+honestly." Every gap found either matches a simplification the datasets
+themselves already make, or was already a top priority before this audit
+(`prolongation`, `block`) and is now sharper rather than newly discovered.
+
+**Alternatives considered**
+- Treat this as fully new research, ignoring what §2–§4 of
+  `PHASE_2_RESEARCH_PLAN.md` already established. **Rejected**: the
+  project owner explicitly asked to pull up prior work first — re-deriving
+  settled ground would have wasted effort and risked introducing
+  inconsistency with the existing review.
+- Conclude uniformly that "our implementation should move closer to the
+  scientific definition" as a single blanket recommendation. **Rejected**:
+  the evidence genuinely differs by type — three types' simplifications
+  match the datasets' own limitations (not fixable in a way that stays
+  benchmarkable), two have a real, now-specific gap (already top
+  priorities), one is already aligned, and one is arguably ahead of the
+  datasets. A single summary verdict would have misrepresented this.
+- Add new Phase 2 priorities for the `filler`/`sound_repetition`/
+  `stutter_marker` simplifications found. **Rejected, consistent with §5's
+  existing discipline**: none are validatable against any dataset this
+  project has access to, so acting on them now would repeat the
+  anecdotal-validation mistake Phase 1 was built to avoid — documented
+  instead.
+
+**Why this choice**
+Directly answers the project owner's question: are we detecting what the
+literature defines, or approximating what the datasets label — and for
+each type, precisely which, with the reasoning made explicit rather than
+left as an assumption, since these definitions are the conceptual
+foundation the eventual research paper will need to state precisely.
+
+**Measured result**
+No code changed — this is a research/documentation entry, consistent with
+its role as a foundational audit rather than an implementation step.
+Full write-up: `PHASE_2_RESEARCH_PLAN.md` §10. Regression suite not
+re-run for this entry (no code touched) — last verified green (39/39) in
+the previous entry.
+
+---
+
+## 2026-08-04 — Speaker-stratified Track B: the "~0% detector-attributable" finding revised, not confirmed
+
+**What was done**
+Directly resolved the Phase 1 closing review's speaker-clustering caveat
+(`VALIDATION.md` §7.2 item 2): the confirmed §8.4.2 conclusion
+(`R_B|preserved_ctx1` recall = 1.0, ~0% detector-attributable gap) had
+only ever been measured on 7 of the 499-sample's 40 speakers (a
+deterministic clip-count prefix, speaker-ordered filenames). Pre-registered
+a speaker-stratified sampling method in `VALIDATION.md` §5.1's addendum
+before writing any code: round-robin across all 40 speakers, up to 3 clips
+each, 120 total, explicitly stating "the finding holds/weakens/strengthens
+are all valid outcomes" in advance. Implemented `_speaker_stratified_order()`
++ a `--speaker-stratified` CLI flag in `track_b.py` (4 new self-test
+checks, 18/18 total), then ran it — 87 real ASR calls, 33 cache hits,
+interrupted once mid-run by an unrelated session restart and resumed
+cleanly from the per-clip cache (same resilience pattern as the earlier
+90-clip run). Also computed the exact matched-subset Track A recall for
+these same 120 clips (same discipline as the Phase 1 closing review's
+$R_A$ fix) — $R_A$ = 185/186 = 0.9946, the first time this project's
+exact-subset $R_A$ was not a clean 1.0.
+
+**Headline: the finding weakened, exactly as the pre-registration allowed
+for.** `R_B|preserved_ctx1` recall dropped from 1.0 (both 7-speaker
+samples) to **0.667 (10/15)** at full 40-speaker diversity. Decomposition
+revised from "~0% detector-attributable / 100% ASR-attributable" to
+**35.1% detector-attributable / 64.9% ASR-attributable**. ASR-fidelity
+remains the majority driver — the absolute Track A→B recall collapse and
+its ASR-dominant attribution are not reversed — but "the detector is
+essentially perfect given fair input" was too strong a claim, resting on
+a 7-speaker sample that turned out not to generalize.
+
+**The correction has a precise, hand-traced mechanism — not an
+unexplained regression.** Direct inspection of all 15 context-strict-
+preserved instances (via the per-clip cache, no new ASR needed) found the
+5 misses are exclusively `sound_repetition` (2: `445-123857-0019`
+"after-", `5456-24741-0023` "itself-") or `phrase_repetition` (3:
+`2836-5354-0011` "would", `289-121652-0010` "boy", `445-123857-0019`
+"and"). **Zero of the 5 `word_repetition`-true instances in this subset
+were missed** — `word_repetition` remains at 100% Any-level recall given
+intact context across 10 instances observed to date, across two
+independent sample-construction methods (clip-count prefix and
+speaker-stratified). Both miss categories trace to **already-known,
+already-documented structural gaps with no ASR-context component at
+all**: `sound_repetition`'s fragment-ordering mismatch (`VALIDATION.md`
+§8.2, already a `ROADMAP.md` item) and `phrase_repetition`'s LibriStutter
+single-word-reconstruction limitation (§8.2, already flagged as needing
+Track B to measure honestly — this run *is* that honest measurement, and
+it confirms the concern was real). The earlier n=2/n=7 samples happened,
+by chance (not selection — both were deterministic prefixes chosen before
+seeing results), to be `word_repetition`-heavy; the larger, more
+type-diverse sample simply had more opportunity to expose gaps that were
+already on record.
+
+**Revised, precise headline**: once speaker- and type-diversity are both
+accounted for, roughly a third of the context-strict gap is
+detector-attributable — but that third is fully explained by two
+pre-existing, already-scoped issues specific to `sound_repetition`/
+`phrase_repetition`, not `word_repetition` or a general detector weakness.
+This sharpens (does not contradict) `PHASE_2_RESEARCH_PLAN.md`'s existing
+priority ordering: `sound_repetition`'s fragment-ordering fix and
+`phrase_repetition`'s known reconstruction-caused unvalidatability are now
+supported by *both* Track A and Track B evidence, not Track A alone.
+
+**Alternatives considered**
+- Treat the original §8.4.2 "confirmed" conclusion as still standing since
+  the *absolute* ASR-attributable majority didn't change. **Rejected**:
+  the specific claim that was stated as "confirmed" — effectively-perfect
+  detector recall given intact input — did change materially (100% → 66.7%
+  recall on the relevant subset), and reporting only the part that didn't
+  move would understate a real, useful correction.
+- Report this as "the detector regressed" or investigate it as a new bug.
+  **Rejected, checked directly**: hand-tracing found no new failure mode —
+  every miss maps cleanly to a structural gap already in `VALIDATION.md`
+  §8.2 and `ROADMAP.md`, confirmed by clip name and mechanism, not
+  asserted from aggregate counts alone.
+- Silently update §8.4.1/§8.4.2's historical numbers to the new figures.
+  **Rejected**, consistent with this project's discipline throughout:
+  those sections are kept as the accurate record of what n=2/n=7 showed at
+  the time, with inline dated pointers to §8.4.3 added rather than the
+  history being rewritten.
+
+**Why this choice**
+This is the pre-registration discipline doing exactly what it exists for:
+the protocol explicitly allowed for "the finding weakens" as a valid
+outcome before any data was collected, and when that outcome occurred, it
+is reported as found — not reframed, not buried, and not treated as
+invalidating the pre-registration process that surfaced it. The Phase 1
+closing review's own critical-review item (§7.2 item 2) existed
+specifically to catch exactly this kind of speaker-generalization risk; it
+did.
+
+**Measured result**
+`VALIDATION.md` §8.4.3 (full numbers, decomposition, hand-traced hit/miss
+detail), §7.2 item 2 (updated to reflect resolution), top summary block
+(revised). Code: `profiling/evaluation/track_b.py`
+(`_speaker_stratified_order`, `_speaker_id`, `--speaker-stratified` CLI
+flag, `run()`/`main()` wiring). Self-test: 18/18 (was 14). Raw results:
+`eval_results/20260804T060338639222Z_libristutter_B.json` (Track B),
+`eval_results/20260804T060635995226Z_libristutter_A+audio-speaker-
+stratified-120-matched-to-trackB.json` (exact-subset Track A). Cache:
+`eval_datasets/_track_b_cache/` (all 120 clips now present, reusable for
+future metric refinements without re-running ASR).
+
+---
+
+## 2026-08-04 — Whisper "did not predict an ending timestamp" warning: investigated, confirmed external
+
+**What was done**
+This warning has printed on most clips across every real-ASR run this
+project has done (Track B pilots, scaled runs, speaker-stratified run) and
+was never investigated — the project owner asked directly whether this
+project's own pipeline could be contributing (e.g. via truncation) before
+continuing to treat it as background noise. Investigated with a bounded,
+evidence-based approach rather than assuming either way:
+
+1. Grepped this project's own codebase for the warning string first — no
+   match — then searched the installed `transformers` package directly
+   and found it at `transformers/models/whisper/tokenization_whisper.py`
+   line ~1101, inside `_decode_asr`'s chunk-stitching/consolidation logic.
+   **Confirmed library code, not ours**, by reading the source directly.
+2. Identified the one concrete, plausible way this project's own pipeline
+   *could* cause it: `profiling/asr.py`'s `_max_new_tokens_for()` caps
+   generation at `max(20, min(256, duration_seconds*6 + 20))` — if that
+   cap were too tight, generation could be cut off before a clean ending
+   timestamp, and the warning's own text ("cut off in the middle of a
+   word") would be consistent with that mechanism.
+3. **Ruled this out by direct measurement, not assumption**: pulled actual
+   generated-token counts from already-cached real transcriptions
+   (`eval_datasets/_track_b_cache/`, no new ASR needed) and compared
+   against each clip's computed budget. Every clip checked used only
+   ~30–50% of its allotted budget regardless of whether that clip showed
+   the warning — e.g. a 15.6s clip budgeted 113 tokens generated only 47.
+   Generation is not hitting the cap on any clip checked, so the token
+   budget is not the cause.
+4. Read the triggering code's actual condition: the warning fires when a
+   "leftover" token sequence at the very end of `transformers`' internal
+   long-form decoding never received a paired closing timestamp token — a
+   property of how Whisper's own decoder terminates on that specific
+   audio content, not of any generation parameter this project sets (this
+   pipeline deliberately does not set `chunk_length_s`, confirmed already
+   documented in `ARCHITECTURE.md` §3's "critical settings" note).
+   Mechanistically consistent with LibriStutter's own clip construction
+   (extracted/spliced windows, not natural utterance boundaries —
+   `PHASE_2_RESEARCH_PLAN.md` §10 — so some clips legitimately end mid-word
+   by construction).
+
+**Conclusion: external, confirmed by evidence — not this project's
+pipeline.** No fix needed. The affected word is not lost (`_decode_asr`
+still resolves and returns the leftover tokens immediately after the
+warning, in the same source function) — this project's own downstream
+code already handles a missing `end` timestamp gracefully (`ARCHITECTURE.md`
+§4's documented edge-case: tokens with `None` start/end are skipped safely
+in duration/gap math, verified by existing tests). Purely a noisy but
+harmless log line.
+
+**Alternatives considered**
+- Assume it's benign without checking, since it never crashed anything.
+  **Rejected**: the project owner asked for it to be verified, not
+  assumed, and "never crashed" doesn't rule out a subtler contribution
+  (e.g. silently truncated words) that direct measurement was needed to
+  exclude.
+- Suppress the `transformers` logger to quiet the output, treating it as
+  fixed. **Rejected/deferred**: no functional problem was found to justify
+  a change; recorded as a low-risk, optional cosmetic follow-up in
+  `ARCHITECTURE.md` if the noise ever becomes a real nuisance, not done
+  speculatively now.
+- Spend further time cross-referencing public `transformers`/Whisper
+  issue trackers for independent confirmation this is a known community-
+  reported behavior. **Not done, per explicit scope instruction** ("don't
+  waste time on this") — the direct, first-party evidence (reading the
+  triggering source, measuring actual token usage against budget) was
+  already conclusive without needing external corroboration.
+
+**Why this choice**
+Directly answers what was asked: verify, don't assume, whether this
+project's pipeline contributes to a repeatedly-observed warning; document
+the evidence and conclusion since it came out clearly external; do not
+over-invest time once the answer was conclusive.
+
+**Measured result**
+No code changed — investigation and documentation only. Full account:
+`ARCHITECTURE.md` §3, "A recurring console warning, investigated and
+confirmed external." Evidence: per-clip generated-token counts pulled
+directly from `eval_datasets/_track_b_cache/`'s existing cached results
+(no new ASR run needed); triggering source line identified in the
+installed `transformers` package.
+
+---
+
+## 2026-08-04 — Is a second ASR backend still necessary before detector-side work, or does current evidence already justify proceeding?
+
+**What was done**
+`ROADMAP.md` item 2 ("validate the ASR-is-the-bottleneck conclusion
+against a second ASR backend and/or real disfluent speech") has gated
+item 4 (the prolongation redesign) since the Phase 1 closing review. The
+project owner asked for an explicit, evidence-based re-examination of
+whether that gate is still scientifically necessary now that item 3
+(speaker-stratified Track B) is done and has materially changed the
+picture — rather than mechanically working through the roadmap in its
+original order.
+
+**Re-examined what the gate was actually for, and what has changed.** The
+gate's original stated purpose (`ROADMAP.md`, prior wording): "if
+ASR-fidelity is confirmed even more dominant across backends/speakers,
+that should size how much relative effort [the prolongation redesign]
+gets" — a *resource-sizing* judgment, not a claim that the redesign's
+underlying evidence was invalid without it. Re-checked what that
+redesign's own justification actually rests on
+(`PHASE_2_RESEARCH_PLAN.md` §6, §10.6): Phase 1's ablation study
+(`VALIDATION.md` §9, Track A — no ASR involved at all) already found
+`prolongation_min_seconds` dominates measured performance by an order of
+magnitude, and the redesign's specific direction (rate-normalization) is
+grounded in peer-reviewed literature (Esmaili et al. 2017) that is itself
+backend-agnostic. **Neither piece of evidence depends on which ASR backend
+this project eventually uses.** The same check applied to the newly-
+elevated `sound_repetition`/`phrase_repetition` fixes (`ROADMAP.md` item
+10): both bugs were originally found and are fully explained via Track A
+alone (`VALIDATION.md` §8.2, §8.4.3) — a fragment-ordering mismatch and a
+dataset-reconstruction limitation, neither of which involves ASR at all,
+let alone a *specific* ASR backend.
+
+**Conclusion: the gate is lifted for the already-identified detector-side
+fixes — their evidentiary basis does not depend on resolving the
+cross-backend question. The cross-backend question itself remains open
+and valuable, but is re-scoped from "blocking prerequisite" to "external-
+validity/generalization strengthening," and de-prioritized below the
+now-concretely-justified detector fixes.** Reasoning, stated precisely so
+the boundary of this decision is clear: what remains *unproven* without a
+second ASR backend is the *general* claim "ASR fidelity is the dominant
+real-world bottleneck for disfluency detection *in general*" — that
+specific, broad claim should still carry the existing caveat
+(`VALIDATION.md` §7.2 item 3, unchanged by this decision) in any future
+paper. What does *not* remain unproven is the narrower, already-actionable
+claim "these three specific, named issues (`prolongation`'s threshold,
+`sound_repetition`'s fragment-ordering, `phrase_repetition`'s
+reconstruction limit) are real, backend-independent, and worth fixing" —
+that rests on Track A and literature evidence alone. **Stress-tested this
+conclusion directly** (would a dramatically different second-backend
+result change anything here?): even in the extreme case where a different
+ASR backend showed a completely different ASR-attributable/detector-
+attributable split, the three specific bugs above would not disappear or
+become less true, since Track A's evidence for them never involved ASR at
+all — so no plausible second-backend result invalidates proceeding with
+them now.
+
+**Alternatives considered**
+- Keep the gate exactly as originally worded and complete the second-ASR-
+  backend work before touching any detector code. **Rejected**: this
+  would mechanically follow the roadmap's original order rather than the
+  evidence's actual dependency structure, which is exactly the instruction
+  given — "follow the evidence rather than simply the implementation
+  order." The gate's own stated reason (resource-sizing) doesn't support
+  blocking work whose justification is already independently established.
+- Drop the second-ASR-backend/FluencyBank item entirely, treating it as
+  no longer valuable. **Rejected**: it still answers a real, currently-
+  open question (does the ASR-fidelity finding generalize beyond
+  CrisperWhisper) that matters for how broadly this project can eventually
+  claim its central finding — just not one that needs to be answered
+  before the three already-justified fixes proceed. Kept on `ROADMAP.md`,
+  re-prioritized rather than removed.
+- Treat this as license to also un-gate work whose evidence *isn't*
+  independently ASR-backend-agnostic. **Rejected — checked explicitly**:
+  this decision is scoped narrowly to the three items whose justification
+  was directly verified as Track-A/literature-only; it does not blanket-
+  lift the gate for anything not specifically checked this way.
+
+**Why this choice**
+Directly follows the project owner's explicit instruction to decide based
+on scientific merit rather than roadmap order, and to document the
+reasoning rather than just the conclusion — the decision here is not "the
+second ASR backend doesn't matter," it's "the specific work items
+currently gated on it don't actually depend on it, verified by tracing
+each one's evidence back to its source."
+
+**Measured result**
+No code changed — a scope/prioritization decision, not an implementation
+step. `ROADMAP.md` updated: items 4, 5, 10 un-gated and reordered ahead of
+the second-ASR-backend item; that item (now later in the list) reworded
+to reflect its revised role (generalization strengthening, not a
+blocker). Full reasoning duplicated at the point of change in `ROADMAP.md`
+itself, not just here, so a reader following the roadmap sees the
+justification without needing this log entry.
+
+---
+
+## 2026-08-04 — sound_repetition fragment-ordering fix: root cause deeper than documented, fixed and measured; a related cache-staleness bug found and fixed alongside it
+
+**What was done**
+`ROADMAP.md` item 3 (Phase 2's top un-gated priority) called for fixing
+`sound_repetition`'s confirmed 0% Track A recall, previously documented as
+an ordering problem: the detector's fragment-repeat check only handled
+"fragment-before-word," while the LibriStutter reconstruction places the
+fragment after the word. Before implementing the previously-proposed fix
+(add a reverse-order check), tested the actual reconstruction convention
+directly (`loaders.py`: a sound_repetition fragment is reconstructed as
+the adjacent complete word's text plus a trailing `-`, not a genuine
+partial substring) against both orderings. **Found the real cause is
+deeper than documented**: because `_norm()` strips the trailing `-`, a
+reconstructed fragment normalizes to a string identical to its
+complete-word counterpart, and `detect_disfluencies()`'s existing
+exact-match `word_repetition` check ran *before* the fragment-specific
+logic in the `if/elif` chain — so it intercepted the pair and produced
+`word_repetition`, not `sound_repetition`, in **both** orderings, not just
+the undocumented one. A reverse-order check alone would not have fixed
+this. Pre-registered the corrected understanding and the fix's predicted
+direction in `VALIDATION.md` §8.2 (a dated addendum) before writing any
+code.
+
+**Fix**: moved a unified fragment-pair check (either token ending in a
+literal, pre-normalization `-`, with a prefix/equality relationship to its
+neighbor) to run *before* the exact-match check, handling both orderings
+in one branch (`profiling/detect.py`). Two new unit tests added
+(fragment-after-word, the previously-undocumented case; fragment-before-
+word, confirming no regression on the already-working case) — full suite
+now 41/41 (was 39). One existing test's fixture-derived expectation was
+stale and updated: the demo fixture's own `"buy"`/`"buy-"` pair had been
+silently misclassified as `word_repetition` by the same bug and is now
+correctly `sound_repetition` — `README.md`'s "Verify it works" walkthrough
+updated to match.
+
+**Measured result — matches the predicted direction, magnitude reported as
+measured, not targeted**: same 499-clip, audio-enabled sample as
+`VALIDATION.md` §8.3. `sound_repetition` recall **0.000 → 0.920** (184/200
+recovered; TP 0→184, FP 1→5, FN 200→16), precision 97.4%. `word_repetition`
+FP dropped 640→452 (−188) with TP/FN unchanged — the bug was inflating
+`word_repetition` false positives, not its true positives, correcting this
+entry's own pre-registration prediction ("TP should drop") against what
+was actually measured, not silently. **`Any` (combined) label is
+byte-for-byte unchanged** (TP=801/FP=308/FN=8/F1=0.835) — the expected
+signature of a pure type-reclassification fix, consistent with this
+project's repeated finding that binary detection and exact-type
+classification are separate axes (`VALIDATION.md` §8.4.2/§8.4.3). Full
+comparison table: `VALIDATION.md` §8.2.1.
+
+**A second, unplanned finding surfaced while running this benchmark**:
+`track_b.py`'s per-clip cache (`eval_datasets/_track_b_cache/`) was
+discovered to store the *detector's output* (`events`), not just the ASR
+output (`hyp_tokens`). This meant every one of the 210 clips already
+cached across the 30/90/120-clip Track B runs held `events` computed by
+the pre-fix detector — any future Track B run reusing that cache would
+have silently kept scoring with the old, buggy `sound_repetition`
+classification even after this fix shipped, with no error or warning.
+**Fixed alongside this entry, not deferred**: `_save_cache`/`_load_cached`
+now handle only `hyp_tokens`; `events` is always recomputed fresh from the
+live `detect.py` on every run (cheap — no ASR involved, so this costs
+nothing but a little CPU time per run). Old-format cache files (with a
+now-unused `events` key) still load cleanly, confirmed by a new self-test
+case. Track B self-test now 19/19 (was 18).
+
+**Alternatives considered**
+- Implement the originally-proposed fix (add a reverse-order check) without
+  first testing the actual reconstruction convention. **Rejected**: would
+  have shipped a fix that doesn't actually work, since the exact-match
+  branch would still intercept both orderings — caught only because the
+  fix was tested against the real convention *before* being written, not
+  assumed from the existing (incomplete) diagnosis.
+- Leave the Track B cache as-is, since fixing it wasn't the task at hand.
+  **Rejected**: a cache that silently serves stale detector output after
+  every future `detect.py` change is a correctness bug waiting to corrupt
+  the next Track B result without any signal that it happened — cheap to
+  fix immediately (no ASR involved) versus expensive to debug later (a
+  confusing, silently-wrong Track B result with no obvious cause).
+- Investigate and fix the 16 residual `sound_repetition` FN (8% of the
+  original 200) in the same step. **Deferred, not rejected**: the primary,
+  order-of-magnitude gap is closed (0%→92% recall); the residual is a
+  secondary, much smaller problem better scoped separately, consistent
+  with not over-extending a single change.
+
+**Why this choice**
+Directly follows `ROADMAP.md` item 3's evidence-based priority, this
+project's pre-registration discipline (methodology and predicted direction
+recorded before implementation), and its measurement-first discipline
+(the cache bug was found by scrutinizing infrastructure while trusting a
+result, not assumed fine because "it worked before").
+
+**Measured result**
+Code: `profiling/detect.py` (fragment-pair check reordering),
+`profiling/evaluation/track_b.py` (`_save_cache`/`_load_cached` cache
+format change), `tests/test_detect_taxonomy_and_fusion.py` (2 new tests,
+1 updated), `README.md` (updated demo-fixture badge list). Full suite:
+41/41 (was 39). Track A self-test: unaffected, still passing. Track B
+self-test: 19/19 (was 18). Track A benchmark:
+`sound_repetition` F1 n/a(0)→0.946, `word_repetition` F1 0.363→0.446,
+`Any` F1 0.835 unchanged — no raw result file saved (`--no-save`, a
+benchmark run, not a new tracked baseline). Full detail: `VALIDATION.md`
+§8.2.1.
+
+---
+
+## 2026-08-04 — Hypothesis-side-contiguity metric built; a narrow detector extension implemented, measured, and reverted (negative result)
+
+**What was done**
+Continuing `ROADMAP.md` item 4 (the `word_repetition`/`sound_repetition`
+type-classification gap), and per the item's own stated discipline
+("candidate fix (b): build the hypothesis-side-contiguity-aware metric...
+to confirm the fix actually helps before shipping it" — done before
+candidate fix (a)): built a diagnostic metric (`gap =
+hyp_index(i) - hyp_index(i-1) - 1`, computed directly from
+`alignment.py`'s existing `AlignmentOp.hyp_index`) and re-scored all 120
+already-cached speaker-stratified Track B clips with it — zero new ASR
+calls. Pre-registered in `VALIDATION.md` §5.1's addendum before running.
+
+**Metric result**: recall is 100% (2/2) when the ASR hypothesis sequence
+is truly contiguous around a preserved disfluent word, dropping to 61.5%
+(8/13) when an insertion breaks it — confirming the qualitative hypothesis
+from the 2026-08-03 addendum was directionally real. Tracing the exact
+`gap` size for the 5 outright misses found only **1 of 5** has a small
+(`gap=1`) insertion consistent with "ASR corrupted an otherwise-tight
+repeat" (`445-123857-0019`, "after-"/"after," one word — "life" —
+inserted); the other 4 have `gap` of 3–5 words, too large to plausibly be
+an ASR-insertion artifact and instead consistent with the already-
+documented `phrase_repetition`/LibriStutter-reconstruction limitation
+(§8.2) — a word recurring naturally later in a sentence, not a corrupted
+close-proximity stutter. Two `gap=1` *hits* were also found
+(`103-1240-0000` "Rachel", `1088-129236-0006` "the") — already caught at
+the `Any` level via type-confusion, so their addressable benefit would be
+exact-type accuracy, not recall. **Total addressable evidence: n=3 out of
+120 clips.**
+
+**Decision (made before seeing any benchmark result): implement a narrow,
+conservative version anyway, and let a full 499-clip Track A benchmark
+decide empirically** — n=3 is too thin to decide from directly, but the
+mechanism is precise (not a guess), so a low-risk implementation plus
+real measurement was judged the right way to resolve the question, rather
+than either shipping on n=3 alone or refusing to try at all. Implemented:
+extended the existing "filler-sandwiched repetition" `word_repetition`
+check (already tolerates exactly one intervening *filler* word,
+pre-existing code) to also tolerate exactly one intervening *non-filler*
+word — exact-match only, length≥2 guard, lower confidence (0.65 vs. 0.89)
+than the filler-sandwiched case. Two new unit tests added; full suite
+43/43.
+
+**Measured result: a clear, real regression on Track A, with essentially
+no offsetting benefit on Track B.** Track A (499 clips): `Any` F1
+**0.835→0.793** (`word_repetition` FP +106, `Any` FP +102), **zero new
+true positives**. Track B (120-clip cache rescore, zero new ASR): +1 TP
+at a cost of +24–29 new FP. **Reverted.** Root cause of the mismatch
+between the plausible-sounding mechanism and the poor outcome: Track A
+(no ASR) can only ever exercise this fix's *cost* (coincidental same-word
+repeats across ordinary reconstructed text, e.g. two unrelated sentences
+that happen to both start with the same word) since its *intended
+benefit* requires real ASR errors to exist at all — and even on Track B,
+where the intended benefit *can* appear, it appeared only once, at a
+disqualifying false-positive cost.
+
+**Alternatives considered**
+- Skip building the metric and go straight to implementing/measuring
+  candidate fix (a). **Rejected**: `ROADMAP.md` item 4 explicitly named
+  the metric as the safer, evidence-gathering step to do first — building
+  it (free, reused existing cached data) is exactly what let this session
+  make a precise, mechanism-level decision (n=3, not n=15) rather than a
+  cruder one.
+- Ship the extension anyway, since its recall benefit on Track B was
+  real (if small) and the false-positive cost is "just precision."
+  **Rejected**: the pre-registered success criteria in this project's
+  standing discipline treat aggregate F1 regression as disqualifying
+  regardless of a small recall gain elsewhere — precision matters for a
+  clinically-facing tool, and a 4-point aggregate F1 drop for +1 TP
+  system-wide is not a defensible trade.
+- Silently drop the idea without recording it, since it didn't pan out.
+  **Rejected**: the project owner explicitly asked for negative results
+  to be documented, not just positive ones — this is exactly that case,
+  and the precise diagnosis (why a plausible mechanism didn't translate to
+  a good outcome) is itself useful signal for future work on this area.
+- Keep the code but disabled by default via a config flag, instead of a
+  full revert. **Rejected**: no evidence suggests any configuration of
+  this specific mechanism would help enough to be worth the added
+  surface area/config complexity; a clean revert plus a locked-in
+  regression test is simpler and equally reversible if new evidence
+  emerges later.
+
+**Why this choice**
+Directly follows this project's standing discipline: measure before
+committing to a change too far ahead of the evidence (the metric first),
+implement carefully and validate objectively once a scoped version is
+worth trying, and report the result honestly whichever way it comes out —
+a reverted, well-documented negative result is exactly as valuable to the
+project's research record as a positive one, and prevents the same
+plausible-but-unvalidated idea from being tried again without new
+evidence.
+
+**Measured result**
+`VALIDATION.md` §8.4.4 (metric results, gap table, and the full negative-
+result writeup). Code: `profiling/detect.py` (extension added then
+reverted, a code comment marks what was tried and points here),
+`tests/test_detect_taxonomy_and_fusion.py` (2 tests added, then replaced
+with 1 regression test locking in the reverted, correct behavior — net
++1 test vs. before this entry). Full suite: 42/42 (was 41 before this
+entry). Track A benchmark: `Any` F1 0.835→0.793→0.835
+(implemented, regressed, reverted — back to the sound_repetition-fix
+baseline). Track B rescore: `eval_results/20260804T100451177010Z_
+libristutter_B.json` (the with-extension result, kept for the record even
+though the extension was reverted afterward — an honest snapshot of what
+was measured, not deleted because the conclusion was negative).
+
+---
+
+## 2026-08-04 — Confidence-sensitive metric run against real data: VAD/Praat's designed confidence effect is not showing up (negative-to-null result)
+
+**What was done**
+`ROADMAP.md` item 7 asked for a confidence-sensitive metric so Silero VAD
+and Praat corroboration — designed to adjust event *confidence*, not
+presence/absence — could actually be evaluated, after `VALIDATION.md`
+§9.3 found the project's only existing metric (`score_word_level`,
+presence/absence TP/FP/FN) was structurally blind to that effect by
+construction. Built `metrics.confidence_stats()` (mean predicted
+`confidence` of TP vs. FP events, per type and combined `Any`), unit-
+tested on hand-constructed synthetic data first (`track_a.py` self-test
+section 7), then ran it against the full 499-clip real-audio LibriStutter
+Track A sample under current production config (`use_vad=True`,
+`use_praat=True`, both new prolongation-redesign toggles at their default
+`False`) — the first time this metric touched real data.
+
+**Result**: the TP-vs-FP confidence gap is approximately zero everywhere
+it's measurable (`sound_repetition`/`word_repetition` exactly `+0.000` to
+3 decimals, `prolongation` `+0.003`) and slightly *negative* for the
+combined `Any` label (FP mean confidence 0.921 vs. TP mean confidence
+0.914, gap `-0.007`). Audited before accepting, per this project's
+standing rule 3 (a surprising result is a reason to check harder, not
+report faster): confirmed the metric itself is not miscomputing (its
+synthetic unit test correctly reproduces a designed non-zero gap), and
+confirmed the run used the production config where VAD/Praat corroboration
+are actually active (§9.1's ablation already showed disabling them doesn't
+move presence/absence counts, so this was the right condition to test
+their confidence-adjustment effect under).
+
+**Alternatives considered**
+- Treat the near-zero gap as inconclusive and not report it as a finding,
+  since it's a negative result rather than a positive confirmation.
+  **Rejected**: the project owner has explicitly asked for negative
+  results to be documented with the same rigor as positive ones — this
+  metric was built specifically to give VAD/Praat corroboration a fair
+  chance to show a real effect the old metric couldn't see, and a
+  near-zero/negative result *is* the answer to that question, not a
+  non-answer.
+- Immediately simplify or remove the VAD/Praat confidence-weighting logic
+  in response to this finding. **Rejected**: standing rule 4 — findings
+  are recorded as evidence, acting on them is a separate, explicitly-
+  approved step. One dataset, one run is evidence, not proof the mechanism
+  is worthless in general; flagged as a Phase 3 candidate decision instead
+  of applied automatically.
+
+**Why this choice**
+Directly closes the specific open question `VALIDATION.md` §9.3 flagged:
+whether "zero measured effect" on presence/absence meant VAD/Praat
+corroboration don't help, or just that the metric couldn't see their
+effect. Building the metric that *can* see it and finding it still shows
+~zero effect is a materially stronger, more specific finding than leaving
+the question open with only the "structurally blind" caveat.
+
+**Measured result**
+`VALIDATION.md` §9.3.1 (full table, per-type and `Any` gaps, audit steps,
+and the explicit single-dataset/single-run limitation). Code:
+`profiling/evaluation/metrics.py` (`confidence_stats()`),
+`profiling/evaluation/report.py` (`format_confidence_stats()`), both
+unit-tested in `track_a.py`'s self-test (section 7, new). No config or
+detection-logic change made as a result. `ROADMAP.md` item 7 marked done.
+
+---
+
+## 2026-08-04 — Wilson confidence intervals applied to the project's own extreme-small-n numbers
+
+**What was done**
+`ROADMAP.md` item 8 (from the Phase 1 closing review, `VALIDATION.md`
+§7.2 item 5) asked for confidence intervals on reported recall/precision
+numbers, specifically naming `R_B|preserved_ctx1`'s repeatedly-cited
+n=2/n=7/n=15 recall figures as the case where a formal interval would
+make the existing "too few instances to trust" qualitative caveat
+concrete. `metrics.wilson_interval()`, `TypeCounts.precision_ci()`/
+`.recall_ci()`, and `report.format_table_with_ci()` were already built
+and unit-tested earlier this session (paired with the confidence-stats
+work above, both cheap/parallel/no-new-data items); this entry is their
+first application to real, already-published numbers.
+
+**Result**: computed Wilson 95% CIs for the three cited samples — n=2
+(2/2, CI [0.342, 1.000]), n=7 (7/7, CI [0.646, 1.000]), n=15 (10/15, CI
+[0.417, 0.848]). The n=7 and n=15 intervals overlap substantially
+([0.646, 0.848]) — meaning the earlier "1.0 recall" point estimate at
+n=7 was never precise enough to have ruled out something like the later
+0.667 point estimate, exactly the concrete version of the caveat this
+item asked for.
+
+**Alternatives considered**
+- Retrofit CIs onto every historical recall/precision number in
+  `VALIDATION.md` §8, not just the specifically-named small-n cases.
+  **Rejected**: would mean re-deriving raw k/n for many past runs from
+  saved JSON result files for no new decision it would change — scoped
+  down to "infrastructure exists, and is demonstrated at the exact point
+  it was requested for," matching this project's general preference for
+  scoped, evidence-driven work over exhaustive retroactive passes. Every
+  *future* run automatically gets CIs via `report.save_run()`, so the
+  backfill gap shrinks over time rather than needing a one-time sweep.
+
+**Why this choice**
+Turns a repeatedly-invoked qualitative caveat ("too few instances to
+trust") into an auditable, reusable number, directly per the Phase 1
+closing review's own request — and does so exactly where the review
+named it as most valuable, without over-scoping into a full historical
+backfill nobody asked for.
+
+**Measured result**
+`VALIDATION.md` §8.4.3 (new CI table and overlap discussion, inserted
+directly after the existing recall table it explains). Code:
+`profiling/evaluation/metrics.py` (`wilson_interval()`,
+`TypeCounts.precision_ci()`/`.recall_ci()`), `profiling/evaluation/
+report.py` (`format_table_with_ci()`, `counts_to_dict()` now saves CIs
+for every future run). `ROADMAP.md` item 8 marked done (infrastructure
+complete; full historical backfill explicitly out of scope, see above).
+
+---
+
+## 2026-08-04 — UCLASS annotation-schema verification: inconclusive from public sources, the specific "severity" claim is unsubstantiated
+
+**What was done**
+`ROADMAP.md` item 11 / `PHASE_2_RESEARCH_PLAN.md` §5 point 3 flagged a
+specific, scoped question left open by the Phase 2 literature review: a
+rule-based-detection preprint claims UCLASS has event-level "severity"
+annotations that might imply a silent-vs-audible block sub-type split,
+which would make audible/tense block detection (item 12) actually
+validatable — not yet independently confirmed by this project. Checked
+directly, in order: (a) the primary UCLASS archive paper (Howell et al.
+2009, open-access PMC copy) — describes only recording-level perceptual
+quality ratings (background noise, clarity), not event-level severity,
+and points to an external "How We Transcribe" page for the actual
+dysfluency-annotation conventions rather than specifying them inline;
+(b) that external page (`speech.psychol.ucl.ac.uk`) — unreachable, TLS
+certificate no longer matches the domain, link rot; (c) UCLASS's current
+raw file-directory listing (`uclass.psychol.ucl.ac.uk/Transcript/
+TAligned/Annotation/`) — reachable, lists downloadable SFS/CHAT/PRAAT-
+TextGrid files but no accompanying methodology documentation; (d) the
+originating rule-based-detection preprint itself — its own "severity"
+claim cites only Howell et al. 2009, the same primary paper (a) shows
+does not itself describe event-level severity.
+
+**Conclusion: inconclusive from every public secondary source checked,
+and the specific claim motivating this check is not substantiated by the
+primary source it cites.** This does not prove UCLASS lacks a silent/
+audible block distinction — only direct inspection of UCLASS's raw
+annotation files (gated behind UCLASS's own access process) could
+conclusively answer that, and that inspection was not attempted here
+(materially larger effort than this scoped literature check).
+
+**Alternatives considered**
+- Attempt to acquire UCLASS's raw annotation files directly to settle the
+  question conclusively. **Rejected for this step**: `ROADMAP.md` item 11
+  was explicitly scoped as "a direct, cheap check," not a full dataset
+  acquisition — UCLASS is Tier 3 (`VALIDATION.md` §2) specifically because
+  of this access friction; escalating to a full acquisition is a
+  separate, larger decision than this item authorized.
+- Treat the preprint's claim as sufficient without independent
+  verification, and proceed to build audible/tense block detection.
+  **Rejected**: this is exactly the anecdotal-validation mistake Phase 1
+  was built to avoid — building a detector with no dataset able to
+  measure whether it works, on the strength of one secondary source's
+  unverified characterization of a primary source.
+
+**Why this choice**
+Directly resolves a specifically-scoped, previously-open item from the
+Phase 2 literature review with a dated, concrete negative result instead
+of leaving it as an indefinite "not yet independently confirmed" — and
+does so at the cheap-check scope the item actually called for, not by
+over-investing in a full dataset acquisition the item didn't ask for.
+
+**Measured result**
+`PHASE_2_RESEARCH_PLAN.md` §5 point 3 (full addendum with the four-source
+trace). `ROADMAP.md` items 11 (marked done) and 12 (audible/tense block
+detection — status unchanged: still not started, this investigation found
+no evidence it's currently validatable). No code change.
+
+---
+
+## 2026-08-04 — ASCII-console-output lint rule built; caught two real, previously-unnoticed violations immediately
+
+**What was done**
+`ROADMAP.md` item 13 flagged that the Windows `cp1252` console has broken
+on non-ASCII characters in `print()` output three separate times across
+this project (`track_a.py`, `report.py`, `track_b.py`), each fixed
+reactively, and named a lint rule as the right fix instead of a fourth
+reactive patch. Built `tests/test_ascii_console_output.py`: an AST-based
+check (parses each file under `profiling/`, walks every `print()` call's
+arguments, flags any string/f-string constant containing a non-ASCII
+character) rather than a whole-file byte scan — checked first and
+confirmed a whole-file scan would false-positive on 31 files that
+legitimately use em-dashes in docstrings/comments (never sent to a
+console), none of which caused any of the three prior incidents.
+
+**Result**: running the new check immediately found two real,
+previously-unnoticed violations — `profiling/benchmark_asr.py` lines
+310-311, an ellipsis (`...`) and an em-dash inside `print()` f-strings,
+never caught because that script isn't part of the evaluation-harness
+paths exercised most often. Fixed both (replaced with `...` and `--`)
+in the same change. Full suite now 45/45 (was 44/44 before this entry).
+
+**Alternatives considered**
+- A whole-repo, whole-file byte-level ASCII check (simpler to write).
+  **Rejected**, verified empirically before choosing the AST approach:
+  a dry run found 31 `.py` files with non-ASCII bytes, all from em-dashes
+  in module-docstring headers (e.g. `"""report.py -- table rendering..."""`
+  style comments already using em-dashes throughout this very codebase),
+  zero of which are print-reachable or have ever caused the console bug.
+  A rule that fails on legitimate, harmless comment content trains
+  everyone to ignore it, defeating the point.
+- Scan the whole repository (including `app.py`, the Streamlit UI) rather
+  than just `profiling/`. **Rejected**: `app.py`'s output goes to a
+  browser via Streamlit widgets, not this console — the three actual
+  incidents were all in `profiling/`'s evaluation-harness scripts, and
+  scoping the check to where the real risk lives keeps it precise.
+- A pre-commit hook instead of a test-suite entry. **Rejected**: this
+  project has no existing pre-commit hook infrastructure, and a test-suite
+  entry runs on every full-suite invocation (the thing already run before
+  every commit per this project's own discipline) with zero new tooling.
+
+**Why this choice**
+Directly implements what the roadmap item asked for ("worth a lint rule...
+rather than fixing it reactively a fourth time"), scoped precisely enough
+(AST-based, `profiling/`-only) to avoid false positives that would erode
+trust in the check, and it proved its value immediately by catching a
+real bug on its first run rather than only preventing hypothetical future
+ones.
+
+**Measured result**
+`tests/test_ascii_console_output.py` (new, 1 test). `profiling/
+benchmark_asr.py` (2-line fix). Full suite: 45/45 (was 44/44). `ROADMAP.md`
+item 13 marked done.
+
+---
+
+## 2026-08-04 — Explicit scope decisions on remaining lower-priority Phase 2 items (9, 14-16): deferred to Phase 3, not silently dropped
+
+**What was done**
+Per the project owner's instruction to make explicit, documented scope
+decisions on the remaining lower-priority `ROADMAP.md` items before
+declaring Phase 2 complete, reviewed items 9 (Track B localization/IoU
+metric) and 14-16 (LibriStutter sample expansion, SEP-28k audio
+acquisition, FluencyBank Timestamped integration) against what Phase 2
+actually needed to decide.
+
+**Conclusion**: all four remain real and valuable but none was a
+prerequisite for any decision Phase 2 made — every detector-side change
+actually implemented this phase (prolongation redesign, `sound_repetition`
+fix, confidence-stats/CI infrastructure) was fully evaluable on data
+already in hand (the existing 499-clip LibriStutter sample, Track A's
+existing localization metric). Explicitly deferred to Phase 3, each with
+its own stated reasoning written directly into `ROADMAP.md` at the point
+of the item (not just here) — mirroring exactly how Phase 1 closed
+(`PHASE_1_SUMMARY.md` §6): evaluated and deliberately deferred because
+each is real engineering/data-acquisition work, not a same-session fix,
+not skipped by oversight.
+
+**Alternatives considered**
+- Attempt at least one of the dataset-acquisition items (14 is the
+  cheapest) before closing Phase 2, to leave less deferred work.
+  **Rejected**: none of these items is gated behind anything Phase 2 owns
+  — they're independent, standalone follow-on work whose natural home is
+  wherever Phase 3 starts, and starting one without a specific Phase-2
+  decision that needs it would be scope creep against the owner's explicit
+  instruction to complete Phase 2's own remaining scientifically justified
+  improvements first, not open new fronts.
+- Leave these items exactly as previously worded (no explicit "deferred"
+  note), on the theory that an unstarted roadmap item is already
+  self-evidently deferred. **Rejected**: the owner explicitly asked for
+  *documented* scope decisions with reasoning, not just an unchanged list
+  — the same distinction Phase 1's closing summary already established
+  between "silently left implicit" and "explicitly scoped as a named,
+  evidence-backed next step."
+
+**Why this choice**
+Directly follows the owner's explicit instruction and this project's own
+established Phase-1-closing precedent for how to end a phase honestly:
+every open item gets a stated, evidence-based reason for its status, not
+a silent gap a future reader has to guess about.
+
+**Measured result**
+No code changed — a scope/documentation decision. `ROADMAP.md` items 9 and
+14-16 updated in place with explicit 2026-08-04 deferral notes and
+reasoning.
+
+---
+
+## 2026-08-04 — Prolongation redesign ablation run; Praat-gating adopted as the new default, rate-normalization rejected
+
+**What was done**
+Ran the 4-variant evaluation pre-registered directly in `VALIDATION.md`
+§9.5 (methodology, predicted variants, and the exact success bar written
+*before* the redesign's implementation — the implementation itself
+(`use_rate_normalized_prolongation`, `require_praat_stability_for_
+prolongation`, both new toggles defaulted `false`/off, unit-tested, full
+suite green) is not a separate log entry, consistent with this project's
+practice of recording pre-registrations in `VALIDATION.md` itself rather
+than duplicating them here) as part of a full re-run of the standing
+13-variant ablation harness (`run_ablations.py`), so the 3 new variants
+are directly comparable to the existing 10-variant baseline. Full
+499-clip real-audio LibriStutter sample, same as every other Track A
+ablation this project has run.
+
+**Result**: `prolong_praat_gated` (Praat pitch/jitter/shimmer gating
+alone) is the *only* variant across the full 13 — not just the 3 new
+ones — to improve both `Any` F1 (0.835->0.888) and prolongation-specific
+F1 (0.064->0.084) simultaneously, the exact bar fixed in advance.
+`prolong_rate_normalized` (rate-normalization alone) is a severe
+regression on both metrics (`Any` F1 0.835->0.347, prolongation F1
+0.064->0.048) — audited before accepting (a collapse this dramatic is
+exactly the kind of surprising result this project's standing discipline
+says to check, not just report): traced to a plausible root cause
+(LibriStutter's short reconstructed clips likely destabilize the
+per-clip speaking-rate estimate the formula divides by), not a bug in
+the implementation, but not confirmed further since it was out of this
+ablation's scope. `prolong_rate_and_praat` (both together) does not
+clear the bar either — `Any` F1 still regresses (0.835->0.743) even
+though prolongation F1 stays exactly flat, showing Praat-gating does not
+fully rescue the rate-normalization component's damage when both run
+together.
+
+**Decision, mechanical given the pre-registered criteria**:
+`require_praat_stability_for_prolongation` flipped to `true` in
+`config.yaml` (new shipped default). `use_rate_normalized_prolongation`
+stays `false` — it never clears the bar in any tested combination. Full
+regression suite re-run after the config change: 45/45 pass unaffected.
+
+**Alternatives considered**
+- Adopt `prolong_rate_and_praat` (both changes together) anyway, since it
+  still includes the literature-grounded rate-normalization mechanism in
+  principle. **Rejected**: fails the pre-registered bar outright (`Any`
+  F1 regresses) — the pre-registration explicitly ruled out "looks good
+  in isolation" as a sufficient reason before this ablation ran, exactly
+  to prevent this kind of post-hoc rationalization.
+- Investigate and fix the rate-normalization formula's apparent
+  instability on short clips before deciding, rather than rejecting it
+  outright this session. **Rejected for now**: out of the scope this
+  pre-registration authorized (a 4-variant ablation to decide the
+  default, not an open-ended debugging session); the code stays in place,
+  fully toggleable and off by default, so this remains available as
+  future work if a real-speech (non-reconstructed-timing) dataset ever
+  becomes available to re-test it against — noted directly in
+  `config.yaml`'s comment for the toggle.
+- Treat the `prolong_praat_gated` win as too good to be true and re-run
+  before trusting it. **Considered, not needed**: the magnitude (+0.053
+  `Any` F1, +0.020 prolongation F1) is large but not implausibly so given
+  §9.1's own finding that FP suppression is exactly this architecture's
+  designed strength, and the mechanism (screening out false positives
+  with acoustically inconsistent pitch/jitter/shimmer) is directly
+  traceable in the FP count itself (409->145) — a plausible, explicable
+  result, not an unexplained anomaly like the rate-normalization
+  collapse was.
+
+**Why this choice**
+This is exactly what pre-registration is for: the decision criteria were
+fixed in `VALIDATION.md` §9.5 before any variant was run, so accepting
+`prolong_praat_gated` and rejecting the other two required no new
+judgment call once the numbers came in — only mechanical application of
+a rule set in advance, immune to being unconsciously bent toward a
+preferred outcome after seeing the results.
+
+**Measured result**
+`VALIDATION.md` §9.5.1 (full results table, per-variant analysis,
+decision). `config.yaml` (`require_praat_stability_for_prolongation:
+true`, comment updated with the result; `use_rate_normalized_
+prolongation` stays `false`, comment updated with the result and the
+root-cause hypothesis). `VALIDATION.md` §8.3's frozen baseline table
+given a dated superseded-by pointer to §9.5.1 (not edited in place, same
+discipline as every other historical revision in this file). `ROADMAP.md`
+item 5 marked done. Full suite: 45/45 (unchanged by this config-only
+change).

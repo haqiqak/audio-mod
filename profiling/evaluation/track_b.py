@@ -44,6 +44,39 @@ _DEFAULT_RESULT_DIR = _ROOT / "eval_results"
 _DEFAULT_CACHE_DIR = _ROOT / "eval_datasets" / "_track_b_cache"
 
 
+def _speaker_id(clip_name: str) -> str:
+    """LibriStutter clip names are '<speaker>-<book>-<chapter>', e.g.
+    '103-1240-0000' -> speaker '103'."""
+    return clip_name.split("-")[0]
+
+
+def _speaker_stratified_order(clips: list[LabeledClip]) -> list[LabeledClip]:
+    """Reorder clips round-robin by speaker: every speaker's 1st (in
+    existing file order) clip before any speaker's 2nd, then every 2nd
+    before any 3rd, etc. Pre-registered VALIDATION.md section 5.1 addendum
+    (2026-08-03) — fixes the earlier pilots' deterministic-prefix selection
+    covering only 7/40 speakers by construction. Purely a reordering:
+    `clips[:n]` after this call selects broadly across all speakers instead
+    of a contiguous run of one speaker's files."""
+    by_speaker: dict[str, list[LabeledClip]] = {}
+    for c in clips:
+        by_speaker.setdefault(_speaker_id(c.name), []).append(c)
+    speakers = sorted(by_speaker)  # deterministic order, not by clip count
+    ordered: list[LabeledClip] = []
+    i = 0
+    while True:
+        added = False
+        for sp in speakers:
+            bucket = by_speaker[sp]
+            if i < len(bucket):
+                ordered.append(bucket[i])
+                added = True
+        if not added:
+            break
+        i += 1
+    return ordered
+
+
 # ── Per-clip ASR+detector result cache ──────────────────────────────────────
 # CrisperWhisper inference is the expensive part of every Track B run
 # (54-102s/clip). Caching raw hyp_tokens/events per clip means a future
@@ -58,21 +91,35 @@ def _cache_path(cache_dir: Path, clip_name: str) -> Path:
     return cache_dir / f"{safe}.json"
 
 
-def _load_cached(cache_dir: Path, clip_name: str) -> tuple[list[dict], list[dict]] | None:
+def _load_cached(cache_dir: Path, clip_name: str) -> list[dict] | None:
+    """Returns cached `hyp_tokens` (raw ASR output) only. `events` (the
+    detector's output) is deliberately NOT cached/returned here — see
+    _save_cache's docstring for why. Old cache files written before
+    2026-08-04 also have an "events" key; it's simply ignored, not an
+    error — those files still work, only the unused field is stale."""
     p = _cache_path(cache_dir, clip_name)
     if not p.exists():
         return None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
-        return data["hyp_tokens"], data["events"]
+        return data["hyp_tokens"]
     except Exception:
         return None
 
 
-def _save_cache(cache_dir: Path, clip_name: str, hyp_tokens: list[dict], events: list[dict]) -> None:
+def _save_cache(cache_dir: Path, clip_name: str, hyp_tokens: list[dict]) -> None:
+    """Caches only `hyp_tokens` (the expensive-to-produce ASR output).
+    Deliberately does NOT cache `events` (the detector's output) — fixed
+    2026-08-04 after the sound_repetition fragment-ordering fix (ROADMAP.md
+    item 3) revealed that caching events made the cache silently go stale
+    every time detect.py's logic changes: a cache hit would keep returning
+    events computed by whatever detector code was live at cache-write time,
+    not the current code. Events are cheap to recompute (pure CPU logic on
+    already-known tokens, no ASR) so there is no reason to cache them at
+    the cost of correctness."""
     cache_dir.mkdir(parents=True, exist_ok=True)
     _cache_path(cache_dir, clip_name).write_text(
-        json.dumps({"hyp_tokens": hyp_tokens, "events": events}, ensure_ascii=False),
+        json.dumps({"hyp_tokens": hyp_tokens}, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -226,10 +273,16 @@ def run(
     data_dir: Path, audio_dir: Path, n_clips: int | None,
     result_dir: Path = _DEFAULT_RESULT_DIR, device: str = "cpu", verbose: bool = False,
     cache_dir: Path | None = _DEFAULT_CACHE_DIR, use_cache: bool = True,
+    speaker_stratified: bool = False,
 ) -> dict:
     print(f"Loading clips + real audio from {data_dir} / {audio_dir} ...")
     clips = load_libristutter_dir_with_audio(data_dir, audio_dir)
     clips = [c for c in clips if c.audio_bytes is not None]
+    if speaker_stratified:
+        n_speakers = len({_speaker_id(c.name) for c in clips})
+        clips = _speaker_stratified_order(clips)
+        print(f"Speaker-stratified selection active - round-robin across "
+              f"{n_speakers} speakers (VALIDATION.md section 5.1 addendum).")
     if n_clips:
         clips = clips[:n_clips]
     print(f"{len(clips)} clips selected for this Track B run "
@@ -250,9 +303,8 @@ def run(
     for i, clip in enumerate(clips):
         print(f"[{i+1}/{len(clips)}] {clip.name} ...", end=" ", flush=True)
         c0 = time.time()
-        cached = _load_cached(cache_dir, clip.name) if (use_cache and cache_dir) else None
-        if cached:
-            hyp_tokens, events = cached
+        hyp_tokens = _load_cached(cache_dir, clip.name) if (use_cache and cache_dir) else None
+        if hyp_tokens is not None:
             n_cache_hits += 1
             tag = "cached"
         else:
@@ -261,10 +313,11 @@ def run(
                 from profiling.asr import CrisperWhisperASR
                 asr = CrisperWhisperASR(device=device)
             hyp_tokens = asr.transcribe_bytes(clip.audio_bytes)
-            events = detect_disfluencies(hyp_tokens, audio_bytes=clip.audio_bytes)
             if use_cache and cache_dir:
-                _save_cache(cache_dir, clip.name, hyp_tokens, events)
+                _save_cache(cache_dir, clip.name, hyp_tokens)
             tag = "ASR"
+        # Always recomputed fresh, never cached — see _save_cache's docstring.
+        events = detect_disfluencies(hyp_tokens, audio_bytes=clip.audio_bytes)
         ref_words = [t["word"] for t in clip.tokens]
         hyp_words = [t["word"] for t in hyp_tokens]
         wer = word_error_rate(ref_words, hyp_words)
@@ -316,6 +369,8 @@ def run(
             "mean_wer": sum(wers) / max(1, len(wers)),
             "clip_names": [c.name for c in clips],
             "n_cache_hits": n_cache_hits,
+            "speaker_stratified": speaker_stratified,
+            "n_speakers": len({_speaker_id(c.name) for c in clips}),
         },
     )
     print(f"\nSaved: {path}")
@@ -464,16 +519,51 @@ def run_self_test() -> int:
           "- no FN recorded for it, unlike the original preserved subset",
           preserved3_ctx1["word_repetition"].fn == 0, str(preserved3_ctx1["word_repetition"]))
 
-    # 6. Cache round-trip.
+    # 6. Speaker-stratified ordering (VALIDATION.md section 5.1 addendum).
+    fake_clips = [
+        LabeledClip(name=n, tokens=[], ground_truth={}, audio_bytes=b"x")
+        for n in [
+            "1-a-0", "1-a-1", "1-a-2",   # speaker 1: 3 clips
+            "2-a-0",                     # speaker 2: 1 clip
+            "3-a-0", "3-a-1",            # speaker 3: 2 clips
+        ]
+    ]
+    ordered = _speaker_stratified_order(fake_clips)
+    ordered_names = [c.name for c in ordered]
+    check("speaker-stratified: all clips preserved, none dropped/duplicated",
+          sorted(ordered_names) == sorted(c.name for c in fake_clips), ordered_names)
+    check("speaker-stratified: first 3 clips are each speaker's 1st (round 1)",
+          set(ordered_names[:3]) == {"1-a-0", "2-a-0", "3-a-0"}, ordered_names)
+    check("speaker-stratified: a speaker's 2nd clip never precedes another speaker's 1st",
+          ordered_names.index("1-a-1") > ordered_names.index("2-a-0")
+          and ordered_names.index("3-a-1") > ordered_names.index("2-a-0"),
+          ordered_names)
+    check("speaker-stratified: exhausted speaker (speaker 2) doesn't block later rounds",
+          "1-a-2" in ordered_names and "3-a-1" in ordered_names, ordered_names)
+
+    # 7. Cache round-trip. Events are deliberately NOT cached (2026-08-04
+    # fix) — only hyp_tokens — so events must be recomputed fresh every
+    # run and can never go stale relative to the live detect.py code.
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         cd = Path(d)
         check("cache miss returns None", _load_cached(cd, "nope") is None)
-        _save_cache(cd, "clip-a", [{"word": "hi", "start": 0.0, "end": 0.1}], [{"index": 0, "type": "filler"}])
+        _save_cache(cd, "clip-a", [{"word": "hi", "start": 0.0, "end": 0.1}])
         loaded = _load_cached(cd, "clip-a")
-        check("cache round-trip preserves hyp_tokens/events",
-              loaded is not None and loaded[0][0]["word"] == "hi" and loaded[1][0]["type"] == "filler",
+        check("cache round-trip preserves hyp_tokens (events intentionally not cached)",
+              loaded is not None and loaded[0]["word"] == "hi",
               str(loaded))
+        # Old-format cache files (written before 2026-08-04) also have an
+        # "events" key alongside hyp_tokens — must still load cleanly,
+        # with the stale events field simply ignored, not an error.
+        (cd / "clip-b.json").write_text(
+            json.dumps({"hyp_tokens": [{"word": "bye"}], "events": [{"type": "filler"}]}),
+            encoding="utf-8",
+        )
+        old_format_loaded = _load_cached(cd, "clip-b")
+        check("old-format cache (with a stale events key) still loads hyp_tokens cleanly",
+              old_format_loaded is not None and old_format_loaded[0]["word"] == "bye",
+              str(old_format_loaded))
 
     print(f"\n{'ALL PASS' if not failures else str(failures) + ' FAILURE(S)'}")
     return 1 if failures else 0
@@ -502,6 +592,12 @@ def main(argv: list[str] | None = None) -> int:
         "--cache-dir", default=None,
         help=f"Where to cache per-clip ASR+detector output (default: {_DEFAULT_CACHE_DIR}).",
     )
+    parser.add_argument(
+        "--speaker-stratified", action="store_true",
+        help="Select clips round-robin across all speakers instead of a file-order "
+             "prefix (VALIDATION.md section 5.1 addendum, 2026-08-03) - fixes the "
+             "default prefix selection covering only a handful of speakers.",
+    )
     args = parser.parse_args(argv)
 
     if args.self_test:
@@ -517,7 +613,8 @@ def main(argv: list[str] | None = None) -> int:
 
     cache_dir = Path(args.cache_dir) if args.cache_dir else _DEFAULT_CACHE_DIR
     run(data_dir, audio_dir, args.n, device=args.device, verbose=args.verbose,
-        cache_dir=cache_dir, use_cache=not args.no_cache)
+        cache_dir=cache_dir, use_cache=not args.no_cache,
+        speaker_stratified=args.speaker_stratified)
     return 0
 
 

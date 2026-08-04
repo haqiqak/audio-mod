@@ -97,6 +97,25 @@ def test_exact_word_repeat_is_word_repetition_not_sound() -> None:
     assert kinds == ["word_repetition"], events
 
 
+def test_word_repetition_sld_tag_by_syllable_count() -> None:
+    """PHASE_2_RESEARCH_PLAN.md: a repeated monosyllabic word is tagged
+    likely_sld=True (stuttering-like per the clinical SLD/OD literature); a
+    repeated polysyllabic word is tagged likely_sld=False (an ordinary
+    linguistic-planning disfluency, not stuttering-like). Descriptive
+    metadata only — must not change the event's type or confidence."""
+    mono = detect_disfluencies(_toks(["her", "her", "name"]), config=_CFG)
+    mono_wr = [e for e in mono if e["type"] == "word_repetition"]
+    assert len(mono_wr) == 1, mono
+    assert mono_wr[0]["syllable_count"] == 1, mono_wr
+    assert mono_wr[0]["likely_sld"] is True, mono_wr
+
+    poly = detect_disfluencies(_toks(["happy", "happy", "birthday"]), config=_CFG)
+    poly_wr = [e for e in poly if e["type"] == "word_repetition"]
+    assert len(poly_wr) == 1, poly
+    assert poly_wr[0]["syllable_count"] == 2, poly_wr
+    assert poly_wr[0]["likely_sld"] is False, poly_wr
+
+
 # ── 2. Acoustic corroboration for filler / stutter_marker ─────────────────────
 
 def test_filler_confidence_boosted_when_acoustically_confirmed() -> None:
@@ -218,21 +237,104 @@ _DEMO = [
 
 
 def test_demo_fixture_regression_still_7_events_new_taxonomy() -> None:
-    """Same 9-token demo fixture, still 7 events — only the type labels for
-    the two repetitions changed (repetition -> word_repetition), not the
-    count. See README.md's "Verify it works" walkthrough for the full
-    expected badge breakdown under the new taxonomy."""
+    """Same 9-token demo fixture, still 7 events. Updated 2026-08-04 (ROADMAP.md
+    item 3, the sound_repetition fragment-ordering fix): the fixture's
+    "buy" "buy-" pair (complete word followed by its own fragment) was
+    previously misclassified as word_repetition (both sides normalize to
+    "buy", caught by the exact-match check before any fragment-specific
+    logic ran) — now correctly sound_repetition. Only "I" "I" remains
+    word_repetition. See README.md's "Verify it works" walkthrough for the
+    full expected badge breakdown."""
     events = detect_disfluencies(_DEMO)
     assert len(events) == 7, f"expected 7, got {len(events)}: {events}"
-    reps = [e for e in events if e["type"] == "word_repetition"]
-    assert len(reps) == 2, events
+    word_reps = [e for e in events if e["type"] == "word_repetition"]
+    assert len(word_reps) == 1, events
+    sound_reps = [e for e in events if e["type"] == "sound_repetition"]
+    assert len(sound_reps) == 1, events
     assert not any(e["type"] == "repetition" for e in events), events
+
+
+def test_sound_repetition_fragment_after_word() -> None:
+    """PHASE_2_RESEARCH_PLAN.md / ROADMAP.md item 3: a fragment repeated
+    AFTER its complete word ("Rachel" "rachel-", LibriStutter's actual
+    reconstruction convention) must be sound_repetition, not swallowed by
+    the exact-match word_repetition check — the deeper bug the fix
+    addresses, not just the already-covered "before" ordering. The
+    fragment's trailing "-" also independently triggers stutter_marker
+    (expected, multi-label) — what must NOT appear is word_repetition."""
+    events = detect_disfluencies(_toks(["Rachel", "rachel-", "said"]), config=_CFG)
+    kinds = {e["type"] for e in events if e["index"] == 1}
+    assert "sound_repetition" in kinds, events
+    assert "word_repetition" not in kinds, events
+
+
+def test_sound_repetition_fragment_before_word_still_works() -> None:
+    """The original, already-covered ordering must still work after the fix
+    (no regression): a genuine partial fragment before its completed word."""
+    events = detect_disfluencies(_toks(["str-", "street"]), config=_CFG)
+    kinds = [e["type"] for e in events if e["index"] == 1]
+    assert kinds == ["sound_repetition"], events
+
+
+def test_rate_normalized_prolongation_flags_what_percentile_mode_misses() -> None:
+    """VALIDATION.md section 9.5: with a short clip (<5 tokens, so the
+    default percentile mode falls back to a flat 1.5x floor = 0.975s at
+    this config's 0.65s min), an 0.8s token is NOT flagged. Enabling
+    use_rate_normalized_prolongation computes a speaking-rate-relative
+    threshold instead (~0.42s here: 4 syllables / 1.4s span = ~2.86
+    syll/s, 1.2/2.86 ~= 0.42s) and DOES flag it -- same input, different
+    mechanism, different (and opposite) result, proving the toggle
+    actually changes behavior."""
+    toks = [
+        {"word": "the",   "start": 0.0, "end": 0.2},
+        {"word": "cat",   "start": 0.2, "end": 0.4},
+        {"word": "sat",   "start": 0.4, "end": 0.6},
+        {"word": "there", "start": 0.6, "end": 1.4},  # 0.8s duration
+    ]
+    baseline = detect_disfluencies(toks, config=_CFG)
+    assert not any(e["type"] == "prolongation" for e in baseline), baseline
+
+    rate_cfg = dict(_CFG, use_rate_normalized_prolongation=True,
+                     prolongation_rate_alpha=1.2, prolongation_rate_floor=1.5)
+    rated = detect_disfluencies(toks, config=rate_cfg)
+    prolongs = [e for e in rated if e["type"] == "prolongation"]
+    assert len(prolongs) == 1 and prolongs[0]["index"] == 3, rated
+
+
+def test_praat_gate_is_graceful_noop_without_audio() -> None:
+    """require_praat_stability_for_prolongation must never crash or block
+    when there's no audio to analyze (graceful no-op, same principle as
+    every other acoustic check) -- duration-only detection still works."""
+    toks = [
+        {"word": "a",    "start": 0.0, "end": 0.1},
+        {"word": "b",    "start": 0.1, "end": 0.2},
+        {"word": "c",    "start": 0.2, "end": 0.3},
+        {"word": "d",    "start": 0.3, "end": 0.4},
+        {"word": "long", "start": 0.4, "end": 2.0},  # well over any threshold
+    ]
+    cfg = dict(_CFG, require_praat_stability_for_prolongation=True)
+    events = detect_disfluencies(toks, config=cfg)  # no audio_bytes
+    assert any(e["type"] == "prolongation" and e["index"] == 4 for e in events), events
+
+
+def test_word_sandwiched_repetition_not_implemented() -> None:
+    """A "word-sandwiched repetition" extension (tolerating a single
+    non-filler word between a repeat pair) was implemented and benchmarked
+    2026-08-04, then REVERTED — measured net harm (Track A Any F1
+    0.835->0.793) outweighed its measured benefit. This negative result is
+    locked in as a regression test: a coincidental repeat across an
+    unrelated intervening word (e.g. two sentences both starting "It")
+    must NOT be flagged. See VALIDATION.md section 8.4.4."""
+    events = detect_disfluencies(_toks(["Rachel", "Lynde,", "Rachel"]), config=_CFG)
+    reps = [e for e in events if e["type"] == "word_repetition" and e["index"] == 2]
+    assert len(reps) == 0, events
 
 
 def _run_all() -> int:
     tests = [
         test_sound_repetition_is_its_own_type,
         test_exact_word_repeat_is_word_repetition_not_sound,
+        test_word_repetition_sld_tag_by_syllable_count,
         test_filler_confidence_boosted_when_acoustically_confirmed,
         test_filler_confidence_down_weighted_when_span_is_near_silent,
         test_stutter_marker_same_acoustic_corroboration,
@@ -241,6 +343,11 @@ def _run_all() -> int:
         test_acoustic_candidate_replaces_weaker_token_event_when_weighted_higher,
         test_disabling_a_detector_suppresses_its_events,
         test_demo_fixture_regression_still_7_events_new_taxonomy,
+        test_sound_repetition_fragment_after_word,
+        test_sound_repetition_fragment_before_word_still_works,
+        test_word_sandwiched_repetition_not_implemented,
+        test_rate_normalized_prolongation_flags_what_percentile_mode_misses,
+        test_praat_gate_is_graceful_noop_without_audio,
     ]
     failures = 0
     for fn in tests:

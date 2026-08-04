@@ -1,5 +1,23 @@
 # VALIDATION.md — evaluation methodology, datasets, and results
 
+**Status as of 2026-08-04 (end of day): Phase 2's detector-side and
+measurement-infrastructure work is complete.** Since the 2026-08-03
+baseline described below, four more evidence-driven changes landed, each
+pre-registered and measured the same way: (1) `sound_repetition`'s
+fragment-ordering bug fixed, recall 0.000→0.920 (§8.2.1); (2) a candidate
+"word-sandwiched repetition" extension was built, measured, and
+**reverted** as a documented negative result (§8.4.4); (3) the
+prolongation redesign — Praat-feature gating adopted as the new shipped
+default (`Any` F1 0.835→0.888, prolongation F1 0.064→0.084), rate-
+normalization tested and rejected (§9.5.1); (4) a confidence-sensitive
+metric and Wilson confidence intervals were built and run against real
+data, closing §9.3's open question with a negative-to-null result for
+VAD/Praat's confidence effect (§9.3.1) and making this project's own
+extreme-small-n recall claims concrete (§8.4.3 addendum). All numbers
+below that predate 2026-08-04 are kept exactly as measured at the time —
+see each section's own dated addenda for what has since changed, rather
+than silently rewriting history.
+
 **Status as of 2026-08-03 (end of day): this project's first established
 research baseline.** `profiling/evaluation/` supports both text-only and
 audio-enabled Track A evaluation (LibriStutter, word-level, real
@@ -28,35 +46,43 @@ this presence/absence metric — traced to a real methodological finding
 applicable to this dataset. See §9 for the full tables and the evidence-
 based next-phase recommendation this produced.
 
-**Track B pilot complete and confirmed at scale (§8.4/§8.4.1/§8.4.2),
-protocol pre-registered in §5.1 before any code was written.** 30 clips
-(pilot), then scaled to 90 clips (confirmation), real CrisperWhisper ASR,
-alignment-based scoring, hand-verified against 10 clips' transcripts
-(methodological gate passed). Headline: Track A's ~99% recall drops to
-**~6–13%** under real ASR conditions — the single most important finding of
-this project's evaluation work to date, and the clearest evidence yet that
-Track A alone was measuring something that does not transfer to real
-deployment. That absolute drop is not in question. The *attribution* of that
-gap, however, reverses once context-strict preserved-subset scoring
-(`R_B|preserved_ctx1` — both the disfluent word and its immediately
-preceding word required to survive ASR intact, §5.1's addendum) is applied:
-the naive word-only split (~93–95% detector-attributable / ~5–7%
-ASR-attributable) drops to **exactly 0% detector-attributable / 100%
-ASR-attributable** (using the exact matched-subset Track A recall computed
-during the Phase 1 closing review, not the earlier full-sample
-approximation — see §8.4/§8.4.1/§8.4.2 and `PAPER_DECISION_LOG.md`),
-confirmed independently at two sample sizes (n=2 at 30 clips, n=7 at 90
-clips — `R_B|preserved_ctx1` recall = 1.0 both times).
-**This is now a confirmed research conclusion, not a provisional one**: the
-detector's binary disfluent/clean judgment is effectively perfect whenever
-ASR preserves both a disfluent word and its context; the real-world recall
-shortfall is overwhelmingly an ASR-fidelity problem. A second, distinct
-finding sharpened at the larger scale: even when binary detection succeeds,
-*exact type* classification for `word_repetition`/`sound_repetition` is
-frequently wrong (2/7 exact-type matches at n=90) — a real, scoped,
-detector-side issue, traced to a hypothesis-side word-contiguity gap ASR
-insertions create. See §8.4.2 for the full numbers, decomposition, and the
-resulting synthesis of where future development effort is best spent.
+**Track B pilot complete, scaled, and — as of 2026-08-04 — confirmed
+across full speaker diversity (§8.4/§8.4.1/§8.4.2/§8.4.3), protocol
+pre-registered in §5.1 before any code was written.** 30 clips (pilot),
+90 clips (7 speakers, clip-count scaling), then 120 clips spanning **all
+40 distinct speakers** (speaker-stratified sampling, §8.4.3) — real
+CrisperWhisper ASR, alignment-based scoring, hand-verified against 10
+clips' transcripts (methodological gate passed). Headline: Track A's ~99%
+recall drops to **~6–15%** under real ASR conditions — the single most
+important finding of this project's evaluation work to date, and the
+clearest evidence yet that Track A alone was measuring something that does
+not transfer to real deployment. That absolute drop is not in question and
+has not moved.
+
+**The *attribution* of that gap was refined, not simply confirmed, once
+speaker diversity was accounted for — this is a genuine scientific
+correction, recorded here rather than smoothed over.** At the 7-speaker
+samples (n=2 at 30 clips, n=7 at 90 clips), context-strict scoring
+(`R_B|preserved_ctx1`) gave a clean 1.0 recall, read at the time as "the
+detector is effectively perfect given intact input" (~0% detector-
+attributable / ~100% ASR-attributable). At full 40-speaker diversity (120
+clips, §8.4.3), `R_B|preserved_ctx1` recall is **0.667 (10/15)**, and the
+decomposition moves to **35.1% detector-attributable / 64.9%
+ASR-attributable**. ASR-fidelity remains the majority driver — the
+headline does not reverse — but "the detector is essentially perfect given
+fair input" was too strong a claim at n=7. **Traced by hand, the correction
+has a precise, satisfying mechanism, not a mystery**: all 5 of the misses
+in the larger sample are `sound_repetition` or `phrase_repetition`
+instances, both types with *already-known, already-documented* structural
+gaps unrelated to ASR (§8.2's fragment-ordering mismatch and
+LibriStutter-reconstruction limitation, respectively) — **`word_repetition`
+itself remains at 100% Any-level recall given intact context, across 10
+instances and two independent sample-construction methods.** The earlier
+small samples happened, by chance, to be `word_repetition`-heavy; the
+larger, speaker-diverse sample exposed the same pre-existing gaps Track A
+had already found, now confirmed to matter under real ASR conditions too.
+See §8.4.3 for the full numbers, the hand-traced hit/miss breakdown, and
+what this does and doesn't change about where development effort belongs.
 
 This is the project's evaluation reference: how we measure whether the
 disfluency detector actually works, against what, and — once runs start
@@ -407,6 +433,64 @@ as the next candidate refinement (hypothesis-side contiguity, not just
 reference-side correctness) — not implemented now, same reasoning as before:
 needs its own pre-registration and more data before it's worth building.
 
+**Addendum (2026-08-03, pre-registered before implementation): speaker-
+stratified Track B sampling.** The Phase 1 closing review (§7.2 item 2)
+found the 30/90-clip Track B pilots are a deterministic *prefix* of the
+speaker-ordered 499-clip sample, covering only 7 of 40 distinct speakers —
+not a representative cross-section. This addendum defines, before running
+anything, how the next Track B run selects clips instead:
+
+- **Selection method**: round-robin by speaker. Group the 499-clip sample
+  by speaker ID (the numeric prefix of the clip name, e.g. `103` from
+  `103-1240-0000`); take each speaker's 1st clip (in the existing
+  deterministic file order) before any speaker's 2nd clip, then each
+  speaker's 2nd before any 3rd, and so on, until the target clip count is
+  reached. Deterministic and chosen before seeing any result — not
+  cherry-picked speakers or clips.
+- **Target size**: up to 3 clips per speaker across all 40 speakers (120
+  clips if every speaker has ≥3), or fewer if the target count is reached
+  first — sized to be comparable to the existing 90-clip run while
+  maximizing speaker coverage (40 speakers instead of 7).
+- **What this does and doesn't fix**: this changes *which* clips are
+  scored, not the alignment/scoring logic itself (unchanged from §5.1's
+  original protocol and the `preserved_ctx1` addendum above) — so results
+  from this run are directly comparable to the existing 30/90-clip results,
+  not a new metric. Per-clip caching means clips already scored (the
+  existing 90 clips, likely including many of each covered speaker's
+  earlier-order clips) are reused, not re-run.
+- **Success/non-goal, stated in advance**: this is a check of whether the
+  confirmed §8.4.2 conclusion (`R_B|preserved_ctx1` recall = 1.0, detector-
+  attributable gap ≈ 0%) holds when speaker coverage broadens from 7 to 40
+  — not a guarantee it will. A result showing the finding holds, weakens,
+  or strengthens are all valid, reportable outcomes; none is predetermined
+  as "success." Given `preserved_ctx1`'s positive-instance count was
+  already small (n=7 at 90 clips), a modestly larger, more diverse sample
+  may still not be enough for a precise number — the qualitative direction
+  is what this run can most credibly speak to.
+
+**Addendum (2026-08-04): hypothesis-side-contiguity metric — built and
+measured before any detector change, per this section's own "measure
+before implementing" discipline (`ROADMAP.md` item 4's candidate fix (b),
+done ahead of candidate fix (a)).** Defines, precisely, the gap the
+2026-08-03 addendum above only described qualitatively: for a
+`preserved_ctx1` instance (reference positions `i`/`i-1` both align
+`correct`), compute `gap = hyp_index(i) - hyp_index(i-1) - 1` — the number
+of hypothesis-sequence tokens inserted between the two aligned words that
+the reference-only check cannot see. `gap == 0` means truly contiguous in
+the actual ASR output the detector runs on; `gap > 0` means an insertion
+broke true adjacency even though both reference positions individually
+align correct. Computed directly from `alignment.py`'s existing
+`AlignmentOp.hyp_index` field — no new alignment logic needed, only a new
+diagnostic pass over already-aligned data.
+
+**Method**: re-scored all 120 already-cached speaker-stratified clips
+(`eval_datasets/_track_b_cache/`, zero new ASR calls) with this metric.
+**Non-goal, stated before running**: this is a diagnostic pass to inform
+whether candidate fix (a) is worth its false-positive risk, not itself a
+benchmark number to headline — its output determines whether (a) proceeds,
+not how well (a) performs (that would need its own, separate benchmark
+after implementation, per usual discipline).
+
 ---
 
 ## 6. Framework design (built)
@@ -553,33 +637,30 @@ limitation**.
    easy — it was.
 
 2. **The Track B clip subset is speaker-clustered, not speaker-representative
-   — a real limitation not previously identified or documented. Accepted as
-   a standing, documented limitation; concrete fix scoped for Phase 2.**
+   — a real limitation, identified here and directly resolved in Phase 2.**
    Checked directly during this review: the full 499-clip Track A sample
-   spans **40 distinct speakers**. The Track B subsets, however, are a
+   spans **40 distinct speakers**. The Track B subsets, however, were a
    deterministic *prefix* ("first 30," then "first 90") of that list, and
    LibriStutter's filenames are speaker-ordered — so the 30-clip pilot
-   covers only **3 speakers**, and the 90-clip scaled run only **7**
+   covered only **3 speakers**, and the 90-clip scaled run only **7**
    (confirmed by direct inspection: speaker IDs `103`, `1088`, `1334` at
-   n=30; adding `1502`, `1743`, `1867`, `1926` at n=90). This means the
-   entire Track B evaluation — including the confirmed §8.4.2 conclusion —
-   has so far been measured on **17.5% of the available speakers**, not a
-   representative cross-section. This directly matters because ASR error
-   patterns (which is what Track B's whole finding is about) are known to
-   be speaker/accent/recording-dependent; it's possible the specific
-   context-corruption mechanism found (§8.4.1) is partly a property of how
-   CrisperWhisper handles *these particular 7 speakers'* voices rather than
-   a fully general finding. This is precisely the "speaker-exclusive splits"
-   discipline §4 point 5 already named as a principle — it simply wasn't
-   applied when the Track B clip *subset itself* was selected, only
-   flagged as a principle for later threshold decisions. **Not fixed this
-   review** (would require either a new sampling strategy — e.g. every-Kth
-   clip across the full 499 rather than a prefix — and re-running Track B
-   with fresh ASR on a differently-selected set, a real time cost this
-   closing session's scope explicitly excludes) — recorded here and in
-   `ROADMAP.md` as a concrete, evidence-backed Phase 2 action: when Track B
-   is scaled further, sample across speakers deliberately, not just by
-   clip count.
+   n=30; adding `1502`, `1743`, `1867`, `1926` at n=90). This meant the
+   entire Track B evaluation — including the then-confirmed §8.4.2
+   conclusion — had been measured on **17.5% of the available speakers**,
+   not a representative cross-section. This mattered directly because ASR
+   error patterns are known to be speaker/accent/recording-dependent; it
+   was possible the specific context-corruption mechanism found (§8.4.1)
+   was partly a property of how CrisperWhisper handles *these particular 7
+   speakers'* voices rather than a fully general finding. **Resolved
+   2026-08-04** (`PAPER_DECISION_LOG.md`; `VALIDATION.md` §8.4.3): a
+   speaker-stratified Track B run across all 40 speakers found the
+   suspicion in this item was justified — the 7-speaker sample's clean
+   "0% detector-attributable" result did not hold at full diversity
+   (revised to 35.1% detector-attributable), traced to two already-known
+   `sound_repetition`/`phrase_repetition` structural gaps rather than a
+   speaker-specific ASR artifact per se. This is exactly the outcome this
+   critical-review item existed to either rule out or catch — it caught
+   something real.
 
 3. **The confirmed "ASR is the bottleneck" conclusion rests on exactly one
    ASR backend (CrisperWhisper) and one dataset family (LibriStutter's
@@ -758,6 +839,11 @@ full readiness argument.
 | 2026-08-03 | LibriStutter | Ablations (10 config variants) | (uncommitted at run time) | 499 (same clips as §8.3, per variant) | See §9. 10 raw result files, `eval_results/*_libristutter_ablation-*.json` (gitignored, one per variant — not individually enumerated here). |
 | 2026-08-03 | LibriStutter | B (context-strict rescoring, same 30 clips as the pilot) | (uncommitted at run time) | 30 | `R_B\|preserved_ctx1` added — see §8.4.1. Pre-registered in §5.1's addendum before implementation. Raw result: `eval_results/20260803T111624161563Z_libristutter_B.json`. Per-clip cache introduced this run: `eval_datasets/_track_b_cache/`. |
 | 2026-08-03 | LibriStutter | B (scaled confirmation) | (uncommitted at run time) | 90 | Scaled from 30 → 90 clips to confirm the context-strict finding at a larger sample — see §8.4.2. 32/90 clips reused from cache (30 original + 2 from an interrupted first attempt of this run), 58 real ASR runs. Raw result: `eval_results/20260803T154940357685Z_libristutter_B.json`. |
+| 2026-08-03 | LibriStutter | A+audio (regression confirmation, `word_repetition` SLD/OD tag) | (uncommitted at run time) | 499 | Post-implementation benchmark for the Phase 2 Step 1 taxonomy refinement (`PAPER_DECISION_LOG.md`, "Adversarial self-review... and its first implementation milestone"). Same 499 clips as §8.3. **Confirmed byte-for-byte identical to §8.3's frozen baseline** (`Any` F1 0.835, unchanged) — proves the new `syllable_count`/`likely_sld` metadata on `word_repetition` events is purely additive. Run with `--no-save` (intentionally reproduces §8.3's numbers rather than recording a new result). |
+| 2026-08-04 | LibriStutter | B (speaker-stratified, all 40 speakers) | (uncommitted at run time) | 120 | Directly resolves the Phase 1 closing review's speaker-clustering caveat (§7.2 item 2) — see §8.4.3. Round-robin sampling across all 40 speakers, pre-registered in §5.1's addendum before running. `R_B\|preserved_ctx1` recall revised from 1.0 (7 speakers) to 0.667 (40 speakers) — traced by hand to two already-known `sound_repetition`/`phrase_repetition` structural gaps, not `word_repetition` or a new detector weakness. Interrupted once mid-run by an unrelated session restart, resumed cleanly from the per-clip cache. Raw result: `eval_results/20260804T060338639222Z_libristutter_B.json`. |
+| 2026-08-04 | LibriStutter | A+audio (exact-subset, speaker-stratified 120 clips) | (uncommitted at run time) | 120 | Exact matched-subset Track A recall for the same 120 clips used in the run above — $R_A$ = 185/186 = 0.9946 (the first time this project's exact-subset $R_A$ was not a clean 1.0). Raw result: `eval_results/20260804T060635995226Z_libristutter_A+audio-speaker-stratified-120-matched-to-trackB.json`. |
+| 2026-08-04 | LibriStutter | Ablations (13 config variants — original 10 + 3 new prolongation-redesign variants) | (uncommitted at run time) | 499 (same clips as §8.3, per variant) | See §9.5.1. Pre-registered evaluation plan (§9.5) run exactly as specified. **Decision: `require_praat_stability_for_prolongation` flipped to the new shipped default (`true`) in `config.yaml`** — the only variant of 13 to clear the pre-registered bar (`Any` F1 0.835->0.888, prolongation F1 0.064->0.084, both improved). `use_rate_normalized_prolongation` stays `false` (regressed both metrics, standalone and combined with Praat-gating). 13 raw result files, `eval_results/*_libristutter_ablation-*.json`. Full raw console output: `eval_datasets/_prolongation_ablation_output.txt`. |
+| 2026-08-04 | LibriStutter | A+audio (confidence-sensitive metric, real data) | (uncommitted at run time) | 499 (same clips as §8.3) | See §9.3.1. First real-data run of `metrics.confidence_stats()` — TP-vs-FP confidence gap ~zero everywhere measurable, slightly negative for `Any` (-0.007). Not saved via `report.save_run` (a metric computation over existing detection output, not a new scored run) — reproducible via the command recorded in §9.3.1. |
 
 ### 8.2 LibriStutter — Track A (real data, first result)
 
@@ -819,6 +905,36 @@ itself, and that's called out per-row. This is Track A (ASR bypassed,
   (b) `detect_disfluencies()`'s sound_repetition check only covers one of
   two real fragment-repeat orderings and is missing the other. Worth
   investigating before touching either side.
+
+  **Root cause found and fix pre-registered, 2026-08-04 (before
+  implementation) — deeper than either possibility above.** Directly
+  tested both orderings with the exact reconstruction convention
+  `load_libristutter_csv` uses (fragment = complete word text + trailing
+  `-`, confirmed in `loaders.py`): in **both** "fragment-before-word" and
+  "fragment-after-word" arrangements, the event was misclassified as
+  `word_repetition` (0 `sound_repetition` events in either case), not just
+  the "after" ordering. Cause: `_norm()` strips the trailing `-`, so a
+  reconstructed fragment normalizes to a string **identical** to its
+  complete-word counterpart — and the code's existing exact-match
+  `word_repetition` check (`low == prev_low`) runs *before* the
+  fragment-specific check in the `if/elif` chain, intercepting every such
+  pair regardless of order. Simply adding a reverse-order check (option
+  (a)/(b) above) would not have fixed this, since the exact-match branch
+  would still catch it first. **Fix**: move a fragment-pair check (either
+  token ending in a literal, pre-normalization `-`, with a prefix/equality
+  relationship to its neighbor) to run *before* the exact-match check,
+  handling both orderings in one unified branch. **Expected effect,
+  stated before running anything**: `sound_repetition` recall on this same
+  499-clip sample should move substantially above 0% (exact figure not
+  predicted — reporting whatever Track A measures, not a target);
+  `word_repetition`'s TP count should drop correspondingly (events
+  previously double-counted as `word_repetition` reclassify to
+  `sound_repetition`, a redistribution, not a net new detection).
+  **Non-goal**: not tuning any similarity/length threshold in response to
+  this result — this is a structural correctness fix (the old logic
+  could never have produced a `sound_repetition` label for this
+  reconstruction pattern, in either token order), not a tunable knob.
+  Full results once measured: §8.2.1.
 - **`phrase_repetition`: 0% recall (0/201) is expected and not a detector
   finding** — flagged in the reconstruction's own documentation before this
   run happened (see `loaders.py`). A true multi-word phrase repeat can't be
@@ -859,11 +975,65 @@ reconstruction artifact (true clean-speech precision ≈ 87.1%), while
 cross-contamination) is a genuine finding worth investigating on real,
 non-reconstructed audio. `sound_repetition`'s 0% recall is a genuine,
 confirmed gap tied to fragment ordering (before- vs. after-word), not a
-reconstruction artifact. `phrase_repetition`/`filler` need different
-validation setups entirely (Track B for phrase_repetition, since a true
-multi-word repeat can't be reconstructed from one marker row; a larger or
-targeted sample for filler, since this sample had zero ground-truth
-instances) before they can be measured here at all.
+reconstruction artifact. **[2026-08-04: fixed — see §8.2.1, recall
+0%→92.0%. The root cause was deeper than "ordering," see that section.]**
+`phrase_repetition`/`filler` need different validation setups entirely
+(Track B for phrase_repetition, since a true multi-word repeat can't be
+reconstructed from one marker row; a larger or targeted sample for filler,
+since this sample had zero ground-truth instances) before they can be
+measured here at all.
+
+#### 8.2.1 `sound_repetition` fragment-ordering fix — measured result (2026-08-04)
+
+Pre-registered above before implementation. **Result matches the
+predicted direction; magnitude was not predicted and is reported as
+measured.** Same 499-clip, audio-enabled sample as §8.3 (below), re-run
+after the fix (`profiling/detect.py`, `_word_repetition_extra` area — a
+fragment-pair check now runs *before* the exact-match `word_repetition`
+check, so a fragment reconstructed as "word + trailing `-`" is correctly
+classified as `sound_repetition` regardless of which side of its
+complete-word counterpart it sits on):
+
+| Type | Metric | Before (frozen §8.3) | After (2026-08-04) | Change |
+|---|---|---|---|---|
+| `sound_repetition` | TP / FP / FN | 0 / 1 / 200 | 184 / 5 / 16 | +184 TP, +4 FP, −184 FN |
+| `sound_repetition` | Precision / Recall / F1 | 0.000 / 0.000 / n/a | 0.974 / **0.920** / 0.946 | recall 0% → 92.0% |
+| `word_repetition` | TP / FP / FN | 183 / 640 / 3 | 183 / 452 / 3 | −188 FP, TP/FN unchanged |
+| `word_repetition` | Precision / Recall / F1 | 0.222 / 0.984 / 0.363 | 0.288 / 0.984 / 0.446 | precision +6.6pt, recall unchanged |
+| `Any` (combined) | TP / FP / FN / F1 | 801 / 308 / 8 / 0.835 | 801 / 308 / 8 / 0.835 | **exactly unchanged** |
+
+**`Any` being byte-for-byte identical is the expected, correct signature
+of a pure type-reclassification fix, not a coincidence**: `Any` scoring
+only asks "was some type predicted where some true type exists," which
+this fix doesn't change (the position was already flagged, just under
+the wrong type label) — consistent with this project's now-repeated
+finding (§8.4.2, §8.4.3) that binary detection and exact-type
+classification are separate axes. `word_repetition`'s TP/FN are also
+unchanged — the fix only removed **false positives** that were never
+genuine word-repetition detections (contrary to this fix's own
+pre-registration text above, which predicted `word_repetition`'s *TP*
+would drop; measurement shows it was FP that dropped, TP was never
+inflated by this bug in the first place — the pre-registration's
+predicted *direction* was right, its specific mechanism guess was
+imprecise, corrected here against the actual measurement, not silently).
+
+**16 residual `sound_repetition` FN (8% of 200) remain** — a much smaller,
+secondary gap, not investigated further this round (the ~fourfold
+precision-for-recall trade shown above, 97.4% precision at 92.0% recall,
+is already a strong result; chasing the last 8% is lower priority than
+other Phase 2 items per `ROADMAP.md`).
+
+**A related infrastructure fix made alongside this**: `track_b.py`'s
+per-clip cache was found to store the *detector's output* (`events`), not
+just the ASR output (`hyp_tokens`) — meaning every previously-cached
+Track B clip (all 210 clips across the 30/90/120-clip runs) held `events`
+computed by the *pre-fix* detector code, and any future Track B run
+reusing that cache would have silently kept scoring with the old, buggy
+`sound_repetition` classification even after this fix shipped. Fixed:
+the cache now stores only `hyp_tokens`; `events` is always recomputed
+fresh from the live `detect.py` code on every run (cheap — no ASR
+involved), so the cache can never go stale relative to detector-code
+changes again. See `PAPER_DECISION_LOG.md`.
 
 ### 8.3 LibriStutter — Track A **with real audio** (same 499 clips, audio-native layer active)
 
@@ -885,6 +1055,26 @@ inspection of the metrics table alone — exactly the discipline this project
 applies to every non-trivial result. Fixed by reading with the default
 float64 dtype and scaling to int16 manually. **The numbers below are
 post-fix, verified against real, non-silent, correctly-decoded audio.**
+
+**[2026-08-04: `sound_repetition` and `word_repetition`'s rows below are
+superseded by the fragment-ordering fix — see §8.2.1 (0.000→0.920 recall
+on `sound_repetition`). Kept here as the frozen, accurate record of what
+this checkpoint measured at the time; not edited in place, same discipline
+as elsewhere in this file. Since audio never affects these two types
+(this row's own "identical to text-only" finding below), §8.2.1's numbers
+apply equally to this section — no separate audio-enabled re-measurement
+was needed for those two rows specifically.]**
+
+**[2026-08-04: the `prolongation` and `Any` rows below are superseded by
+the prolongation redesign's default-config change — see §9.5.1
+(`require_praat_stability_for_prolongation` flipped `true`, the shipped
+default from this date forward). At the new default, this exact 499-clip
+sample measures `prolongation` TP=16/FP=145/FN=206/F1=0.084 (up from
+0.064 below) and `Any` TP=796/FP=188/FN=13/F1=0.888 (up from 0.835
+below). Kept here as the frozen, accurate record of the pre-redesign
+baseline this project's original audio-native architecture change was
+measured against — not edited in place, same discipline as elsewhere in
+this file.]**
 
 | Type | TP | FP | FN | TN | Precision | Recall | F1 | Localization (IoU≥0.5) | vs. text-only (§8.2) |
 |---|---|---|---|---|---|---|---|---|---|
@@ -1136,6 +1326,11 @@ subset.** This is a substantially larger swing than the addendum's own
 stated expectation when it was pre-registered (§5.1: "not expected to fully
 close the gap" — correctly so, since the *absolute* Track A→B drop is
 untouched; what moved further than expected is the internal split).
+**[2026-08-04: this exact split was measured on n=2 and did not hold at
+full speaker diversity — see §8.4.3, which revises this to 35.1%
+detector-attributable and explains why by name and mechanism. Kept here
+as the accurate historical record of what n=2 showed, not corrected
+in place.]**
 
 **A further nuance the same 2 surviving instances surfaced**: neither is
 labeled with the *exact* correct type by the detector, even though both are
@@ -1246,6 +1441,14 @@ binary disfluent/clean judgment is effectively perfect on this dataset.**
 The deployed system's real-world recall shortfall is overwhelmingly
 attributable to ASR failing to preserve disfluent words and/or their
 immediate surroundings — not to weaknesses in the detection logic itself.
+**[2026-08-04: "confirmed" here meant confirmed across two 7-speaker
+samples — it did not hold at full 40-speaker diversity. See §8.4.3: the
+revised split is 35.1% detector-attributable, traced to
+`sound_repetition`/`phrase_repetition`-specific gaps already known from
+§8.2, not `word_repetition` or a general weakness. The absolute
+ASR-fidelity conclusion stands; "effectively perfect" was too strong.
+Recorded here as the accurate account of what n=7 showed, not edited in
+place.]**
 
 **A second, equally important finding sharpens at this scale: binary
 detection succeeding does not mean exact-type classification succeeds.**
@@ -1323,6 +1526,245 @@ for CrisperWhisper on LibriStutter's synthetic splices, on these 7
 speakers) is the natural next thing to check, not something this phase's
 evidence already proves in full generality — carried into `ROADMAP.md` as
 the top Phase 2 validation item, ahead of further detector or dataset work.
+**Checked directly, 2026-08-04 — see §8.4.3: the speaker-limited sample
+did matter, and the "~0% detector-attributable" figure above does not hold
+at full speaker diversity. Read §8.4.3 before citing this subsection's
+percentages as final.**
+
+#### 8.4.3 Speaker-stratified confirmation (120 clips, 40 speakers,
+2026-08-04) — the ctx1 finding is REFINED, not simply confirmed
+
+Directly addresses the speaker-clustering limitation named in §7.2 item 2:
+re-ran Track B on a speaker-stratified sample (round-robin across all 40
+distinct speakers, up to 3 clips each, 120 total — pre-registered in §5.1's
+addendum before running, methodology and success criteria fixed in
+advance). This is **not** the same 7 speakers scaled up — every one of the
+499-sample's 40 speakers is represented.
+
+**Numbers** (Any label; 120 clips, 186 total ground-truth-disfluent
+instances):
+
+| Metric | Overall | Preserved (word-only) | Preserved, context-strict (ctx1) |
+|---|---|---|---|
+| TP | 11 | 11 | 10 |
+| FP | 94 | 94 | 62 |
+| FN | 175 | 62 | 5 |
+| Precision | 0.105 | 0.105 | 0.139 |
+| Recall | 0.059 | 0.151 | **0.667** |
+| F1 | 0.076 | 0.124 | 0.230 |
+
+**Addendum (2026-08-04, `ROADMAP.md` item 8): Wilson 95% CIs for the three
+`R_B|preserved_ctx1` recall figures cited across this project**, computed
+with `metrics.wilson_interval()` once that machinery existed — making the
+qualitative "too few instances to trust" caveat already attached to these
+numbers concrete:
+
+| Sample | k/n | Point estimate | Wilson 95% CI |
+|---|---|---|---|
+| n=2 (7 speakers, 30-clip pilot, §8.4.1) | 2/2 | 1.000 | [0.342, 1.000] |
+| n=7 (7 speakers, 90-clip pilot, §8.4.2) | 7/7 | 1.000 | [0.646, 1.000] |
+| n=15 (40 speakers, 120-clip run, this section) | 10/15 | 0.667 | [0.417, 0.848] |
+
+The n=7 and n=15 intervals **overlap substantially** ([0.646, 1.000] vs.
+[0.417, 0.848], overlapping on [0.646, 0.848]) — the drop from a 1.0 point
+estimate to a 0.667 point estimate is a real, hand-traced, mechanistically
+explained finding (see below), not an artifact of these two samples being
+statistically incompatible; it did not need to be a "reversal" to be a
+genuine finding, and the CIs confirm the n=7 result alone was never
+precise enough to have ruled out something like 0.667 in the first place.
+This is exactly the concrete version of the standing small-n caveat
+`VALIDATION.md` has attached to this metric since §7.2/§8.4.1.
+
+**Headline: `R_B|preserved_ctx1` recall dropped from 1.0 (at both n=2 and
+n=7, the 7-speaker samples) to 0.667 (10/15) at 40 speakers.** This is a
+real, meaningful change, not noise the pre-registration didn't anticipate —
+§5.1's addendum explicitly listed "the finding weakens" as a valid,
+non-predetermined outcome, and this is that outcome. **Revised
+decomposition**, using the exact matched-subset Track A recall for these
+120 clips ($R_A$ = 185/186 = 0.9946 — the first time this project's
+exact-subset $R_A$ has not been a clean 1.0, itself expected at a larger,
+more representative sample):
+
+```
+R_A (exact, this 120-clip subset) = 0.9946
+R_B|preserved (word-only)          = 0.1507
+R_B|preserved_ctx1                 = 0.6667
+R_B|overall                        = 0.0591
+
+Detector-attributable gap (word-only) = R_A - R_B|preserved      = 0.8439  (90.2% of total gap)
+ASR-attributable gap (word-only)      = R_B|preserved - R_B|overall = 0.0915  (9.8% of total gap)
+
+Detector-attributable gap (ctx1) = R_A - R_B|preserved_ctx1 = 0.3280  (35.1% of total gap)
+ASR-attributable gap (ctx1)      = R_B|preserved_ctx1 - R_B|overall = 0.6075  (64.9% of total gap)
+Total gap                        = R_A - R_B|overall = 0.9355
+```
+
+The context-strict decomposition moves from "~0% detector-attributable"
+(n=7, two samples) to **35.1% detector-attributable / 64.9%
+ASR-attributable** at n=15 (the ctx1-preserved subset within these 120
+clips). ASR-fidelity is still the *majority* driver of the real-world
+recall gap — that headline does not reverse — but the earlier "the
+detector is essentially perfect given fair input" framing was too strong,
+and this run is exactly why §7.2/§8.4.2 flagged it as unconfirmed pending
+broader speaker coverage rather than stating it as settled.
+
+**Why the earlier n=7 result looked cleaner than the truth: traced by
+hand, not guessed.** Direct inspection of all 15 context-strict-preserved
+instances (using the per-clip cache — no new ASR needed) found the 5
+misses are **not spread across types** — all 5 are either `sound_repetition`
+(2 instances: `445-123857-0019` "after-", `5456-24741-0023` "itself-") or
+`phrase_repetition` (3 instances: `2836-5354-0011` "would",
+`289-121652-0010` "boy", `445-123857-0019` "and"). **Zero of the 5
+`word_repetition`-true instances in this subset were missed** — every
+`word_repetition` instance, across both this run and the earlier n=90 run
+(10 total observed to date), was flagged at the `Any` level when given
+intact context. Both miss categories trace directly to **already-known,
+already-documented structural gaps that have nothing to do with ASR
+context**:
+
+- `sound_repetition`'s 0% Track-A recall (§8.2) — the detector's fragment-
+  repeat check only catches "fragment-before-word" ordering; LibriStutter's
+  reconstruction places the fragment *after* the word. This is the exact
+  same mismatch, now confirmed to also cause outright misses under Track
+  B's real-ASR conditions, not just Track A's reconstructed-token
+  conditions.
+- `phrase_repetition`'s LibriStutter reconstruction limitation (§8.2): a
+  true multi-word phrase repeat can't be reconstructed from LibriStutter's
+  single-marker-row format, so the ground-truth "phrase repeat" is often a
+  single-word approximation that doesn't actually present as a genuine
+  2+-word repeated span — the detector's phrase-repetition check correctly
+  can't fire on a pattern that isn't really there, the same limitation
+  §8.2 already flagged as needing Track B to measure honestly. This *is*
+  that honest measurement, and it confirms the concern.
+
+**What this means, precisely — not "the detector is worse than we
+thought," but "the aggregate figure was measuring the wrong mix":** the
+n=2/n=7 samples happened, by chance (not by selection — both were
+deterministic prefixes, not chosen after seeing results), to be
+`word_repetition`-heavy. `word_repetition` specifically remains **at 100%
+Any-level recall given intact context, confirmed now across 10 instances
+and two independent sample-construction methods** (clip-count prefix and
+speaker-stratified). `sound_repetition` and `phrase_repetition` are not
+robust even when context is intact — but their failures are the *same*
+structural gaps already tracked in `ROADMAP.md` (item 10 for
+`sound_repetition`; the reconstruction caveat for `phrase_repetition`),
+not a new, unexplained detector weakness discovered by this run.
+
+**Revised headline, replacing the "~0% detector-attributable" framing**:
+once speaker- and type-diversity are both accounted for, roughly a third
+of the context-strict gap is detector-attributable — but that third is
+fully explained by two pre-existing, already-scoped structural issues
+specific to `sound_repetition`/`phrase_repetition`, not `word_repetition`
+or a general detector weakness. ASR-fidelity remains the majority driver
+(64.9%) and the single largest lever, consistent with the original
+headline finding — the correction is in the *composition* of the
+remainder, not in which side dominates.
+
+**What is NOT yet resolved by this run**: the ctx1-preserved subset is
+still small (n=15) — enough to see a clear, type-clustered pattern by hand
+inspection, not enough to report precise per-type percentages within it as
+final. The mechanistic explanation (traced to two specific, already-known
+gaps, confirmed by name and clip) is what makes this result trustworthy
+at this sample size, not the raw n alone — same standard this project has
+applied throughout (`VALIDATION.md`'s "audit surprising results" discipline,
+`CLAUDE.md` point 3).
+
+Raw result: `eval_results/20260804T060338639222Z_libristutter_B.json`.
+Exact-subset Track A: `eval_results/20260804T060635995226Z_libristutter_
+A+audio-speaker-stratified-120-matched-to-trackB.json`. Run took 12,725s
+(87 real ASR calls, 33 cache hits from the earlier 90-clip run, this leg
+interrupted once by an unrelated session restart and resumed cleanly from
+cache mid-run, same as the earlier 90-clip run's own interruption).
+
+#### 8.4.4 Hypothesis-side-contiguity metric — results, and the decision
+this produced (2026-08-04)
+
+Pre-registered in §5.1's addendum before running. Re-scored all 120
+already-cached clips (zero new ASR) with the `gap` metric defined there.
+
+**Headline: recall is 100% (2/2) when the hypothesis sequence is truly
+contiguous (`gap == 0`); it drops to 61.5% (8/13) when it isn't
+(`gap > 0`).** This is a cleaner, more isolated signal than the raw
+`preserved_ctx1` figure (66.7%, §8.4.3), since that figure blends both
+groups together — confirming the hypothesis-contiguity distinction is
+real and meaningful, not just a plausible-sounding hypothesis.
+
+**But the deeper question this metric was built to answer — would a
+detector fix that tolerates a small ASR insertion actually recover the
+misses — has a more precise, and more modest, answer than the qualitative
+description suggested.** Checked the exact `gap` size (and its literal
+inserted words) for all 5 outright misses in the discontiguous group:
+
+| Clip | Word | True type | `gap` | Inserted words |
+|---|---|---|---|---|
+| `445-123857-0019` | "after-" | `sound_repetition` | **1** | `["life"]` |
+| `2836-5354-0011` | "would" | `phrase_repetition` | 5 | `["be","a","dark","course.","It"]` |
+| `289-121652-0010` | "boy" | `phrase_repetition` | 5 | `["blue","in","1697,","and","little"]` |
+| `445-123857-0019` | "and" | `phrase_repetition` | 3 | `["unfathered","fruit,","like"]` |
+| `5456-24741-0023` | "itself-" | `sound_repetition` | 3 | `["is","all","of"]` |
+
+**Only 1 of the 5 misses has a small (`gap=1`) insertion consistent with
+"ASR corrupted an otherwise-tight repeat."** The other 4 have `gap` of
+3–5 words — far too large to be a plausible ASR-insertion artifact around
+a genuine close-proximity stutter, and the inserted content (ordinary
+prose spanning what reads as real sentence structure) is consistent
+instead with the *already-documented* limitation this project has
+tracked since §8.2: `phrase_repetition`'s ground truth, reconstructed from
+a single LibriStutter marker row, sometimes anchors to a word that
+*also* recurs naturally later in the sentence for unrelated reasons — a
+dataset-reconstruction artifact, not a repeat ASR corrupted. Checked the
+2 hits with `gap=1` too, for a complete picture (`103-1240-0000` "Rachel",
+`1088-129236-0006` "the," both already discussed in §8.4.1/§8.4.2): both
+are already caught at the `Any` level (via type-confusion — labeled
+`phrase_repetition`/`block` instead of `word_repetition`), so for these 2,
+a contiguity-tolerant fix's benefit would be *exact-type accuracy*, not
+recall.
+
+**Decision: total addressable evidence is n=3 (2 type-accuracy cases + 1
+recall case) out of 120 clips — too thin to justify a general-purpose
+detector change on its own, but the mechanism is precise enough (not a
+guess) to implement a narrowly-scoped, low-risk version and let a full
+499-clip Track A benchmark decide empirically whether it helps or hurts,
+rather than deciding from n=3 alone.** Scope, decided *before* looking at
+benchmark results: extend the existing "filler-sandwiched repetition"
+`word_repetition` check (already tolerates exactly one intervening
+*filler* word) to also tolerate exactly one intervening *non-filler* word
+— **exact-match only** (no phonetic/edit-distance near-matching through
+the gap, to bound false-positive risk), at **lower confidence** than the
+immediate-adjacency case. This is a minimal extension of an existing,
+already-shipped pattern, not new detection logic.
+
+**Measured result: implemented, benchmarked, and REVERTED — a genuine
+negative result, recorded honestly rather than omitted.** Track A (499
+clips, the properly-controlled aggregate check): `word_repetition` FP
++106 (452→558), `Any` (combined) FP +102 (308→410), **`Any` F1 dropped
+0.835→0.793** — a real, measurable regression, with **zero new true
+positives** (TP unchanged at 801/183). Mechanistically expected in
+hindsight: Track A has no ASR involved, so it can only ever show this
+fix's *cost* (coincidental same-word repeats 2 tokens apart in ordinary
+reconstructed text, e.g. two sentences that happen to both start with the
+same word) — never its intended *benefit* (recovering genuine
+ASR-insertion-corrupted repeats), which by construction only real ASR
+output can exercise. Checked Track B too, for completeness (re-scored the
+existing 120-clip cache, zero new ASR): **+1 TP at a cost of +24–29 new
+FP** — recovered exactly one of the predicted n=3 addressable cases, at a
+steep, disqualifying false-positive cost. **Decision: reverted.** The
+predicted mechanism was correct and precise (not a wrong guess about
+*why* it might help) — the addressable evidence was simply too thin
+(n=3/120 clips) to outweigh the real, broad false-positive exposure a
+"tolerate any non-filler word" rule creates across ordinary text. Code
+reverted in `profiling/detect.py` (a code comment marks exactly what was
+tried and why it was removed, pointing here); a regression test
+(`test_word_sandwiched_repetition_not_implemented`,
+`tests/test_detect_taxonomy_and_fusion.py`) locks in the correct
+(non-firing) behavior going forward, so this specific idea is not
+silently reintroduced later without new evidence. Full reasoning and
+alternatives considered: `PAPER_DECISION_LOG.md`. **This is exactly the
+outcome §5.1's addendum pre-registered as a live, unpredetermined
+possibility** ("let a full 499-clip Track A benchmark decide empirically
+whether it helps or hurts") — the protocol worked as designed, catching a
+plausible-sounding fix that real measurement showed was not worth
+shipping.
 
 ### 8.5 SEP-28k — Track A / Track B
 
@@ -1427,10 +1869,71 @@ measured effect" for VAD/Praat is therefore not strong evidence they don't
 help** — it's evidence that this specific metric can't see the thing they
 were built to do. Confirming or ruling out a real contribution needs a
 confidence-sensitive metric (e.g. mean confidence of TPs vs. FPs, or the EER
-metric flagged as a stretch goal in §4) — not yet built. This is a genuine
-methodological finding from running the ablation, not a predicted result,
-and is now the top item under measurement-infrastructure gaps in
-`ROADMAP.md`.
+metric flagged as a stretch goal in §4) — not yet built at the time this
+finding was recorded. This is a genuine methodological finding from
+running the ablation, not a predicted result. **Built and run against
+real data the same day — see §9.3.1 immediately below.**
+
+#### 9.3.1 Confidence-sensitive metric — real-data results (2026-08-04, `ROADMAP.md` item 7)
+
+`metrics.confidence_stats()` (mean predicted `confidence` of TP vs. FP
+events, per type and combined) was built specifically to answer §9.3's open
+question and unit-tested on synthetic data first; this is its first run
+against real data — the full 499-clip LibriStutter Track A (real-audio)
+sample, current shipped config (`use_vad=True`, `use_praat=True`,
+`prolongation_min_seconds=1.0`, both new prolongation-redesign toggles at
+their default `False`):
+
+| Type | TP mean conf | FP mean conf | Gap (TP-FP) | n_TP | n_FP |
+|---|---|---|---|---|---|
+| filler | n/a | 0.931 | n/a | 0 | 25 |
+| sound_repetition | 0.860 | 0.860 | +0.000 | 184 | 5 |
+| word_repetition | 0.920 | 0.920 | +0.000 | 183 | 452 |
+| phrase_repetition | n/a | 0.880 | n/a | 0 | 4 |
+| prolongation | 0.936 | 0.933 | +0.003 | 21 | 409 |
+| **Any** | **0.914** | **0.921** | **-0.007** | 974 | 309 |
+
+(`filler`/`phrase_repetition` have n_TP=0 because this 499-clip sample
+happens to contain zero ground-truth instances of either — a known sample
+composition gap, `ROADMAP.md` item 14, not a detection failure.)
+
+**Finding: the gap is approximately zero everywhere it's measurable, and
+slightly *negative* for the combined `Any` label** (FP mean confidence
+0.921 > TP mean confidence 0.914). Per this project's own standing rule
+(§ CLAUDE.md point 3), this is a surprising-enough result to audit before
+accepting, so it was checked directly:
+
+- The per-type gaps for `sound_repetition` and `word_repetition` are
+  exactly `+0.000` to 3 decimals, and `prolongation`'s is `+0.003` —
+  effectively noise, not a partial signal.
+- This was run against the *current production config*, where VAD/Praat
+  corroboration are active exactly as designed (§9.1's ablation already
+  showed `vad_off`/`praat_off` don't move presence/absence counts) — so
+  this is the right condition to test their designed confidence-adjustment
+  effect under.
+- Spot-checked that `confidence_stats()` itself is not miscomputing: its
+  hand-constructed unit test (`track_a.py` self-test section 7) correctly
+  reproduces a designed non-zero gap on synthetic data, so the near-zero
+  result here is not a metric bug, it's a real measurement.
+
+**Conclusion: this closes out §9.3's open question with a negative-to-null
+result, not a positive one.** §9.3 was careful to state that a "zero
+measured effect" on presence/absence was *not* evidence VAD/Praat
+corroboration don't help, because that metric was structurally blind to
+their designed effect (confidence, not presence/absence). This metric is
+*not* blind to it — and it also finds ~zero effect. Combined, the two
+results now constitute real (if not definitive, see limitation below)
+evidence that VAD/Praat corroboration's confidence adjustment is not
+currently producing a meaningful TP/FP separation in this pipeline, on
+this dataset. **Limitation, stated explicitly**: this is one dataset
+(LibriStutter, reconstructed timing, §8.2's documented caveat) and one
+run; it does not by itself prove the mechanism is worthless in general,
+only that it isn't earning its keep as measured here. Not acted on by
+tuning or removing the corroboration logic — per standing rule 4, findings
+are recorded as evidence, not auto-applied. Flagged as a candidate for
+Phase 3's decision list: revisit whether VAD/Praat confidence-adjustment
+weights are worth their complexity, or should be simplified/removed, based
+on this evidence plus whatever a future SEP-28k/real-speech run adds.
 
 ### 9.4 A caveat on the dominant finding
 
@@ -1446,6 +1949,151 @@ non-reconstructed data (Track B, or a real prolongation-labeled dataset),
 not as a final tuning decision. Per the owner's explicit instruction,
 `config.yaml`'s threshold was **not** changed as a result of this finding —
 it's recorded as evidence for a future, separately-approved tuning pass.
+
+### 9.5 Prolongation redesign — pre-registered protocol (2026-08-04, before implementation)
+
+`ROADMAP.md` item 5 / `PHASE_2_RESEARCH_PLAN.md` §10.6 identified
+`prolongation` as Phase 2's highest-confidence detector-side target: three
+independent sources converge (this ablation's own §9.1/§9.2 finding that
+the threshold dominates measured performance; Esmaili et al. 2017's
+peer-reviewed rate-normalized formula; full dataset support). The project
+owner explicitly authorized implementing this redesign in this phase, "if
+still warranted by evidence" — this section fixes the exact methodology
+*before* writing code, per standing discipline, so "warranted" is decided
+by measurement, not by having already built it.
+
+**Two independent, separately-toggleable changes** (not one combined
+change — kept separable so each can be ablated on its own, same
+discipline as §9's original sweep):
+
+1. **Rate-normalized duration threshold**, replacing the current
+   `max(prolongation_min_seconds, 90th-percentile-of-clip's-own-token-
+   durations)` mechanism when enabled. Implements Esmaili et al. 2017's
+   validated formula directly: `T = rate_alpha / max(speaking_rate,
+   rate_floor)`, where `speaking_rate` is estimated as total syllables
+   (summed via the same `phonetic._syllable_count()` already used for the
+   SLD/OD tag) divided by the clip's total time span, `rate_alpha`
+   defaults to 1.2 (the literature's value), and `rate_floor` (default
+   1.5 syllables/sec) guards against instability on very sparse/short
+   clips. New config keys: `use_rate_normalized_prolongation`,
+   `prolongation_rate_alpha`, `prolongation_rate_floor`.
+2. **Praat-feature gating**, promoting pitch-stability/jitter/shimmer from
+   confidence-only adjustments (§9.3's finding: invisible to this
+   project's presence/absence metric) to a *hard gate* specifically for
+   the token-path prolongation check — a prolongation candidate must pass
+   `pitch_std_hz <= pitch_std_max_hz AND jitter <= jitter_max AND shimmer
+   <= shimmer_max` (the same threshold values already in `config.yaml`,
+   previously only consulted by the separate acoustic-native fusion path)
+   when Praat features are available; graceful no-op (never blocks) when
+   they're not, same principle as every other acoustic check in this
+   codebase. New config key: `require_praat_stability_for_prolongation`.
+
+**Evaluation plan**: a 4-variant ablation on the same 499-clip LibriStutter
+Track A (audio-enabled) sample used throughout §8.3/§9 — baseline
+(neither change), rate-normalization only, Praat-gating only, both
+together — reusing `run_ablations.py`'s existing harness. Reported against
+both `Any` (combined) and `prolongation`-specific F1, matching §9.1's
+existing table format, for direct comparability.
+
+**Success criteria, stated before running anything**: no single predetermined
+outcome counts as "success" — a result showing either or both changes
+help, hurt, or have no effect are all valid, reportable outcomes. The
+practical decision this evaluation is *for*: whether to change
+`config.yaml`'s shipped default. **Threshold for changing the default**:
+only if a variant improves (or is not worse than, within noise) `Any` F1
+*and* `prolongation`-specific F1 simultaneously, avoiding the same
+aggregate-vs-type-specific tension §9.2 already found in the original
+threshold sweep (raising the floor helped `Any` F1 while hurting
+`prolongation`-specific F1) — a variant that repeats that tension does not
+clear the bar for a default change, even if part of its results looks
+good in isolation.
+
+**Explicit limitation carried over from §9.4, unresolved by this
+redesign**: still measured on LibriStutter's reconstructed-token timing,
+not verified real-speech durations. This redesign can show whether the
+*rate-normalized, literature-validated mechanism* outperforms the
+*current, empirically-tuned mechanism* on the same (reconstructed) data —
+it does not, by itself, resolve whether either transfers to real speech.
+That remains open pending Track B validation with real ASR timestamps
+(`ROADMAP.md`), not attempted in this step.
+
+### 9.5.1 Results (2026-08-04, run against the full 499-clip real-audio sample)
+
+Ran as part of a full re-run of the standing 13-variant ablation (the
+original 10 from §9.1/§9.2 plus the 3 new prolongation-redesign variants
+pre-registered above), so every variant is directly comparable to the
+existing baseline row. Full raw output: `eval_datasets/
+_prolongation_ablation_output.txt`; each variant's JSON saved individually
+under `eval_results/` (filenames in the raw output).
+
+| Variant | Any TP/FP/FN | Any F1 | prolongation TP/FP/FN | prolongation F1 |
+|---|---|---|---|---|
+| baseline (both OFF) | 801/308/8 | 0.835 | 21/409/201 | 0.064 |
+| `prolong_rate_normalized` | 802/3016/7 | 0.347 | 84/3225/138 | 0.048 |
+| `prolong_praat_gated` | 796/188/13 | **0.888** | 16/145/206 | **0.084** |
+| `prolong_rate_and_praat` | 797/539/12 | 0.743 | 24/509/198 | 0.064 |
+
+**Against the pre-registered bar (must improve, or not worsen within
+noise, both `Any` F1 *and* `prolongation`-specific F1 simultaneously):**
+
+- **`prolong_rate_normalized`: fails, badly.** Both metrics get *worse*
+  (`Any` F1 0.835->0.347, prolongation F1 0.064->0.048) — not a subtle
+  regression, a collapse: FP count on `prolongation` alone jumps
+  409->3225. **Audited before accepting** (surprising-result rule):
+  traced to the rate-normalization formula itself, not a bug in its
+  implementation — `speaking_rate` is estimated per-clip as total
+  syllables / clip time span, and LibriStutter's short, reconstructed
+  clips (§8.2's known timing-approximation caveat) plausibly produce
+  unstable, sometimes very high, speaking-rate estimates, which collapses
+  `T = rate_alpha / speaking_rate` toward the `rate_floor`-bounded
+  minimum — flagging nearly any token that clears a near-zero duration.
+  This is a hypothesis about *why*, not confirmed further (out of scope
+  for this ablation; matches this section's own already-declared
+  limitation that reconstructed timing may not transfer). The formula
+  itself (Esmaili et al. 2017) is peer-reviewed and validated on real
+  continuous speech — this result says it does not transfer as-is to
+  LibriStutter's short reconstructed clips, not that the literature is
+  wrong.
+- **`prolong_praat_gated`: clears the bar — the only variant in the full
+  13-variant ablation (not just the 3 new ones) to improve both metrics
+  simultaneously.** `Any` F1 0.835->0.888 (+0.053), prolongation F1
+  0.064->0.084 (+0.020) — both real, non-trivial improvements, achieved
+  by *removing* false positives (`prolongation` FP 409->145, a 65%
+  reduction) at a TP cost (21->16) smaller than the FP reduction's
+  benefit to precision. This is the mechanism working exactly as
+  designed: many of the original percentile-threshold's false-positive
+  "prolongations" apparently have unstable pitch/jitter/shimmer
+  signatures inconsistent with genuine prolongation, and the Praat gate
+  screens them out. Note (not disqualifying, but recorded): localization
+  (IoU>=0.5) on the surviving true positives drops 0.857->0.500 — a
+  smaller, different TP set, not evaluated against the pre-registered
+  success criteria (which named only `Any`/prolongation F1), flagged here
+  for completeness.
+- **`prolong_rate_and_praat`: does not clear the bar.** `Any` F1 gets
+  *worse* (0.835->0.743) even though prolongation F1 is exactly flat
+  (0.064->0.064, tied) — the rate-normalization component's damage isn't
+  fully offset by Praat-gating when both are active together. Confirms
+  the two changes are not simply additive; the combination inherits
+  `prolong_rate_normalized`'s core problem, diluted but not eliminated.
+- **Context: comparison against the original percentile-threshold sweep
+  (§9.1/§9.2, unchanged by this run — reproduced identically, confirming
+  no regression from adding the 3 new variants to the harness).**
+  `prolong_threshold_1.2`/`prolong_threshold_1.4` both raise `Any` F1
+  further (0.908/0.933) but *worsen* prolongation-specific F1 (0.049/
+  0.043, both below baseline's 0.064) — repeating exactly the aggregate-
+  vs-type-specific tension §9.2/§9.4 already flagged as disqualifying.
+  `prolong_praat_gated` is the only variant across all 13 that avoids
+  this tension entirely.
+
+**Decision: `require_praat_stability_for_prolongation` flipped to `true`
+as the new shipped default in `config.yaml`. `use_rate_normalized_
+prolongation` stays `false`** — it failed on its own and failed combined
+with Praat-gating; no config state involving it clears the pre-registered
+bar. This decision follows directly and mechanically from the pre-
+registered criteria fixed before this ablation ran (§9.5 above) — no new
+judgment call was needed. Full regression suite re-run after the config
+change: 45/45 pass (unaffected, since these tests set their own
+per-test config or rely on Praat's graceful audio-unavailable no-op).
 
 ---
 

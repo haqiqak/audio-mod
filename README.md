@@ -50,17 +50,25 @@ acoustically corroborated.
 
 Event types follow the field's standard taxonomy (matching SEP-28k /
 FluencyBank / KSoF, so output is directly comparable to public benchmarks —
-see `profiling/evaluation/` and `VALIDATION.md`):
+see `profiling/evaluation/` and `VALIDATION.md`). Checked against the
+speech-pathology and computational-detection literature in depth as of
+2026-08 (`PHASE_2_RESEARCH_PLAN.md`) — the core 5 (sound/word repetition,
+filler, block, prolongation) are confirmed scientifically sound and
+benchmarked against real public datasets; `phrase_repetition` and
+`stutter_marker` are detected and reported but are **not annotated as a
+distinct category in any public benchmark dataset this project validates
+against** (LibriStutter/SEP-28k/FluencyBank/KSoF/UCLASS) — treat their
+numbers as unvalidated signal, not a benchmarked accuracy claim:
 
-| Type                   | How it's detected                                                                                              |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **Sound repetition**    | A sub-word fragment (`word-`) repeated immediately before the word it fragments, e.g. "b- buy" |
-| **Word repetition**     | Same word twice in a row, near-duplicate words (phonetic similarity for short words, edit-distance for longer/OOV words), or the same word recurring after an intervening filler ("I uh I") |
-| **Phrase repetition**   | An immediately-repeated multi-word phrase (any length from 2 up to a configurable cap), e.g. "I want to I want to" |
-| **Filler**              | Token matches a known filler list (`uh`, `um`, `er`, `erm`, `like`) or is marked `is_filler` by CrisperWhisper — acoustically corroborated (voiced-energy check) when audio is available |
-| **Stutter marker**      | Token ends with `-` (sub-word fragment) or is marked `is_stutter` by CrisperWhisper — same acoustic corroboration as filler |
-| **Block**               | Silent gap between two consecutive words exceeding the (calibrated, if available) block threshold, confirmed against actual audio silence, then cross-checked against the independent acoustic-native block detector |
-| **Prolongation**        | Token duration exceeding the (calibrated, if available) prolongation threshold, confirmed against sustained voiced energy (RMS, ZCR) and, when available, stable pitch/low jitter/low shimmer — then cross-checked against the independent acoustic-native prolongation detector |
+| Type                   | How it's detected                                                                                              | Benchmark status |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- | --- |
+| **Sound repetition**    | A sub-word fragment (`word-`) repeated immediately before the word it fragments, e.g. "b- buy" | Validated (SEP-28k/FluencyBank/KSoF/LibriStutter) |
+| **Word repetition**     | Same word twice in a row, near-duplicate words (phonetic similarity for short words, edit-distance for longer/OOV words), or the same word recurring after an intervening filler ("I uh I"). Also tagged `likely_sld` (True/False) from syllable count — monosyllabic repeats are stuttering-like per the clinical SLD/OD literature, polysyllabic ones are an ordinary linguistic-planning disfluency, not stuttering (`PHASE_2_RESEARCH_PLAN.md` §2.1). **This sub-tag is a descriptive heuristic, not a validated clinical measure** — no dataset labels this split. | Validated (type only; the SLD/OD sub-tag is not) |
+| **Phrase repetition**   | An immediately-repeated multi-word phrase (any length from 2 up to a configurable cap), e.g. "I want to I want to" | **Not validated by any reviewed dataset** |
+| **Filler**              | Token matches a known filler list (`uh`, `um`, `er`, `erm`, `like`) or is marked `is_filler` by CrisperWhisper — acoustically corroborated (voiced-energy check) when audio is available | Validated |
+| **Stutter marker**      | Token ends with `-` (sub-word fragment) or is marked `is_stutter` by CrisperWhisper — same acoustic corroboration as filler | **Not validated by any reviewed dataset** |
+| **Block**               | Silent gap between two consecutive words exceeding the (calibrated, if available) block threshold, confirmed against actual audio silence, then cross-checked against the independent acoustic-native block detector. **Silent-only** — the clinical literature also describes an "audible/struggle" block (sustained tension energy, not silence) this detector has no code path for at all (`PHASE_2_RESEARCH_PLAN.md` §2.2); not yet buildable against any dataset this project has, since none sub-type blocks this way. | Validated (silent sub-type only) |
+| **Prolongation**        | Token duration exceeding the (calibrated, if available) prolongation threshold, confirmed against sustained voiced energy (RMS, ZCR) and, when available, stable pitch/low jitter/low shimmer — then cross-checked against the independent acoustic-native prolongation detector | Validated — literature identifies this as the type interpretable/rule-based detection handles best |
 
 Disfluencies at the start of a sentence get a small confidence boost —
 stuttering is overwhelmingly sentence-initial, so this is clinically
@@ -204,7 +212,7 @@ Expected output in under 3 seconds:
 - Green log box completing the pipeline steps.
 - Transcript with orange-highlighted disfluent words.
 - Stats: 9 tokens, 7 disfluencies, 22.2% fluency rate.
-- Badges: `word repetition ×2`, `stutter marker ×2`, `block ×1`, `filler ×1`, `prolongation ×1`.
+- Badges: `word repetition ×1`, `sound repetition ×1`, `stutter marker ×2`, `block ×1`, `filler ×1`, `prolongation ×1`.
 - **Profile** tab showing risk bars for `B`, `T`, `S`.
 
 If all of that appears the full pipeline is working end-to-end without needing
@@ -267,7 +275,11 @@ are reproducible with `python -m profiling.benchmark_asr`.)
 | `profiling.weights.grammatical_class`           | `0.10`  | Weight of content-word penalty                                                            |
 | `profiling.detection.block_gap_seconds`         | `0.55`  | Global-floor minimum silence gap counted as a block (raised per speaker once calibrated)  |
 | `profiling.detection.prolongation_min_seconds`  | `1.0`   | Global-floor minimum token duration counted as prolongation (same calibration behaviour). Raised from `0.65` after real-mic false positives (`PAPER_DECISION_LOG.md`, Part D); `VALIDATION.md` §9's ablation later found the aggregate-optimal value on the (synthetic, reconstructed-timing) LibriStutter sample is higher still (1.2–1.4) — not yet re-tuned, see `ROADMAP.md`. |
-| `profiling.detection.prolongation_percentile`   | `90`    | Percentile threshold for prolongation detection                                           |
+| `profiling.detection.prolongation_percentile`   | `90`    | Percentile threshold for prolongation detection (superseded per-clip when `use_rate_normalized_prolongation` is on) |
+| `profiling.detection.use_rate_normalized_prolongation` | `false` | When `true`, replaces the percentile/floor threshold above with Esmaili et al. 2017's rate-normalized formula (`T = rate_alpha / speaking_rate`). Stays `false`: a 2026-08-04 ablation found it regresses both `Any` and prolongation-specific F1 on the LibriStutter benchmark (`VALIDATION.md` §9.5.1) — kept as a toggleable option, not removed, pending a real-speech dataset to re-test against. |
+| `profiling.detection.prolongation_rate_alpha`   | `1.2`   | Numerator of the rate-normalized formula above; only used when that mode is enabled |
+| `profiling.detection.prolongation_rate_floor`   | `1.5`   | Minimum speaking-rate (syllables/sec) the rate-normalized formula divides by, guarding against instability on short/sparse clips |
+| `profiling.detection.require_praat_stability_for_prolongation` | `true` | **Hard gate** (not just a confidence adjustment) on the token-path prolongation check: candidate must pass pitch-stability/jitter/shimmer thresholds when Praat features are available; graceful no-op when they're not. Flipped to `true` 2026-08-04 — the only variant of a 13-variant ablation to improve both `Any` and prolongation-specific F1 simultaneously (`VALIDATION.md` §9.5.1). Distinct from `acoustic.use_praat` below, which remains confidence-only. |
 | `profiling.detection.near_repetition_similarity`| `0.75`  | Edit-distance similarity above which two consecutive words count as a near-repetition     |
 | `profiling.detection.phrase_repetition_max_words`| `8`    | Longest repeated phrase scanned for (also capped at `len(tokens)//2`)                     |
 | `profiling.detection.sentence_initial_boost`    | `0.08`  | Confidence bonus for disfluencies at sentence-initial position                            |

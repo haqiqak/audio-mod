@@ -53,9 +53,12 @@ from profiling.evaluation.loaders import (
 )
 from profiling.evaluation.metrics import (
     ANY_LABEL,
+    TypeCounts,
+    confidence_stats,
     format_confusion_matrix,
     localization_rate,
     score_word_level,
+    wilson_interval,
 )
 from profiling.evaluation.report import format_table, save_run
 
@@ -381,6 +384,44 @@ def run_self_test() -> int:
             payload = json.load(f)
         check("saved payload has dataset field", payload.get("dataset") == "libristutter", str(payload))
         check("saved payload has counts for filler", "filler" in payload.get("counts", {}), str(payload))
+
+    # 6. wilson_interval (ROADMAP.md item 8) — hand-computed sanity checks.
+    ci = wilson_interval(50, 100)  # 50% observed, moderate n
+    check("wilson_interval(50,100) centers near 0.5", ci is not None and 0.4 < ci[0] < 0.5 < ci[1] < 0.6, str(ci))
+    ci_small = wilson_interval(1, 2)  # extreme small-n regime this project actually hits
+    check("wilson_interval stays within [0,1] at small n", ci_small is not None and 0.0 <= ci_small[0] <= ci_small[1] <= 1.0, str(ci_small))
+    ci_perfect = wilson_interval(7, 7)  # p=1.0 exactly — VALIDATION.md's own n=7 ctx1 case
+    check("wilson_interval handles p=1.0 without exceeding 1.0", ci_perfect is not None and ci_perfect[1] <= 1.0 and ci_perfect[0] < 1.0, str(ci_perfect))
+    check("wilson_interval(k,0) is None (nothing to estimate)", wilson_interval(0, 0) is None)
+    tc = TypeCounts(tp=7, fp=2, fn=0, tn=10)
+    check("TypeCounts.recall_ci matches wilson_interval(tp, tp+fn)",
+          tc.recall_ci() == wilson_interval(7, 7), str(tc.recall_ci()))
+    check("TypeCounts.precision_ci matches wilson_interval(tp, tp+fp)",
+          tc.precision_ci() == wilson_interval(7, 9), str(tc.precision_ci()))
+
+    # 7. confidence_stats (ROADMAP.md item 7) — hand-constructed TP/FP confidence gap.
+    conf_clip = LabeledClip(
+        name="conf", tokens=[{"word": w, "start": i * 0.3, "end": i * 0.3 + 0.2}
+                              for i, w in enumerate(["a", "b", "c", "d"])],
+        ground_truth={0: "filler", 2: "filler"},  # idx 0, 2 are true fillers; 1, 3 are clean
+    )
+    conf_events = [
+        {"index": 0, "type": "filler", "confidence": 0.95},   # TP, high confidence
+        {"index": 1, "type": "filler", "confidence": 0.40},   # FP (idx 1 is clean), low confidence
+        {"index": 2, "type": "filler", "confidence": 0.90},   # TP, high confidence
+        {"index": 3, "type": "filler", "confidence": 0.35},   # FP (idx 3 is clean), low confidence
+    ]
+    stats = confidence_stats([conf_clip], [conf_events], ("filler",))
+    check("confidence_stats: TP mean confidence computed correctly",
+          abs(stats["filler"]["tp_mean_confidence"] - 0.925) < 1e-9, str(stats["filler"]))
+    check("confidence_stats: FP mean confidence computed correctly",
+          abs(stats["filler"]["fp_mean_confidence"] - 0.375) < 1e-9, str(stats["filler"]))
+    check("confidence_stats: TP mean > FP mean in this hand-constructed gap case",
+          stats["filler"]["tp_mean_confidence"] > stats["filler"]["fp_mean_confidence"], str(stats["filler"]))
+    check("confidence_stats: n_tp/n_fp counted correctly",
+          stats["filler"]["n_tp"] == 2 and stats["filler"]["n_fp"] == 2, str(stats["filler"]))
+    check("confidence_stats: Any-label present and matches filler here (single-type case)",
+          stats[ANY_LABEL]["n_tp"] == 2 and stats[ANY_LABEL]["n_fp"] == 2, str(stats[ANY_LABEL]))
 
     print(f"\n{'ALL PASS' if not failures else str(failures) + ' FAILURE(S)'}")
     return 1 if failures else 0

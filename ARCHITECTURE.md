@@ -228,6 +228,53 @@ The `~47-50s` development figure below the line was inference-only for a short
 clip and is in the right ballpark for the ~4s row; it just omitted the one-time
 load and the length-scaling, both now measured.
 
+### A recurring console warning, investigated and confirmed external (2026-08-04)
+
+Every real-ASR evaluation run in this project prints, for most clips:
+`"Whisper did not predict an ending timestamp, which can happen if audio
+is cut off in the middle of a word. Also make sure
+WhisperTimeStampLogitsProcessor was used during generation."` This is a
+`logger.warning()` call inside `transformers/models/whisper/
+tokenization_whisper.py` (line ~1101, `_decode_asr`'s chunk-stitching
+logic) — **confirmed by reading the installed library source directly**,
+not our own code; grepped this project's own codebase for the warning
+string first and found no match before searching `transformers`.
+
+**Investigated whether this project's pipeline contributes** (the
+concrete, plausible candidate: `_max_new_tokens_for()`'s token budget,
+`profiling/asr.py`, capping generation at `max(20, min(256, duration_s *
+6 + 20))`, could in principle truncate generation before a clean ending
+timestamp is produced). **Ruled out directly, not assumed**: inspected
+actual generated-token counts from cached real transcriptions against
+their computed budgets across multiple clips — every clip checked used
+only ~30–50% of its allotted budget (e.g. a 15.6s clip budgeted 113 tokens
+generated only 47), regardless of whether that clip's last word showed a
+missing end-timestamp or not. Generation is not hitting the cap, so the
+token budget is not the cause. The warning fires from `transformers`'
+internal long-form chunk-consolidation logic when a "leftover" token
+sequence at the very end of decoding never received a paired closing
+timestamp — a property of how Whisper's own decoder terminates on that
+specific audio, not of anything this pipeline configures (this project
+does not set `chunk_length_s` or any other parameter implicated in this
+code path — see the "critical, do-not-change-casually settings" note
+above for why). The warning's own text ("can happen if audio is cut off
+in the middle of a word") is also mechanistically consistent with
+LibriStutter's clip construction specifically: clips are extracted/spliced
+audio windows (Kourkounakis et al., `PHASE_2_RESEARCH_PLAN.md` §10),
+not natural utterance boundaries, so a clip legitimately ending mid-word
+is expected some of the time by construction.
+
+**Conclusion: external, not a pipeline bug — confirmed by evidence, not
+assumed.** No fix needed or planned. Cosmetic only: the warning is noisy
+in evaluation-run logs but does not indicate lost or corrupted output —
+`_decode_asr` still resolves and returns the leftover tokens via
+`_find_longest_common_sequence` immediately after the warning fires (same
+source, following lines), so the affected word is not dropped, only its
+timestamp pairing was imperfect internally before resolution. If this
+project ever needs the console output clean, suppressing this specific
+`transformers` logger would be a one-line, low-risk change — not done now
+since no functional problem was found to justify touching it.
+
 ---
 
 ## 4. profiling/detect.py — audio-native-primary disfluency detector
@@ -252,6 +299,16 @@ changed:
   with `filler`, `stutter_marker`, `block`, `prolongation`, this now matches
   SEP-28k / FluencyBank / KSoF's taxonomy, so output is directly
   benchmarkable — see `profiling/evaluation/` (methodology in `VALIDATION.md`).
+  Checked in depth against the clinical/computational literature in the
+  2026-08 Phase 2 review (`PHASE_2_RESEARCH_PLAN.md`) — confirmed sound, no
+  redesign made. One refinement from that review: `word_repetition` events
+  now carry `syllable_count`/`likely_sld` fields (`_word_repetition_extra()`
+  in `detect.py`) — a monosyllabic repeat is tagged stuttering-like (SLD),
+  a polysyllabic one is tagged an ordinary linguistic-planning disfluency
+  (OD), per the Ambrose & Yairi clinical framework. Purely descriptive
+  metadata computed from `phonetic._syllable_count()` — does not change
+  the event's type, confidence, or any existing TP/FP/FN scoring; no
+  dataset labels this split, so it carries no accuracy claim.
 - **Acoustic corroboration for filler/stutter_marker.** When audio is
   available, a voiced-energy check (`_AcousticContext.has_voiced_energy` /
   the same `word_rms` primitive block/prolongation already used) adjusts
@@ -305,9 +362,25 @@ strictly additive (see the module's own note for why):
 
 Both features are exposed on `Segment` (`vad_coverage`, `pitch_hz`,
 `pitch_std_hz`, `jitter`, `shimmer`, `hnr`) and folded into
-`detect_prolongations()`'s confidence as adjustments, not new hard gates — the
-original RMS/ZCR/duration gate is unchanged, so `tests/test_acoustic.py`'s
-existing synthetic-tone assertions pass unmodified.
+`detect_prolongations()`'s (the acoustic-native detector's own function)
+confidence as adjustments, not new hard gates — the original RMS/ZCR/
+duration gate there is unchanged, so `tests/test_acoustic.py`'s existing
+synthetic-tone assertions pass unmodified.
+
+**Update, 2026-08-04 (`VALIDATION.md` §9.5.1): a *second*, separate Praat
+usage was added in the token-path prolongation check** (inside
+`detect_disfluencies()` directly, not `detect_prolongations()`), and this
+one *is* a hard gate — `_AcousticContext.word_praat_stable()` must return
+`True` (or Praat features must be unavailable, in which case it's a
+graceful no-op) before a token-path prolongation candidate can fire at
+all, gated by `require_praat_stability_for_prolongation` (default `true`
+as of this date — the only variant of a 13-variant ablation to improve
+both `Any` and prolongation-specific F1 simultaneously). This does not
+change the paragraph above, which still accurately describes
+`detect_prolongations()`'s own confidence-only use of Praat — the two are
+separate functions with separate config keys
+(`acoustic.use_praat` vs. `require_praat_stability_for_prolongation`),
+and both are true simultaneously in the current default config.
 
 ### Threshold personalization (calibration.py integration)
 
@@ -372,7 +445,12 @@ sensitivity below what an uncalibrated speaker gets.
   been validated at scale against real audio (499 real LibriStutter clips,
   `VALIDATION.md` §8.3) — aggregate `Any`-label F1 improved 0.773 → 0.835
   with audio active, essentially all of it a precision gain at ~0 recall
-  cost, which is the outcome this fusion logic was designed to produce. Not
+  cost, which is the outcome this fusion logic was designed to produce.
+  (0.835 was the shipped-default figure through 2026-08-04; the current
+  default, after the prolongation redesign's Praat-gating change, measures
+  0.888 on the same 499 clips — see `VALIDATION.md` §9.5.1. The 0.773→0.835
+  comparison above is preserved as the historical record of *this specific
+  fusion-logic milestone*, not edited to chase the current number.) Not
   validated in isolation from the rest of the audio-native layer (VAD,
   Praat) at that scale, and not yet validated against real (non-synthetic)
   stuttered speech — see `VALIDATION.md` §7.2 for the current, honestly
@@ -408,6 +486,23 @@ sensitivity below what an uncalibrated speaker gets.
   with this word in general" would lose information either signal carries
   on its own. Revisit if user testing shows the two signals are confusing
   side by side.
+- **`block` detection only implements the "silent" sub-type** (confirmed
+  2026-08, `PHASE_2_RESEARCH_PLAN.md` §2.2, during the Phase 2 literature
+  review): the check requires an inter-token time gap *and*
+  `_AcousticContext.gap_is_silent()`, which is a pure RMS-below-threshold
+  test — genuine silence only. The clinical/computational literature
+  describes a second, acoustically distinct sub-type, an "audible/struggle"
+  block (sustained low-amplitude tension energy, the speaker vocalizing
+  through visible/audible strain rather than going silent), which this
+  detector has **no code path for at all** — a speaker straining audibly
+  through a block, without a clean silent gap between ASR-recognized
+  tokens, is invisible to it today. Also, per the same literature review,
+  block is the type even published rule-based systems detect worst — a
+  genuinely hard problem generally, not unique to this codebase. Not fixed:
+  no dataset this project has access to sub-types blocks this way, so a
+  detector for it couldn't be validated the way every other type here can
+  be — see `ROADMAP.md` for the specific, scoped follow-up (verify whether
+  UCLASS's finer annotations change this) before this is built.
 
 ---
 

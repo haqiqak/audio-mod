@@ -19,6 +19,27 @@ ANY_LABEL = "Any"
 DEFAULT_IOU_THRESHOLD = 0.5
 
 
+def wilson_interval(k: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
+    """Wilson score confidence interval for a binomial proportion k/n
+    (default z=1.96 -> ~95% CI). Added 2026-08-04 (VALIDATION.md §7.2 item
+    5 / ROADMAP.md item 8): every recall/precision number reported by this
+    project so far has been a point estimate with only a qualitative
+    small-sample caveat ("too few instances to trust"); this makes that
+    caveat concrete, especially at the extreme small-n cases this project
+    has repeatedly hit (VALIDATION.md §8.4.3/§8.4.4, n=2/n=7/n=15). Wilson,
+    not the naive normal-approximation interval, because it stays well-
+    behaved at small n and at p near 0 or 1 — exactly this project's
+    regime — where the naive interval can (nonsensically) extend below 0
+    or above 1. Returns None when n=0 (nothing to estimate)."""
+    if n <= 0:
+        return None
+    phat = k / n
+    denom = 1 + z * z / n
+    center = (phat + z * z / (2 * n)) / denom
+    margin = (z * ((phat * (1 - phat) / n + z * z / (4 * n * n)) ** 0.5)) / denom
+    return (max(0.0, center - margin), min(1.0, center + margin))
+
+
 @dataclass
 class TypeCounts:
     tp: int = 0
@@ -47,6 +68,12 @@ class TypeCounts:
     def accuracy(self) -> float | None:
         denom = self.tp + self.fp + self.fn + self.tn
         return None if denom == 0 else (self.tp + self.tn) / denom
+
+    def precision_ci(self, z: float = 1.96) -> tuple[float, float] | None:
+        return wilson_interval(self.tp, self.tp + self.fp, z)
+
+    def recall_ci(self, z: float = 1.96) -> tuple[float, float] | None:
+        return wilson_interval(self.tp, self.tp + self.fn, z)
 
 
 def _predicted_types_by_index(events: list[dict]) -> dict[int, set[str]]:
@@ -161,6 +188,60 @@ def score_clip_level(
                 c.tn += 1
 
     return counts
+
+
+# ── Confidence-sensitive metric ────────────────────────────────────────────
+
+def confidence_stats(
+    clips: list[LabeledClip],
+    predictions: list[list[dict]],
+    scorable_types: Iterable[str],
+) -> dict[str, dict[str, float | int | None]]:
+    """Mean predicted `confidence` of true-positive vs. false-positive
+    events, per type and combined ("Any"). Added 2026-08-04 (ROADMAP.md
+    item 7 / VALIDATION.md §9.3): Silero VAD and Praat corroboration are
+    *designed* to adjust event confidence, not presence/absence, but
+    §9.1's ablation — pure TP/FP/FN counting — found *zero* measured
+    effect from either, later traced (§9.3) to the metric being
+    structurally blind to confidence by construction, not evidence they
+    don't help. This metric is not blind to it: a meaningful gap (TP mean
+    confidence > FP mean confidence) is evidence corroboration is doing
+    its designed job even when the presence/absence count is unchanged.
+
+    Per-type TP/FP classification matches score_word_level's own
+    convention (exact-type match for a named type; "any true disfluency
+    at this position, regardless of exact type" for ANY_LABEL) so results
+    are directly comparable to the same-shaped TypeCounts tables.
+    """
+    scorable_types = tuple(scorable_types)
+    tp_conf: dict[str, list[float]] = {t: [] for t in scorable_types}
+    fp_conf: dict[str, list[float]] = {t: [] for t in scorable_types}
+    tp_conf[ANY_LABEL] = []
+    fp_conf[ANY_LABEL] = []
+
+    for clip, events in zip(clips, predictions):
+        for e in events:
+            t = e.get("type")
+            conf = e.get("confidence")
+            if t not in scorable_types or conf is None:
+                continue
+            true_type = clip.ground_truth.get(e["index"])
+            (tp_conf[t] if t == true_type else fp_conf[t]).append(conf)
+            has_true = true_type in scorable_types
+            (tp_conf[ANY_LABEL] if has_true else fp_conf[ANY_LABEL]).append(conf)
+
+    def _mean(xs: list[float]) -> float | None:
+        return (sum(xs) / len(xs)) if xs else None
+
+    out: dict[str, dict[str, float | int | None]] = {}
+    for t in list(scorable_types) + [ANY_LABEL]:
+        out[t] = {
+            "tp_mean_confidence": _mean(tp_conf[t]),
+            "fp_mean_confidence": _mean(fp_conf[t]),
+            "n_tp": len(tp_conf[t]),
+            "n_fp": len(fp_conf[t]),
+        }
+    return out
 
 
 # ── Localization (IoU) ─────────────────────────────────────────────────────

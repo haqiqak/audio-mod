@@ -25,7 +25,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "detection": {
             "repetition_window": 2,
             "prolongation_percentile": 90,
-            "prolongation_min_seconds": 0.65,
+            "prolongation_min_seconds": 1.0,
             "block_gap_seconds": 0.55,
             "filler_words": ["uh", "um", "er", "erm", "like"],
             "detectors": [

@@ -69,6 +69,23 @@ def _variants() -> list[tuple[str, dict]]:
         cfg["prolongation_min_seconds"] = thr
         variants.append((f"prolong_threshold_{thr}", cfg))
 
+    # Prolongation redesign (2026-08-04, VALIDATION.md §9.5, pre-registered
+    # before this ablation was run): rate-normalization and Praat-gating
+    # are separately toggleable, so ablate each alone and together —
+    # same discipline as every other variable in this study.
+    rate_only = copy.deepcopy(base)
+    rate_only["use_rate_normalized_prolongation"] = True
+    variants.append(("prolong_rate_normalized", rate_only))
+
+    praat_only = copy.deepcopy(base)
+    praat_only["require_praat_stability_for_prolongation"] = True
+    variants.append(("prolong_praat_gated", praat_only))
+
+    both = copy.deepcopy(base)
+    both["use_rate_normalized_prolongation"] = True
+    both["require_praat_stability_for_prolongation"] = True
+    variants.append(("prolong_rate_and_praat", both))
+
     return variants
 
 

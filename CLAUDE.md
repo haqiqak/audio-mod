@@ -2,7 +2,10 @@
 
 Orientation for a Claude Code session starting cold in this repository.
 Kept short on purpose — it points at the other files rather than
-duplicating them. Read `DOCS.md` next for the full documentation map.
+duplicating them. **Read `HANDOFF.md` next — it's the primary entry
+point** (curated reading order, what's proven vs. hypothesis, practical
+get-productive instructions); `DOCS.md` is the complete file-by-file
+reference to come back to afterward.
 
 ## What this project is
 
@@ -15,12 +18,22 @@ for how the code implements it today.
 
 ## Where the project is right now
 
-**Phase 1 (Validation, Benchmarking, Analysis) closed 2026-08-03.** See
-`PHASE_1_SUMMARY.md` for the full closing summary and `ROADMAP.md` for
-current Phase 2 priorities, in order, each linked to the specific finding
-that justifies it. If you're about to suggest a next step, check
-`ROADMAP.md` first — it's very likely already there with reasoning, and a
-change of plan should update it, not silently diverge from it.
+**Both Phase 1 (Validation, Benchmarking, Analysis) and Phase 2
+(evidence-driven improvement) are closed** (2026-08-03 and 2026-08-04
+respectively) — this is a mature, evidence-audited codebase, not a fresh
+start. See `PHASE_1_SUMMARY.md` and `PHASE_2_SUMMARY.md` for the full
+closing summaries. Phase 2 opened with a literature-grounded review of
+whether the disfluency taxonomy itself is scientifically sound —
+`PHASE_2_RESEARCH_PLAN.md` — which confirmed the core 5-type taxonomy is
+correct, found two real gaps (see that file), and set the actual order of
+Phase 2 work; that work is now done (two detector fixes, a prolongation
+redesign decided by pre-registered ablation, new confidence/CI measurement
+infrastructure, and several documented negative/inconclusive results —
+see `PHASE_2_SUMMARY.md`). `ROADMAP.md` reflects the post-Phase-2 state:
+current priorities, in order, each linked to the specific finding that
+justifies it. If you're about to suggest a next step, check `ROADMAP.md`
+first — it's very likely already there with reasoning, and a change of
+plan should update it, not silently diverge from it.
 
 ## Standing rules for working in this repo
 
@@ -57,8 +70,10 @@ run, not aspirational — follow them by default:
    force-push/`--no-verify` without an explicit ask).
 7. **ASCII-only in any print-reachable string.** This Windows/`cp1252`
    console has broken on non-ASCII characters (em-dashes, section signs,
-   arrows) in evaluation-harness output three separate times — see
-   `ROADMAP.md`'s standing item to turn this into a lint rule.
+   arrows) in evaluation-harness output three separate times, now enforced
+   by `tests/test_ascii_console_output.py` (an AST-based check on `print()`
+   calls under `profiling/`) — but the check's scope is that directory
+   only, so stay disciplined in anything new outside it too.
 
 ## Where to look for what
 

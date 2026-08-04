@@ -57,6 +57,7 @@ import numpy as np
 
 import phonetic
 
+from .acoustic import _praat_features
 from .config import load_config
 
 
@@ -151,6 +152,26 @@ def _phonetic_similarity(a: str, b: str) -> float | None:
     return 1.0 - _edit_distance(pa, pb) / max(len(pa), len(pb))
 
 
+def _word_repetition_extra(word: str) -> dict[str, Any]:
+    """Descriptive syllable-count metadata for a `word_repetition` event,
+    added 2026-08 per PHASE_2_RESEARCH_PLAN.md's literature review.
+
+    The clinical stuttering-like-disfluency (SLD) vs. other-disfluency (OD)
+    literature (Ambrose & Yairi's framework) treats a repeated monosyllabic
+    word ("her-her-her") as motoric/stuttering-like, and a repeated
+    polysyllabic word ("I see... I see her") as an ordinary linguistic-
+    planning disfluency, not stuttering. This tag surfaces that distinction
+    — it is a heuristic descriptive signal computed from syllable count
+    alone, NOT a clinical diagnosis: the field's own severity instrument
+    (SSI-3/4) only counts a monosyllabic repeat as stuttering when it also
+    sounds perceptibly tense, which this project has no acoustic check for
+    yet. No dataset this project benchmarks against labels this split, so
+    it carries no accuracy claim — see PHASE_2_RESEARCH_PLAN.md section 5.
+    """
+    n = phonetic._syllable_count(word)
+    return {"syllable_count": n, "likely_sld": n <= 1}
+
+
 # ── Acoustic feature extraction ───────────────────────────────────────────────
 
 def _load_wav_samples(audio_bytes: bytes) -> tuple[np.ndarray, int] | tuple[None, None]:
@@ -202,6 +223,14 @@ class _AcousticContext:
         self.silence_rms = float(acoustic_cfg.get("silence_rms_threshold", 0.015))
         self.voiced_rms  = float(acoustic_cfg.get("voiced_rms_threshold",  0.030))
         self.voiced_zcr  = float(acoustic_cfg.get("voiced_zcr_threshold",  0.15))
+        # Same thresholds the acoustic-native fusion path (profiling/acoustic.py)
+        # already uses for confidence adjustment — reused here, 2026-08-04,
+        # VALIDATION.md section 9.5, as an optional HARD GATE for the
+        # token-path prolongation check specifically (require_praat_
+        # stability_for_prolongation). Not used unless that flag is on.
+        self.pitch_std_max_hz = float(acoustic_cfg.get("pitch_std_max_hz", 25.0))
+        self.jitter_max       = float(acoustic_cfg.get("jitter_max", 0.02))
+        self.shimmer_max      = float(acoustic_cfg.get("shimmer_max", 0.08))
         self.samples: np.ndarray | None = None
         self.sr: int | None = None
         if audio_bytes:
@@ -232,6 +261,29 @@ class _AcousticContext:
         if not self.available or start is None or end is None:
             return 0.5
         return _zcr(_slice(self.samples, self.sr, start, end))
+
+    def word_praat_stable(self, start: float | None, end: float | None) -> bool:
+        """True if Praat pitch/jitter/shimmer are available AND all within
+        the stable-voicing thresholds; True (graceful no-op, never blocks)
+        when Praat is unavailable or the segment is too short/unvoiced for
+        reliable tracking — same "None means no extra evidence, not a
+        failure" principle as everywhere else Praat features are used in
+        this codebase (see acoustic.py's _praat_features docstring). Added
+        2026-08-04 (VALIDATION.md section 9.5) specifically so the
+        token-path prolongation check can use this as a hard gate, not
+        just a confidence adjustment (which is all the acoustic-native
+        fusion path could ever do, per section 9.3's metric-blindness
+        finding)."""
+        if not self.available or start is None or end is None:
+            return True
+        feats = _praat_features(self.samples, self.sr, float(start), float(end))
+        pitch_std, jitter, shimmer = feats["pitch_std_hz"], feats["jitter"], feats["shimmer"]
+        if pitch_std is None:
+            return True  # no reliable Praat read on this span -- don't block
+        stable_pitch   = pitch_std <= self.pitch_std_max_hz
+        stable_jitter  = jitter is None or jitter <= self.jitter_max
+        stable_shimmer = shimmer is None or shimmer <= self.shimmer_max
+        return stable_pitch and stable_jitter and stable_shimmer
 
     def has_voiced_energy(self, start: float | None, end: float | None) -> bool:
         """Cheap plausibility check for filler/stutter-marker corroboration:
@@ -434,8 +486,12 @@ def detect_disfluencies(
 
     filler_words   = set(cfg.get("filler_words", ["uh", "um", "er", "erm", "like"]))
     block_gap      = float(cfg.get("block_gap_seconds",           0.55))
-    prolong_min    = float(cfg.get("prolongation_min_seconds",    0.65))
+    prolong_min    = float(cfg.get("prolongation_min_seconds",    1.0))
     prolong_pct    = float(cfg.get("prolongation_percentile",     90))
+    use_rate_norm  = bool(cfg.get("use_rate_normalized_prolongation", False))
+    rate_alpha     = float(cfg.get("prolongation_rate_alpha",     1.2))
+    rate_floor     = float(cfg.get("prolongation_rate_floor",     1.5))
+    require_praat_stable = bool(cfg.get("require_praat_stability_for_prolongation", False))
 
     # ── Personalize thresholds from a speaker's calibration baseline ──────────
     # Only ever raises a speaker's own bar above the global floor — never
@@ -476,14 +532,40 @@ def detect_disfluencies(
         return nominal
 
     # ── Prolongation threshold ─────────────────────────────────────────────────
-    # Guard: with < 5 tokens the 90th-percentile is meaningless (every word
-    # looks prolonged relative to itself). Use 1.5× the absolute minimum
-    # for short clips so we don't flag every single word.
-    durations = [d for d in (_effective_duration(t) for t in rows) if d is not None]
-    if len(durations) >= 5:
-        prolong_threshold = max(prolong_min, _percentile(durations, prolong_pct))
+    if use_rate_norm:
+        # Rate-normalized mechanism (2026-08-04, VALIDATION.md section 9.5):
+        # T = rate_alpha / speaking_rate, the literature's standard technique
+        # (Esmaili et al. 2017) — REPLACES the percentile mechanism below
+        # when enabled, rather than combining with it, so the two are
+        # cleanly comparable in the pre-registered ablation. Speaking rate
+        # estimated as total syllables (phonetic._syllable_count, the same
+        # function already used for the word_repetition SLD/OD tag) over
+        # the clip's total time span; rate_floor guards against instability
+        # on very short/sparse clips (a handful of words spanning a long
+        # silence would otherwise imply an implausibly slow rate and an
+        # implausibly high threshold).
+        total_syllables = sum(
+            phonetic._syllable_count(_norm(str(r.get("word", ""))))
+            for r in rows if r.get("word")
+        )
+        starts = [r.get("start") for r in rows if r.get("start") is not None]
+        ends   = [r.get("end")   for r in rows if r.get("end")   is not None]
+        clip_span = (max(ends) - min(starts)) if (starts and ends) else None
+        if clip_span and clip_span > 0 and total_syllables > 0:
+            speaking_rate = total_syllables / clip_span
+        else:
+            speaking_rate = rate_floor  # no timing info -- fall back to the floor rate
+        prolong_threshold = rate_alpha / max(speaking_rate, rate_floor)
     else:
-        prolong_threshold = prolong_min * 1.5
+        # Original mechanism: Guard: with < 5 tokens the 90th-percentile is
+        # meaningless (every word looks prolonged relative to itself). Use
+        # 1.5x the absolute minimum for short clips so we don't flag every
+        # single word.
+        durations = [d for d in (_effective_duration(t) for t in rows) if d is not None]
+        if len(durations) >= 5:
+            prolong_threshold = max(prolong_min, _percentile(durations, prolong_pct))
+        else:
+            prolong_threshold = prolong_min * 1.5
 
     # ── Pre-compute derived sequences once ────────────────────────────────────
     norms      = [_norm(str(r.get("word", ""))) for r in rows]
@@ -583,11 +665,35 @@ def detect_disfluencies(
             prev_low  = norms[i - 1]
             prev_word = str(rows[i - 1].get("word", ""))
 
-            # ── Exact back-to-back repetition (word-level) ────────────────────
-            if "word_repetition" in enabled and low and prev_low and low == prev_low:
-                add(i, "word_repetition", 0.92, "same word repeated back-to-back")
+            # ── Sound-level fragment repeat (checked BEFORE word-level exact
+            # match — see VALIDATION.md section 8.2's 2026-08-04 addendum).
+            # A fragment reconstructed/transcribed as "word-" normalizes
+            # (trailing "-" stripped by _norm) to the SAME string as its
+            # complete-word counterpart, in EITHER order ("rachel- Rachel"
+            # or "Rachel rachel-") — so this must run before the exact-match
+            # check below, or that check intercepts both orderings and
+            # sound_repetition can never fire for this reconstruction
+            # pattern at all, regardless of which side the fragment is on.
+            is_fragment_repeat = False
+            fragment_first = False
+            if ("sound_repetition" in enabled and low and prev_low
+                    and len(low) >= 2 and len(prev_low) >= 2):
+                if prev_word.endswith("-") and (low == prev_low or low.startswith(prev_low)):
+                    is_fragment_repeat, fragment_first = True, True
+                elif word.endswith("-") and (prev_low == low or prev_low.startswith(low)):
+                    is_fragment_repeat, fragment_first = True, False
 
-            # ── Near-repetition (word-level) / sound-level fragment repeat ───
+            if is_fragment_repeat:
+                where = "before" if fragment_first else "after"
+                add(i, "sound_repetition", 0.86,
+                    f"sub-word fragment repeated {where} this word")
+
+            # ── Exact back-to-back repetition (word-level) ────────────────────
+            elif "word_repetition" in enabled and low and prev_low and low == prev_low:
+                add(i, "word_repetition", 0.92, "same word repeated back-to-back",
+                    _word_repetition_extra(clean))
+
+            # ── Near-repetition (word-level) ──────────────────────────────────
             elif low and prev_low and len(low) >= 2 and len(prev_low) >= 2:
                 # Short words: compare pronunciations (phonetic); longer/OOV
                 # words: keep the spelling metric. See _phonetic_similarity.
@@ -602,11 +708,8 @@ def detect_disfluencies(
                 if "word_repetition" in enabled and sim >= near_rep_sim:
                     add(i, "word_repetition", round(0.75 * sim, 3),
                         f"near-repetition ({metric} similarity {sim:.2f}): "
-                        f"'{prev_word}' → '{word}'")
-                elif ("sound_repetition" in enabled
-                      and prev_word.endswith("-") and low.startswith(prev_low)):
-                    add(i, "sound_repetition", 0.86,
-                        "sub-word fragment repeated before this word")
+                        f"'{prev_word}' → '{word}'",
+                        _word_repetition_extra(clean))
 
             # ── Interjection-sandwiched repetition ("I uh I") ─────────────────
             # Pattern: token[i-2] == token[i] and token[i-1] is a filler.
@@ -624,7 +727,17 @@ def detect_disfluencies(
                     add(i, "word_repetition", 0.89,
                         f"filler-sandwiched repetition: "
                         f"'{rows[i-2].get('word','')}' + "
-                        f"'{rows[i-1].get('word','')}' + '{word}'")
+                        f"'{rows[i-1].get('word','')}' + '{word}'",
+                        _word_repetition_extra(clean))
+
+                # NOTE: a "word-sandwiched repetition" extension (tolerating
+                # a single non-filler word between a repeat pair) was
+                # implemented and benchmarked 2026-08-04, then REVERTED —
+                # measured net harm (Track A Any F1 0.835->0.793, +102 FP,
+                # 0 new TP) far outweighed its measured benefit (Track B:
+                # +1 TP at a cost of +24-29 FP). Do not re-add without new
+                # evidence — full negative-result writeup in
+                # VALIDATION.md section 8.4.4 and PAPER_DECISION_LOG.md.
 
             # ── Block (with acoustic confirmation) ────────────────────────────
             if "block" in enabled:
@@ -667,7 +780,15 @@ def detect_disfluencies(
             ):
                 start_t = token.get("start")
                 end_t   = token.get("end")
-                if ac.word_is_prolonged(start_t, end_t):
+                # Praat stability GATE (2026-08-04, VALIDATION.md section
+                # 9.5) — optional, off by default. Unlike the acoustic-
+                # native fusion path's confidence-only use of these same
+                # features (section 9.3), this can reject a candidate the
+                # RMS/ZCR/duration gate already passed. Graceful no-op
+                # (True) when Praat is unavailable or require_praat_stable
+                # is off, same as every other acoustic check here.
+                praat_ok = (not require_praat_stable) or ac.word_praat_stable(start_t, end_t)
+                if praat_ok and ac.word_is_prolonged(start_t, end_t):
                     extra_fields = {}
                     if ac.available:
                         rms_val = ac.word_rms(start_t, end_t)

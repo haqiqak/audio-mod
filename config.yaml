@@ -10,6 +10,33 @@ profiling:
     repetition_window: 2
     prolongation_percentile: 90
     prolongation_min_seconds: 1.0
+    # Rate-normalized prolongation threshold (2026-08-04, VALIDATION.md
+    # section 9.5, PHASE_2_RESEARCH_PLAN.md section 10.6): the literature's
+    # standard technique (Esmaili et al. 2017, peer-reviewed) uses
+    # T = rate_alpha / speaking_rate instead of a flat floor. When enabled,
+    # this REPLACES the prolongation_percentile mechanism above. Stays OFF
+    # by default: the pre-registered 4-variant ablation found it a clear
+    # regression on its own (Any F1 0.835->0.347, prolongation F1
+    # 0.064->0.048 -- both worse) and combined with Praat-gating (0.835->
+    # 0.743) -- see VALIDATION.md section 9.5 for the full result and
+    # decision. Root-cause hypothesis (not further investigated): LibriStutter's
+    # short reconstructed clips likely produce unstable/very-high speaking-
+    # rate estimates, collapsing the threshold and causing a false-positive
+    # explosion.
+    use_rate_normalized_prolongation: false
+    prolongation_rate_alpha: 1.2
+    prolongation_rate_floor: 1.5
+    # Promotes Praat pitch/jitter/shimmer stability from a confidence-only
+    # adjustment (see acoustic.* below) to a hard gate for the token-path
+    # prolongation check specifically -- a candidate must pass all three
+    # stability checks (when Praat features are available) to fire at all,
+    # not just get a confidence boost. Flipped ON 2026-08-04: the only one
+    # of the 4 pre-registered variants (and the only variant in the full
+    # 13-variant ablation) to clear the pre-registered bar of improving
+    # BOTH Any F1 (0.835->0.888) AND prolongation-specific F1 (0.064->
+    # 0.084) simultaneously -- see VALIDATION.md section 9.5 for the full
+    # results table and decision.
+    require_praat_stability_for_prolongation: true
     block_gap_seconds: 0.55
     near_repetition_similarity: 0.75
     # Words this short or shorter are compared by pronunciation (ARPAbet phoneme

@@ -633,15 +633,32 @@ def run_pipeline(
                 rows_out = []
                 for e in events:
                     s, en = _span(e)
+                    # word_repetition only: descriptive SLD/OD class from
+                    # syllable count (PHASE_2_RESEARCH_PLAN.md section 2.1)
+                    # -- a heuristic signal, not a validated clinical measure.
+                    if "likely_sld" in e:
+                        cls = "SLD" if e["likely_sld"] else "OD"
+                    else:
+                        cls = "—"
                     rows_out.append({
                         "Word": e["word"],
                         "Type": e["type"],
+                        "Class": cls,
                         "Confidence": f"{e['confidence']:.2f}",
                         "Start (s)": f"{s:.2f}" if s is not None else "—",
                         "End (s)": f"{en:.2f}" if en is not None else "—",
                         "Evidence": e.get("evidence", ""),
                     })
                 st.dataframe(rows_out, width="stretch", hide_index=True)
+                st.caption(
+                    "Class (word repetition only): SLD = stuttering-like "
+                    "(monosyllabic repeat), OD = other/typical disfluency "
+                    "(polysyllabic repeat) -- a descriptive heuristic from "
+                    "syllable count, not a validated clinical measure. "
+                    "Phrase repetition and stutter marker are not annotated "
+                    "in any public benchmark dataset this project validates "
+                    "against -- see PHASE_2_RESEARCH_PLAN.md."
+                )
                 if any(e.get("source") == "acoustic" for e in events):
                     st.caption(
                         "Rows marked [acoustic] show the precisely detected region "

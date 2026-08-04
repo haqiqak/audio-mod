@@ -307,8 +307,8 @@ def main(argv: list[str] | None = None) -> int:
         print("Drop a few real recordings of different lengths (~3s, ~8s, ~15s) and re-run.")
         return 2
 
-    print(f"Benchmarking {len(wavs)} clip(s) in {clips_dir} on device={args.device} …")
-    print("(First clip includes the one-time model load — this is slow on CPU.)\n")
+    print(f"Benchmarking {len(wavs)} clip(s) in {clips_dir} on device={args.device} ...")
+    print("(First clip includes the one-time model load -- this is slow on CPU.)\n")
     asr = CrisperWhisperASR(device=args.device)
     rows = benchmark_folder(asr, clips_dir)
     print(format_table(rows))
