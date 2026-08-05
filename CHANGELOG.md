@@ -6,7 +6,59 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-05
+
+- **Decision executed in full: (S1, M3) implemented, benchmarked, and
+  shipped as the new default.** Trained the final classifier (`models/
+  repetition_corroboration_classifier.npz`, this project's first
+  internally-trained shipped artifact), refactored shared encoder-
+  extraction code into a new core module (`profiling/encoder_
+  embedding.py`) to preserve the evaluation/core-app boundary, wired the
+  gate into `detect.py` (`require_repetition_classifier_confirmation`,
+  default `true`), and benchmarked honestly via out-of-fold cross-
+  validated predictions (not the final model scored on its own training
+  data): `Any` (word+sound repetition) F1 0.631 -> 0.890 (89% FP
+  reduction, 10% recall cost). **Two real bugs caught by the existing
+  fast test suite before any result was trusted**: eager encoder loading
+  that would have broken the real-model-free unit test suite, and a
+  second, sharper version of the same bug (gate evaluated for every
+  token pair, not just actual candidates) — both fixed, verified on real
+  audio (a genuine TP still fires, a genuine FP is suppressed), full
+  suite 66/66. A real live-app latency cost (a second ~30-90s encoder
+  pass) is documented, not hidden. → *PAPER_DECISION_LOG.md, "Decision
+  executed in full: (S1, M3) implemented, benchmarked, and shipped..."*;
+  full results in `VALIDATION.md` §13.
+- **Executing §12.6 (continued from 2026-08-04): 250-clip result —
+  the classifier's advantage held and grew, decision rule satisfied.**
+  See the 2026-08-04 section below for the pre-run scoping/checkpointing
+  work; the run itself completed and was analyzed today. `word_repetition`
+  gap +0.161 -> +0.223, `Any` gap +0.133 -> +0.178, 5/5 folds, fully
+  non-overlapping ranges. → *VALIDATION.md* §12.6.2.
+
 ## 2026-08-04
+
+- **Real cost of no checkpointing: a run was killed mid-way with zero
+  recoverable progress; checkpointing added and verified before
+  restarting.** The 250-clip collection was interrupted; confirmed zero
+  progress was recoverable (output was only ever written at the end).
+  Rewrote the collector to checkpoint after every clip and genuinely
+  resume (skip already-processed clips, correctly handle a clip that
+  legitimately produces zero records) rather than restart from scratch.
+  Verified with a synthetic round-trip test and a real 2-then-4-clip
+  collection/resume run before trusting it with the real dataset. →
+  *PAPER_DECISION_LOG.md, "Real cost of no checkpointing..."*
+- **Executing §12.6: nested-CV regularization tuning implemented; a real
+  cost-escalation finding changed the run's scope before launching it.**
+  Replaced the fixed L2=5.0 with per-outer-fold nested CV selection
+  (smoke-tested on synthetic data first). Before scaling up, re-examined
+  the 90-clip run's own per-clip timings and found a real ~2.7x
+  slowdown within that single run (31s/clip -> 85s/clip, likely thermal
+  throttling on the laptop CPU) — undersold by the flat-average
+  extrapolation §12.6 was written against. Scoped the follow-up run to
+  250 clips (not the unbounded full 499) as a result, with reasoning
+  recorded rather than silently picked. → *PAPER_DECISION_LOG.md,
+  "Executing §12.6: nested-CV regularization tuning implemented..."*;
+  addendum in `VALIDATION.md` §12.6.1.
 
 - **Standing principle established: architectural decisions are
   evidence-constrained, not preservation-constrained (`CLAUDE.md` rule

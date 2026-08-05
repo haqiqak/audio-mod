@@ -4049,3 +4049,275 @@ pre-registered follow-up validation and its decision rule). `ROADMAP.md`
 item 17 updated to reflect this reasoned non-decision and its concrete
 next step. No code changed — `detect_disfluencies()` remains exactly as
 it was before Stage 1 began.
+
+---
+
+## 2026-08-04 — Executing §12.6: nested-CV regularization tuning implemented; a real cost-escalation finding changed the run's scope before launching it
+
+**What was done**
+Began executing `VALIDATION.md` §12.6's pre-registered follow-up exactly
+as specified: (1) nested cross-validation for the classifier's L2
+regularization strength, replacing the fixed `L2_STRENGTH = 5.0` used in
+§12.5's result — implemented directly in `compare_corroboration_
+mechanisms.py` (`_select_l2_by_nested_cv()`: an inner, clip-split k-fold
+CV over each outer fold's own training data only, grid-searching a fixed
+set of L2 values, selecting by mean inner F1, then refitting on the full
+outer-training set before evaluating on the outer test fold — never
+touching the outer test fold during selection). Smoke-tested on
+synthetic data before trusting it: confirmed different L2 values get
+selected per fold (not a constant, degenerate choice) and the whole
+pipeline runs correctly end to end.
+
+**Before launching the larger data collection, re-examined the 90-clip
+run's own raw per-clip timings rather than assuming its flat
+~44.6s/clip average would hold at a larger scale — and found it
+wouldn't**: the first 10 clips of that run averaged ~31s/clip, the last
+10 averaged ~85s/clip, a real ~2.7x slowdown within a single ~68-minute
+run. Most likely explanation (stated with honest uncertainty, not
+confirmed by further instrumentation): thermal throttling on the laptop
+CPU under sustained load, a known behavior for that class of hardware
+under this kind of workload. **This directly changed the scoping
+decision**, not just the time estimate: §12.6 named "the full 499-clip
+sample, cost permitting," but a naive flat-rate extrapolation (499 x
+44.6s = ~6.2h) already undersold the real cost, and if the slowdown
+continues rather than plateaus, the full run's duration and reliability
+become genuinely uncertain. **Decided to target 250 clips instead** — a
+~2.8x increase over the already-collected 90-clip sample, materially
+larger and directly able to answer §12.6's actual question, while
+bounding the commitment to a run whose duration can be reasoned about
+(~5 hours under a plausible thermal-plateau assumption) rather than an
+open-ended one. The full 499 remains available as a further step if 250
+clips doesn't resolve the question decisively.
+
+**Alternatives considered**
+- Launch the full 499-clip run anyway, since §12.6 named it as the
+  target. **Rejected**: the newly-discovered slowdown means "cost
+  permitting" — the exact clause §12.6 itself included — is no longer
+  satisfied with the same confidence it was when that section was
+  written, before this timing pattern was known. Proceeding blindly
+  would repeat exactly the mistake this project's methodology exists to
+  prevent: committing to a plan without accounting for new evidence that
+  complicates it.
+- Try to fix the suspected thermal-throttling cause (e.g. inserting
+  cooldown pauses between clips) before running at scale. **Rejected**:
+  the root cause isn't confirmed, and testing an unvalidated mitigation
+  would add its own uncertainty and delay without being asked for —
+  bounding the scope to a size whose cost is already reasonably well
+  understood is the lower-risk path to actually answering §12.6's
+  question today.
+- Skip nested-CV regularization tuning and only scale up the sample
+  size, treating the fixed-L2 concern as secondary. **Rejected**: §12.6
+  named both changes together for a reason — a larger sample alone
+  wouldn't rule out that §12.5's result depended on the specific,
+  arbitrary L2=5.0 value; both were pre-registered as needed to actually
+  resolve the uncertainty.
+
+**Why this choice**
+Directly continues the pre-registered protocol while applying the same
+"audit before trusting, adjust the plan when new evidence complicates
+it" discipline this project has used all session — the scope change is
+a documented, reasoned response to a real finding, not a silent
+deviation or a shortcut taken to save time.
+
+**Measured result**
+`profiling/evaluation/compare_corroboration_mechanisms.py` (nested-CV
+L2 selection, smoke-tested on synthetic data). `VALIDATION.md` §12.6.1
+(new addendum: the timing finding, the reasoning, and the 250-clip
+scoping decision). Full suite: 59/59 (unchanged — no new unit-test-
+covered logic beyond what the smoke test already exercised at the
+integration level; the nested-CV function is exercised by
+`compare_corroboration_mechanisms.py`'s own module-level smoke test, not
+a `tests/`-suite unit test, matching this file's existing convention of
+being validated via direct runs rather than a formal test file). The
+250-clip raw-embedding collection is running as this entry is written;
+its result and the final decision get their own entry once complete.
+
+---
+
+## 2026-08-04 — Real cost of no checkpointing: a run was killed mid-way with zero recoverable progress; checkpointing added and verified before restarting
+
+**What was done**
+The 250-clip collection launched under the previous entry was killed by
+an unrelated session interruption partway through. Confirmed directly
+(process list showed no running collection process; no output file
+existed at all) that **zero progress from that run was recoverable** —
+`collect_raw_encoder_data.py` only wrote its output at the very end, so
+an interruption at clip 200 would have lost exactly as much as one at
+clip 5. This is precisely the risk named (but not yet acted on) when the
+90-clip run's slowdown was investigated a few entries above.
+
+Rewrote `collect_raw_encoder_data.py` to checkpoint after **every**
+clip, not periodically — cheap relative to the 30-90s/clip encoder cost
+already measured, so there's no real reason to checkpoint less often.
+Added genuine resume support, not just periodic saving: if `--out`
+already exists when the script starts, it's loaded, already-processed
+clips are skipped (tracked in a dedicated `processed_clips` array,
+separate from the record rows themselves, so a clip that legitimately
+produces zero scorable events is still correctly remembered as done and
+not silently re-processed forever), and new records are appended to what
+already exists rather than overwriting it.
+
+**Verified before trusting it with a real multi-hour run** — the same
+discipline applied to every other piece of this project's evaluation
+infrastructure: (1) a synthetic round-trip test covering the tricky edge
+case (a clip with zero records must still be marked processed); (2) a
+real, 2-clip collection run producing a genuine checkpoint file; (3) a
+real resume run against that same file with 2 additional clips
+requested, confirming it correctly reported "2 already done," skipped
+them, and processed only the 2 new ones, merging to a correct combined
+total (6 records across 4 clips). Full suite: 59/59, unaffected.
+
+**Alternatives considered**
+- Checkpoint periodically (e.g. every 10 clips) rather than every clip,
+  to reduce I/O overhead. **Rejected**: the checkpoint write itself is a
+  small, fast compressed-array save, negligible next to a single clip's
+  30-90s encoder cost — checkpointing every clip bounds worst-case lost
+  work to one clip regardless, at effectively no extra cost.
+- Just re-run the full 250 clips from scratch without adding
+  checkpointing first, to save implementation time. **Rejected,
+  directly per the owner's own instruction this turn**: the owner
+  explicitly asked for checkpointing to be added because it helps,
+  before continuing — and given today's run already demonstrated the
+  failure mode once, shipping the same unprotected script a second time
+  would risk losing the next multi-hour run for the same avoidable reason.
+
+**Why this choice**
+A real, observed failure (total loss of an in-progress run) with an
+identified, fixable cause gets fixed and verified before being relied on
+again — not patched by hoping the interruption doesn't recur. Matches
+this project's standing pattern of treating an operational failure as
+seriously as a statistical one.
+
+**Measured result**
+`profiling/evaluation/collect_raw_encoder_data.py` (checkpointing +
+resume, rewritten). Verified via synthetic round-trip test and a real
+2-then-4-clip collection/resume run (both cleaned up afterward, not
+part of the real dataset). Full suite: 59/59. The 250-clip collection is
+being relaunched under this fixed version immediately after this entry.
+
+---
+
+## 2026-08-05 — Decision executed in full: (S1, M3) implemented, benchmarked, and shipped as the new default — two real bugs caught by the existing test suite before any result was trusted
+
+**What was done**
+Following through on the owner's explicit instruction ("if the
+classifier's advantage remains robust... implement it as the chosen
+corroboration mechanism, benchmark the integrated detector, update all
+relevant documentation, and prepare the repository for commit"), and on
+`CLAUDE.md` standing rule 8 (architectural decisions are evidence-
+constrained — once the evidence is there, decide and act on it):
+
+1. **Trained the final model.** `profiling/evaluation/
+   train_repetition_classifier.py`: nested-CV-selected L2 (20.0) on all
+   250 clips' 388 `word_repetition`/`sound_repetition` events, saved to
+   `models/repetition_corroboration_classifier.npz` (~17KB, committed —
+   this project's first internally-trained, shipped model artifact;
+   every other pretrained component here is used zero-shot).
+2. **Refactored for a real architectural boundary.** `profiling/
+   evaluation/` is documented as "not needed to run the app itself" —
+   importing evaluation code into the core detector would violate that.
+   Extracted the shared, model-agnostic primitives (`load_encoder`,
+   `extract_last_layer_states`, `pool_span`, `cosine_distance`) into a
+   new core module, `profiling/encoder_embedding.py`; `profiling/
+   evaluation/encoder_features.py` now imports them from there instead
+   of duplicating them, re-exported for backward compatibility. Verified
+   with a full regression run before proceeding (59/59 unaffected).
+3. **Implemented the gate.** `profiling/repetition_classifier.py`
+   (`RepetitionClassifierContext`), wired into `detect.py` as a hard
+   gate on `word_repetition`/`sound_repetition` candidates — the same
+   architectural role Praat-gating plays for `prolongation`. New config
+   key `require_repetition_classifier_confirmation`, default `true`.
+4. **Benchmarked the integrated detector honestly.** `profiling/
+   evaluation/benchmark_integrated_gate.py` reconstructs each event's
+   out-of-fold cross-validated prediction (never the final model scored
+   on its own training data, which would be optimistic) and translates
+   it into real TP/FP/FN counts: `Any` (both types) F1 0.631 -> 0.890,
+   driven by an 89% false-positive reduction (209 -> 22) at a 10% recall
+   cost (179 -> 161 TP) — the same precision-for-recall trade shape
+   every other audio-native corroboration change in this project has
+   made.
+
+**Two real bugs caught by the existing test infrastructure, before any
+benchmark was trusted — exactly what that infrastructure is for**:
+
+- **An eager-loading design flaw**, caught because the full regression
+  suite (which must stay fast and real-model-free) started hanging.
+  `RepetitionClassifierContext`'s first implementation loaded the
+  encoder in `__init__` whenever `audio_bytes` was given, regardless of
+  whether a repetition candidate existed — meaning *any* clip with audio
+  would trigger a real, multi-second-plus model load. Fixed by deferring
+  loading to the first actual query (`available`/`confirms_repetition`).
+- **A second, sharper version of the same bug**: even after making
+  loading lazy, the gate's *evaluation* (`rc_ok = ...`) was computed
+  unconditionally for every adjacent token pair (`i > 0`) in `detect.py`,
+  not only inside the branches where a candidate was actually found —
+  so a token pair with no repetition at all (e.g. "go"/"now" in `tests/
+  test_detect_fusion.py`) still triggered a real encoder-load attempt.
+  Root-caused via direct isolation (`timeout`-wrapped runs narrowing it
+  to one file, then `user 0m0.077s` CPU time over 91s wall time —
+  near-zero CPU confirmed the process was blocked on I/O, not computing,
+  pointing straight at a network-dependent model load rather than a
+  computational hang). Fixed by moving the gate check into a lazily-
+  invoked closure, only called from inside the two branches
+  (`is_fragment_repeat`, the exact-match `elif`) where a candidate
+  actually exists — deliberately *not* structured as `if candidate and
+  rc_ok:` inside an `elif` chain, because a rejected candidate falling
+  through to the near-repetition check below would trivially re-match
+  the same identical-after-normalization pair, silently defeating the
+  gate.
+- **A third, smaller bug, same discipline**: `confirms_repetition()`
+  returned a numpy `bool_`, not a Python `bool` — invisible to the
+  `if`/`and` logic that actually consumes it, but caught by a unit test
+  asserting `is True`/`is False` (which numpy bools fail even when
+  "equal"), and a real latent risk downstream (numpy scalar types break
+  `json.dumps` by default). Fixed with an explicit `bool(...)` cast.
+
+**Verified on real audio directly, not just via aggregate numbers**,
+before trusting the statistical benchmark: a genuine ground-truth
+`word_repetition` (clip `103-1240-0000`, index 4) fires with the gate on
+(63.5s, confirming the real encoder pass runs) and off (0.7s); a genuine
+false positive (clip `103-1240-0018`, index 13) is suppressed with the
+gate on and fires with it off, every other event in that clip unaffected.
+
+**Alternatives considered**
+- Apply the final trained model back to its own 250-clip training data
+  to measure the "integrated benchmark," since the model and data were
+  already in hand. **Rejected**: this would be an in-sample,
+  optimistically-biased estimate — exactly the kind of number this
+  project's measurement-first discipline exists to catch, not produce.
+  Reconstructing honest out-of-fold predictions from the already-run CV
+  (§12.6.2) gives the same rigor without a fourth encoder run.
+- Ship the gate with eager loading and accept that the fast test suite
+  would need real-model access going forward. **Rejected**: this
+  project's fast, real-model-free unit test suite is a load-bearing
+  part of its own development speed and reliability (`HANDOFF.md` §6) —
+  breaking that to ship one feature faster would be a worse trade than
+  spending the time to make loading properly lazy.
+- Leave the live-app latency cost unaddressed and undocumented, since
+  fixing it (restructuring `asr.py`'s core transcription call) is out of
+  scope for this session. **Rejected the "undocumented" part** — the
+  cost is real and stays, but it's now named explicitly in three places
+  (`ARCHITECTURE.md`, `VALIDATION.md` §13.2, `ROADMAP.md`) as a specific,
+  scoped follow-up, not silently absorbed into "it works."
+
+**Why this choice**
+Directly executes the decision the evidence supported, per the owner's
+explicit instruction and standing rule 8 — and does so with the same
+rigor as every step that led to it: audit before trusting (the two
+loading bugs, caught by the test suite doing its job), measure honestly
+rather than conveniently (out-of-fold predictions, not in-sample), and
+verify on real, individually-inspectable cases before trusting the
+aggregate statistics.
+
+**Measured result**
+`models/repetition_corroboration_classifier.npz` (new, trained
+artifact). `profiling/encoder_embedding.py` (new, core module).
+`profiling/evaluation/encoder_features.py` (refactored to import from
+it). `profiling/repetition_classifier.py` (new). `profiling/detect.py`
+(gate wired in, config key added). `profiling/evaluation/
+train_repetition_classifier.py`, `benchmark_integrated_gate.py` (new).
+`tests/test_repetition_classifier.py` (new, 7 tests). `config.yaml`,
+`README.md` (new config key documented in both). `ARCHITECTURE.md` §4b
+(new subsection) + known-limitations entry. `VALIDATION.md` §13/§13.1/
+§13.2 (implementation, benchmark, latency limitation). Full suite: 66/66
+(was 59/59). `ROADMAP.md` item 17 to be marked fully implemented.

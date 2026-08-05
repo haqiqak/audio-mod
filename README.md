@@ -46,7 +46,14 @@ and is reconciled with the text/timing-based checks through **weighted-confidenc
 fusion** — the more confident signal wins per event, not a fixed "transcript
 always wins" priority. Filler and stutter-marker events, which previously
 trusted the ASR's own flags with no audio grounding at all, are now also
-acoustically corroborated.
+acoustically corroborated. `word_repetition`/`sound_repetition` candidates
+are further confirmed by a small trained classifier
+(`profiling/repetition_classifier.py`) over CrisperWhisper's own encoder
+embedding — the transcript alone can't distinguish a genuine stuttered
+repeat from a coincidental one ("that that..."), since both produce
+identical tokens; this project's first internally-trained, shipped model
+(decided by a pre-registered, cross-validated comparison, not intuition —
+see `VALIDATION.md` §11-§13) resolves that ambiguity from the audio itself.
 
 Event types follow the field's standard taxonomy (matching SEP-28k /
 FluencyBank / KSoF, so output is directly comparable to public benchmarks —
@@ -280,6 +287,7 @@ are reproducible with `python -m profiling.benchmark_asr`.)
 | `profiling.detection.prolongation_rate_alpha`   | `1.2`   | Numerator of the rate-normalized formula above; only used when that mode is enabled |
 | `profiling.detection.prolongation_rate_floor`   | `1.5`   | Minimum speaking-rate (syllables/sec) the rate-normalized formula divides by, guarding against instability on short/sparse clips |
 | `profiling.detection.require_praat_stability_for_prolongation` | `true` | **Hard gate** (not just a confidence adjustment) on the token-path prolongation check: candidate must pass pitch-stability/jitter/shimmer thresholds when Praat features are available; graceful no-op when they're not. Flipped to `true` 2026-08-04 — the only variant of a 13-variant ablation to improve both `Any` and prolongation-specific F1 simultaneously (`VALIDATION.md` §9.5.1). Distinct from `acoustic.use_praat` below, which remains confidence-only. |
+| `profiling.detection.require_repetition_classifier_confirmation` | `true` | **Hard gate** on candidate `word_repetition`/`sound_repetition` events: a small trained classifier (`models/repetition_corroboration_classifier.npz`) over CrisperWhisper's own encoder embedding must confirm the candidate; graceful no-op when `transformers`/`torch`, the model file, or audio are unavailable. Flipped to `true` 2026-08-05 — a pre-registered, cross-validated comparison found this clears the decision bar decisively (`VALIDATION.md` §12.6.2, Cohen's d > 1.0). **Adds real latency when it engages** (a second CrisperWhisper encoder pass, ~30-90s, only on clips with an actual repetition candidate) — see `ARCHITECTURE.md` §4b's known-limitations note before enabling this in a latency-sensitive context. |
 | `profiling.detection.near_repetition_similarity`| `0.75`  | Edit-distance similarity above which two consecutive words count as a near-repetition     |
 | `profiling.detection.phrase_repetition_max_words`| `8`    | Longest repeated phrase scanned for (also capped at `len(tokens)//2`)                     |
 | `profiling.detection.sentence_initial_boost`    | `0.08`  | Confidence bonus for disfluencies at sentence-initial position                            |

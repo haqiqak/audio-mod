@@ -336,10 +336,12 @@ ARCHITECTURE_REVIEW.md`. **Headline: the two-stage architecture is kept**
 joint ASR+detection training — is decisively more accurate at this
 project's task granularity without infrastructure this project doesn't
 have), **but the review surfaced one new, well-evidenced, actionable
-item, added below as item 17.** See `PHASE_2_SUMMARY.md` §7 for the rest
+item, added below as item 17 — now implemented and shipped (2026-08-05),
+see item 17's own entry for the full result, and item 18 for the one
+follow-on cost it left open.** See `PHASE_2_SUMMARY.md` §7 for the rest
 of Phase 3's evidence-ranked shortlist (items 9, 14, 10/16, 15, and a VAD/
-Praat-complexity revisit) — item 17 below now sits alongside that list,
-not separate from it.
+Praat-complexity revisit) — items 17/18 below now sit alongside that
+list, not separate from it.
 
 17. **[New, 2026-08-04, from `PHASE_3_ARCHITECTURE_REVIEW.md` §5.1/§8,
     refined same day via an adversarial self-review] Extend
@@ -429,26 +431,45 @@ not separate from it.
     sample (93-130 events across 5 folds), untuned L2 regularization
     strength, still LibriStutter's reconstructed-timing data.
 
-    **Reasoned decision, same day, under the new evidence-constrained-
-    architecture standing rule (`CLAUDE.md` rule 8)**: the §12.5 result
-    is real and positive enough to change this project's *working
-    expectation* — a learned corroboration signal is, on current
-    evidence, more likely the right direction for these two types than a
-    hand-calibrated threshold. **Not yet strong enough to ship as the
-    default**, for three named, evidence-based reasons (not a preference
-    for simplicity): a high-dimensional classifier's cross-validated
-    estimate is inherently less trustworthy than a threshold's at this
-    same small sample size; the regularization strength was fixed, not
-    tuned; and LibriStutter's reconstructed timing has fooled a
-    higher-capacity mechanism in this exact project before
-    (`VALIDATION.md` §8.3's prolongation-threshold history). **Next step
-    pre-registered, not run this session**: a larger-scale re-run with
-    nested-CV-tuned regularization and a fixed decision rule
-    (`VALIDATION.md` §12.6) — if the classifier's advantage holds,
-    implementation becomes the justified next step; if it doesn't, the
-    threshold (or no new mechanism) remains the default, recorded with
-    equal rigor either way. See `PAPER_DECISION_LOG.md`'s 2026-08-04
-    "Standing principle established" entry for the full reasoning.
+    **STATUS: DONE, 2026-08-05 — implemented, benchmarked, and shipped
+    as the default.** §12.6's pre-registered follow-up (250 clips,
+    nested-CV-tuned regularization) confirmed the classifier's advantage
+    held and grew (`word_repetition` F1 gap +0.161→+0.223, `Any`
+    +0.133→+0.178, 5/5 folds, non-overlapping ranges) — the decision
+    rule was satisfied, so `CLAUDE.md` rule 8 was applied to its own
+    conclusion: (S1, M3) adopted. Implemented as `profiling/
+    repetition_classifier.py` (`require_repetition_classifier_
+    confirmation`, default `true`), trained artifact committed at
+    `models/repetition_corroboration_classifier.npz` — this project's
+    first internally-trained, shipped model. Integrated-detector
+    benchmark (honest, out-of-fold, not in-sample): `Any` F1 0.631→0.890
+    (89% FP reduction, 10% recall cost). Two real bugs (eager model
+    loading that would have broken the fast test suite) caught and fixed
+    before the result was trusted. **One real, accepted, documented
+    limitation carried forward, not resolved**: enabling this in the
+    live app adds a second ~30-90s CrisperWhisper encoder pass on
+    affected clips — `ARCHITECTURE.md` §4b, `VALIDATION.md` §13.2. See
+    `PAPER_DECISION_LOG.md`'s 2026-08-05 "Decision executed in full"
+    entry for the complete record.
+
+18. **[New, 2026-08-05, follow-on from item 17] Remove the repetition-
+    classifier gate's live-app latency cost** by restructuring
+    `profiling/asr.py`'s core transcription call to capture encoder
+    hidden states during the same forward pass it already makes, instead
+    of `profiling/repetition_classifier.py` making a second, separate
+    encoder-only call. Would make item 17's gate genuinely free at
+    inference time (matching the original "zero added latency"
+    assumption in `PHASE_3_ARCHITECTURE_REVIEW.md` §5.1) rather than
+    costing a real ~30-90s on affected clips (`VALIDATION.md` §13.2).
+    **Not attempted alongside item 17 deliberately**: `asr.py`'s
+    transcription call is delicate and multiply-patched (documented
+    workarounds for a beam-search timestamp bug, a tokenizer-mismatch
+    issue, and more — see `asr.py`'s own module docstring) — touching it
+    in the same session as validating a brand-new classifier would mix
+    two real, separately-risky changes together. Scoped as its own
+    future step, with its own testing (a full mic-record round-trip,
+    per `requirements.txt`'s own standing warning about touching this
+    code path) before being attempted.
 
 ## Near-term
 

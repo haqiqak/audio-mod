@@ -29,17 +29,24 @@ correct, found two real gaps (see that file), and set the actual order of
 Phase 2 work; that work is now done (two detector fixes, a prolongation
 redesign decided by pre-registered ablation, new confidence/CI measurement
 infrastructure, and several documented negative/inconclusive results —
-see `PHASE_2_SUMMARY.md`). **Phase 3 has not started implementation yet**
-— it opened with a first-principles architecture review (`PHASE_3_
-ARCHITECTURE_REVIEW.md`, 2026-08-04) that kept the ASR-first two-stage
-architecture but identified one scoped, evidence-backed extension
-(`ROADMAP.md` item 17) as the top candidate; read that review before
-proposing anything that touches the ASR/detector boundary. `ROADMAP.md`
-reflects the current state: priorities in order, each linked to the
-specific finding that justifies it. If you're about to suggest a next
-step, check `ROADMAP.md` first — it's very likely already there with
-reasoning, and a change of plan should update it, not silently diverge
-from it.
+see `PHASE_2_SUMMARY.md`). **Phase 3 (evidence-driven architecture
+extension) is in progress**, opened 2026-08-04 with a first-principles
+architecture review (`PHASE_3_ARCHITECTURE_REVIEW.md`) that kept the
+ASR-first two-stage architecture but identified one scoped,
+evidence-backed extension (`ROADMAP.md` item 17); that extension is now
+**implemented and shipped** (2026-08-05) — a trained classifier gate on
+`word_repetition`/`sound_repetition` (this project's first internally-
+trained, shipped model artifact), decided by a pre-registered,
+cross-validated comparison, default `true`. Full arc: `VALIDATION.md`
+§11 (Stage 1 signal validation) → §12 (mechanism comparison) → §13
+(implementation + benchmark). One real, accepted cost remains open and
+tracked as `ROADMAP.md` item 18 (added live-app latency, not yet
+resolved). Read `PHASE_3_ARCHITECTURE_REVIEW.md` before proposing
+anything that touches the ASR/detector boundary. `ROADMAP.md` reflects
+the current state: priorities in order, each linked to the specific
+finding that justifies it. If you're about to suggest a next step, check
+`ROADMAP.md` first — it's very likely already there with reasoning, and
+a change of plan should update it, not silently diverge from it.
 
 ## Standing rules for working in this repo
 

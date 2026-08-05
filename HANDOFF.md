@@ -40,20 +40,31 @@ anything is untested or undecided:
   not intuition), new confidence-sensitive/interval-based measurement
   infrastructure, and several explicitly-documented negative and
   inconclusive results. → **`PHASE_2_SUMMARY.md`**
-- **Phase 3 (not yet started) opened with an architecture review, same
-  2026-08-04**: before writing any Phase 3 code, the project owner asked
-  for a first-principles challenge to the ASR-first two-stage
-  architecture itself. **Conclusion: kept as the foundation** — no
-  alternative found (self-supervised classifiers, end-to-end audio-native
-  models, joint ASR+detection training) is decisively more accurate at
-  this project's task granularity without infrastructure this project
-  doesn't have — **but one scoped, evidence-backed extension was
-  identified as the top Phase 3 candidate**: extend audio-native-primary
-  detection to `word_repetition`/`sound_repetition`/`filler` (currently
-  the most token-text-dependent, and per fresh literature, the types ASR
-  damages most) using CrisperWhisper's own encoder representations.
-  Not yet implemented or even pre-registered. → **`PHASE_3_ARCHITECTURE_
-  REVIEW.md`**, `ROADMAP.md` item 17.
+- **Phase 3 (evidence-driven architecture extension) is in progress,
+  opened 2026-08-04, first item shipped 2026-08-05**: before writing any
+  Phase 3 code, the project owner asked for a first-principles challenge
+  to the ASR-first two-stage architecture itself. **Conclusion: kept as
+  the foundation** — no alternative found (self-supervised classifiers,
+  end-to-end audio-native models, joint ASR+detection training) is
+  decisively more accurate at this project's task granularity without
+  infrastructure this project doesn't have — **but one scoped,
+  evidence-backed extension was identified, and it's now implemented and
+  shipped**: `word_repetition`/`sound_repetition` (the two types most
+  token-text-dependent, and per literature, the types ASR damages most)
+  now get a trained classifier gate over CrisperWhisper's own encoder
+  embedding — this project's first internally-trained, shipped model
+  artifact (`models/repetition_corroboration_classifier.npz`). Decided
+  by a pre-registered, cross-validated comparison (not intuition):
+  Cohen's d > 1.0, confirmed to hold and grow at a larger scale with
+  tuned regularization. Integrated-detector benchmark: `Any` (both
+  types) F1 0.631 → 0.890. Default `true`
+  (`require_repetition_classifier_confirmation`); the one real, accepted
+  cost is added live-app latency (a second ~30-90s encoder pass on
+  affected clips) — the follow-up to remove that is `ROADMAP.md` item 18,
+  not yet started. → **`PHASE_3_ARCHITECTURE_REVIEW.md`** for the
+  foundational decision, **`VALIDATION.md` §11-§13** for the full Stage 1
+  → comparison → implementation arc, `ROADMAP.md` items 17-18 for current
+  status.
 
 **If you are about to suggest "what should we do next," don't guess —
 read `ROADMAP.md` first.** It is very likely already there, in priority
@@ -102,8 +113,12 @@ for a first read:
    implementing anything that touches the ASR/detector boundary — it
    already weighs newer ASR models, self-supervised representations,
    end-to-end audio-native architectures, and joint ASR+detection
-   training against this project's own evidence, and names a specific,
-   scoped next step (item 17 in `ROADMAP.md`).
+   training against this project's own evidence. It's a decision record
+   (frozen once written, per its own stated convention), so its
+   originally-scoped "candidate" (item 17) reads as still-open even
+   though it's since been carried through to a shipped result — for the
+   current status, follow its own pointers into `VALIDATION.md` §11-§13
+   and `ROADMAP.md` item 17, not this file's original wording alone.
 10. **`CLAUDE.md`** — short, stable orientation and the standing rules
     (condensed again in §5 below). Loaded automatically for a Claude Code
     session; read it directly if you're a human or a different tool.
@@ -128,6 +143,12 @@ Don't treat everything in this repo as equally certain. The short version
 - `sound_repetition`'s fragment-ordering fix and the prolongation
   redesign's Praat-gating default are both measured, pre-registered
   wins, not intuition.
+- The `word_repetition`/`sound_repetition` corroboration classifier
+  (Phase 3's first shipped item) is a measured, pre-registered,
+  cross-validated win too — but note it's the only shipped mechanism in
+  this codebase resting on a *trained* model rather than a physically-
+  grounded signal (pitch, jitter, silence), and its live-app latency
+  cost is a real, currently-unresolved trade-off, not a solved problem.
 
 **Explicitly still open, not settled:**
 - Whether "ASR fidelity is the dominant bottleneck" generalizes beyond
@@ -196,7 +217,9 @@ run (full text: `CLAUDE.md`). They are not aspirational:
   audio only): each file under `tests/` is runnable standalone
   (`python tests/test_X.py`) and prints a `N/N passed` summary; there is
   no `pytest` dependency installed in this environment, run them this
-  way. Current count: 45/45 across 8 files.
+  way. Current count: 66/66 across 10 files. Stays fast because every
+  test avoids the real CrisperWhisper model — see the pitfall below
+  about why that's easy to accidentally break.
 - **Run an evaluation**: `profiling/evaluation/track_a.py` (detector-only,
   ASR bypassed) and `track_b.py` (full pipeline, real ASR) are both
   self-testable (`--self-test`) and runnable against real data
@@ -244,6 +267,26 @@ run (full text: `CLAUDE.md`). They are not aspirational:
   this project's own "1.0 recall" claims at n=2 and n=7 turned out to
   have much wider true uncertainty than the point estimate suggested
   (`VALIDATION.md` §8.4.3).
+- **Any code path that can trigger a real CrisperWhisper model load must
+  be genuinely lazy, and lazy at the point of actual use, not just at
+  construction.** `profiling/repetition_classifier.py`'s first version
+  loaded the encoder in `__init__` whenever audio was present — meaning
+  any test passing synthetic `audio_bytes` would have silently started
+  downloading/loading the real ~3.2GB model. The fix wasn't just "defer
+  to first use" — the *caller* in `detect.py` also had to stop evaluating
+  the gate for every token pair and only do it inside the branches where
+  a candidate genuinely existed, or a lazy-but-unconditionally-called
+  check is just as slow. If a new test starts hanging with near-zero CPU
+  time, suspect exactly this class of bug first (`PAPER_DECISION_LOG.md`,
+  2026-08-05, "Decision executed in full").
+- **A model scored on its own training data is not a benchmark.** When
+  measuring the real, integrated effect of the repetition classifier,
+  the honest number came from *out-of-fold* cross-validated predictions
+  (each fold's model only ever predicting on data it never trained on),
+  not the final shipped model re-applied to the same 250 clips it was
+  trained on — the latter would have been optimistic (`VALIDATION.md`
+  §13.1). Any future "does this trained thing actually help" question in
+  this codebase should default to the same discipline.
 
 ---
 

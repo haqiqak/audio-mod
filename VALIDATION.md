@@ -1,5 +1,26 @@
 # VALIDATION.md — evaluation methodology, datasets, and results
 
+**Status as of 2026-08-05: Phase 3's first shipped result.** Since the
+Phase 2 close described below, a first-principles architecture review
+(`PHASE_3_ARCHITECTURE_REVIEW.md`) kept the ASR-first two-stage
+architecture and identified one scoped extension, carried through to a
+shipped result via the same pre-register → measure → decide discipline:
+(1) Stage 1 (§11) confirmed CrisperWhisper's own encoder embedding
+carries real disfluency signal beyond the transcript (Cohen's d =
++1.05/+1.12, `word_repetition`/`Any`, stable across 30→90 clips); (2) a
+corroboration-mechanism comparison (§12) found a small trained classifier
+clearly beats a zero-training threshold on the same signal (the opposite
+of this project's own pre-registered prediction, reported as such), and
+that the result held and grew at 2.8x the sample with properly-tuned
+regularization (§12.6.2); (3) the classifier was implemented, benchmarked
+honestly via out-of-fold cross-validation, and shipped as the new default
+(§13): `Any` (word+sound repetition) F1 0.631→0.890. This is this
+project's first internally-trained, shipped model artifact — a real,
+accepted new category of cost (versioning, no established retraining
+process yet) and a real, named limitation not yet resolved (added
+live-app latency, `§13.2`, `ROADMAP.md` item 18). All numbers below that
+predate this are kept exactly as measured at the time.
+
 **Status as of 2026-08-04 (end of day): Phase 2's detector-side and
 measurement-infrastructure work is complete.** Since the 2026-08-03
 baseline described below, four more evidence-driven changes landed, each
@@ -2639,3 +2660,208 @@ commitment (§11.3.1's cost finding applies again, likely worse at a
 larger scale) and is recorded here specifically so it can be picked up
 as its own, already-justified next step rather than re-derived from
 scratch.
+
+### 12.6.1 Scoping addendum (2026-08-04, before running) — a real, previously-unnoticed cost escalation found, and a bounded target chosen because of it
+
+Before launching the larger run, re-examined the 90-clip run's own raw
+per-clip timings (`eval_datasets/_collect_raw_90clip_output.txt`) rather
+than assuming the ~44.6s/clip average from §11.3.1/§12.2 would hold flat
+at a larger scale. **Found a real, reproducible slowdown across the
+single run, not noise**: the first 10 clips averaged ~31s/clip; the last
+10 (of the same 90-clip, ~68-minute run) averaged ~85s/clip — roughly
+2.7x slower by the end than the start.
+
+**Most likely explanation, stated with appropriate uncertainty (not
+confirmed by further instrumentation, which was judged not worth the
+time against the actual decision at hand)**: thermal throttling. This
+runs on a laptop CPU under sustained, uninterrupted heavy load for over
+an hour — exactly the condition laptop CPUs are known to throttle under,
+more aggressively than desktop/server hardware. Memory growth in the
+long-running `torch`/`transformers` process is a secondary candidate but
+judged less likely given the encoder pass shape doesn't change across
+clips (same fixed 30s-window input every time).
+
+**Why this changes the scoping decision, not just the runtime estimate**:
+§12.6 named "target as much of the full 499-clip sample as practical,"
+with practicality bounded by cost. A naive extrapolation from the flat
+90-clip average (499 x 44.6s = ~6.2h) already undersold the real cost;
+if the observed slowdown continues rather than plateauing, total runtime
+for the full sample is genuinely uncertain and could run considerably
+longer, with no strong guarantee it stays a well-behaved, predictable
+process for that long unattended. **Decision: target 250 clips** (a
+~2.8x increase over the 90-clip sample already collected, materially
+larger, not just larger) **rather than the unbounded full 499** — bounds
+the commitment to a run whose duration can be reasoned about (roughly
+5 hours under a plausible thermal-plateau assumption: the observed
+90-clip run's shape, held flat past clip 90 rather than extrapolated
+linearly forever), while still directly answering §12.6's actual
+question (does the classifier's advantage hold at meaningfully more
+data). **The full 499 remains available as a further step** if 250
+clips' result is still not decisive, now with this cost characteristic
+already known rather than discovered mid-run a second time.
+
+### 12.6.2 Results (2026-08-05): the classifier's advantage holds — and grew — at 2.8x the sample, with tuned regularization. Decision rule satisfied.
+
+250 clips, 402 scorable events collected (89 TP/205 FP `word_repetition`,
+90 TP/4 FP `sound_repetition`, 0 TP/8 FP `filler` — note `sound_repetition`
+finally has real FPs at this scale, unlike every prior run; still not
+enough for a separate cross-validated slice, folded into `Any` as
+before). Encoder pass averaged 33.7s/clip across the full run — *lower*
+than the 90-clip run's 44.6s average, consistent with §12.6.1's
+thermal-carryover hypothesis (this run started from a cooler baseline,
+not immediately after another hour-long encoder-bound run). Raw data:
+`eval_results/stage1_raw_embeddings_250clip.npz`. Full nested-CV output:
+`eval_datasets/_compare_250clip_output.txt`.
+
+| Type | Candidate | F1 (mean, fold range) | Precision | Recall |
+|---|---|---|---|---|
+| `word_repetition` (n=89 TP/205 FP) | (S1, M1) threshold | 0.543 (0.455-0.627) | 0.438 | 0.721 |
+| | **(S1, M3) classifier, nested-CV L2** | **0.766 (0.706-0.829)** | 0.784 | 0.762 |
+| | (S2, M1) self-similarity | 0.448 (0.375-0.526) | 0.390 | 0.562 |
+| `Any` (word+sound repetition, n=179 TP/209 FP) | (S1, M1) threshold | 0.714 (0.697-0.729) | 0.620 | 0.846 |
+| | **(S1, M3) classifier, nested-CV L2** | **0.892 (0.870-0.919)** | 0.885 | 0.900 |
+| | (S2, M1) self-similarity | 0.617 (0.552-0.667) | 0.552 | 0.727 |
+
+Selected L2 per outer fold (`word_repetition`): `[1.0, 2.0, 20.0, 1.0,
+0.5]`; (`Any`): `[0.5, 1.0, 10.0, 20.0, 5.0]` — genuinely variable, not
+converging on the old fixed value of 5.0 in every fold, confirming the
+regularization strength was a real free parameter worth tuning, not an
+arbitrary choice that happened not to matter.
+
+**The margin held, and grew, relative to §12.5's 90-clip result**:
+`word_repetition` gap +0.161 -> **+0.223**; `Any` gap +0.133 -> **+0.178**.
+**Audited before accepting** (a result this clean deserves the same
+scrutiny as before): verified directly, not from the means alone, that
+the classifier beat the threshold in **5 of 5 folds in both type
+slices**, and that **the ranges do not even overlap** — the
+classifier's *worst* fold (`word_repetition` 0.706, `Any` 0.870) still
+exceeds the threshold's *best* fold (0.627, 0.729 respectively) in both
+cases. This is a materially stronger, more decisive result than §12.5's,
+not merely a replication of it.
+
+**§12.6's pre-registered decision rule is satisfied, mechanically, not
+by judgment call**: "if the classifier's F1 advantage over the threshold
+holds... at the larger scale with tuned regularization, that constitutes
+sufficient evidence to adopt (S1, M3) as the new default corroboration
+mechanism for `word_repetition`/`sound_repetition`." The advantage did
+not shrink toward §12.4's "one fold's worth of variance" bar — it grew,
+and the two mechanisms' fold ranges are now fully separated. **Decision:
+(S1, M3) is adopted.** Per the same section, implementation into
+`detect_disfluencies()` (plus the version-artifact/retraining-process
+work `PHASE_3_ARCHITECTURE_REVIEW.md` §9.3 already named as a real,
+accepted cost) is the next step — see §13 for the implementation and
+the integrated-detector benchmark.
+
+**What remains genuinely untested, stated plainly even though the
+decision is made**: this is still LibriStutter's reconstructed-timing
+data (the one of §12.6's three named uncertainties this specific
+validation could not address by design — scale and regularization were
+the two it targeted). Whether this advantage transfers to real,
+non-reconstructed speech remains open, exactly as every other result on
+this dataset has been since §8.2 — recorded as a standing limitation of
+the shipped mechanism, not resolved by this decision.
+
+## 13. Implementation and integrated-detector benchmark (2026-08-05)
+
+`profiling/repetition_classifier.py` applies the trained (S1, M3)
+classifier (`models/repetition_corroboration_classifier.npz`, trained by
+`profiling/evaluation/train_repetition_classifier.py` on all 250 clips'
+`word_repetition`/`sound_repetition` events) as a hard gate on
+candidate events in `detect.py`, the same architectural role Praat-gating
+plays for `prolongation`. New config key: `require_repetition_
+classifier_confirmation`, **default `true`** — this is now the shipped
+default, following the same "flip the default once the ablation
+justifies it" precedent as the prolongation redesign (§9.5.1). Graceful,
+multi-layer no-op (never blocks) when `transformers`/`torch` or the model
+artifact are unavailable, or no audio is given — matches every other
+optional acoustic component in this codebase.
+
+**A real engineering bug was found and fixed during integration, before
+any benchmark was trusted**: the gate's decision was initially computed
+unconditionally for every adjacent token pair (`i > 0`), not only when a
+repetition candidate actually existed — meaning it would have attempted
+the real, ~30-90s encoder load for *every* clip touching this code path,
+regardless of whether a `word_repetition`/`sound_repetition` candidate
+was present. Caught immediately by the existing fast unit-test suite
+hanging (a token pair like "go"/"now", no repetition at all, triggering a
+real model-load attempt) — fixed by deferring the gate's evaluation to
+only the branches where a candidate was already found, confirmed by
+re-running the full suite (fast again, 66/66). A second, smaller bug was
+also caught the same way: `confirms_repetition()` originally returned a
+numpy `bool_`, not a Python `bool` — harmless for the `if`/`and` logic
+that actually uses it, but a latent risk for anything downstream doing an
+`is True`/`is False` check or JSON-serializing an event dict (`json.dumps`
+fails on numpy scalar types by default). Both fixed before any real
+benchmark ran, not after.
+
+**Verified directly on real audio, not just via cross-validated numbers**:
+a genuine ground-truth `word_repetition` (clip `103-1240-0000`, index 4)
+still fires with the gate on (63.5s, confirming the real encoder pass
+runs) and is unaffected with the gate off (0.7s); a genuine false-positive
+`word_repetition` (clip `103-1240-0018`, index 13, not matching ground
+truth) is correctly suppressed with the gate on and fires with it off,
+with every other event in that clip unaffected. Direct, small-scale
+confirmation that the integration behaves as designed before trusting the
+larger, statistical benchmark below.
+
+### 13.1 Integrated detector benchmark — honest, cross-validated, no new encoder run
+
+Naively applying the final shipped model (trained on all 250 clips) back
+to that same data would give an optimistic, in-sample result, not what a
+real user would see. Instead, `profiling/evaluation/
+benchmark_integrated_gate.py` reconstructs each event's *out-of-fold*
+prediction from the same 5-fold, clip-split outer CV split §12.6 already
+used — every prediction comes from a fold that never trained on that
+event — summed into a real, honest confusion matrix. No new encoder run
+needed; this is pure analysis over `stage1_raw_embeddings_250clip.npz`.
+
+| Type | Gate OFF TP/FP | Gate ON TP/FP/FN(new) | Precision (off→on) | Recall (off→on) | F1 (off→on) |
+|---|---|---|---|---|---|
+| `word_repetition` | 89/205 | 74/22/15 | 0.303 -> **0.771** | 1.000 -> 0.831 | 0.465 -> **0.800** |
+| `sound_repetition` | 90/4 | 87/0/3 | 0.957 -> 1.000 | 1.000 -> 0.967 | 0.978 -> 0.983 |
+| **Any (both types)** | **179/209** | **161/22/18** | **0.461 -> 0.880** | 1.000 -> 0.899 | **0.631 -> 0.890** |
+
+Full output: `eval_datasets/_benchmark_integrated_gate_output.txt`.
+
+**A large, real, decisive improvement — the same shape as every other
+audio-native corroboration change this project has shipped** (Praat-
+gating for `prolongation`, §9.5.1; the original audio-native
+restructuring, §8.3): a large precision gain at a real, non-trivial
+recall cost. `word_repetition`'s false positives drop from 205 to 22 (an
+89% reduction) at the cost of 15 of 89 true positives (a 17% recall
+loss); combined, `Any`'s F1 improves 0.631 -> 0.890, +0.259 — a larger
+single-change F1 improvement than any other individual change this
+project has measured and shipped this phase.
+
+**Honest framing of what "Gate OFF" recall = 1.000 means here**: by
+construction, every event in this dataset came from the gate-off
+detector's own candidate list (§12.2), so gate-off recall is trivially
+1.0 on this specific measure — this is not claiming the gate-off detector
+has perfect real-world recall for these types (it doesn't; the token-path
+exact-match check itself has known misses, e.g. ASR-corrupted repeats,
+documented in §8.4.4). This table isolates specifically the gate's own
+effect on the candidates the existing detector already produces, not a
+full recall analysis against all ground truth.
+
+### 13.2 Known limitation: live-app latency, not resolved by this decision
+
+Stated plainly, not glossed over: enabling this gate in the live app adds
+a real, second CrisperWhisper encoder pass (~30-90s, `profiling/
+encoder_embedding.py`) on top of the existing ASR transcription cost,
+because `profiling/asr.py` calls CrisperWhisper through `transformers.
+pipeline()`, which never exposes encoder hidden states — this module
+bypasses that wrapper with its own, separate call. `PHASE_3_
+ARCHITECTURE_REVIEW.md` §5.1 originally assumed this would be "zero added
+latency" by reusing the same forward pass already made for transcription;
+building the real integration revealed that assumption doesn't hold
+as-is with this project's current ASR call structure. The lazy design
+(§13's `RepetitionClassifierContext`) means this cost is only paid on
+clips that actually contain a `word_repetition`/`sound_repetition`
+candidate, not every clip — but for those clips, the cost is real and
+user-facing. **Follow-on engineering work, not attempted here**:
+restructure `asr.py`'s core transcription call to capture encoder hidden
+states during the same forward pass it already makes (would require
+touching a delicate, multiply-patched call with several documented bug
+workarounds — a real, separately-scoped risk, not undertaken in the same
+session as the classifier's own validation). See `ARCHITECTURE.md`'s
+known-limitations section and `ROADMAP.md` for this as a named follow-up.

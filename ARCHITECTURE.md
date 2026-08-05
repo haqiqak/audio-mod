@@ -382,6 +382,55 @@ separate functions with separate config keys
 (`acoustic.use_praat` vs. `require_praat_stability_for_prolongation`),
 and both are true simultaneously in the current default config.
 
+### 4b. profiling/repetition_classifier.py — a trained classifier gate for word_repetition/sound_repetition (2026-08-05)
+
+**This project's first internally-trained, shipped model artifact** —
+every other pretrained component here (CrisperWhisper, Silero VAD) is
+used zero-shot; this one was trained on this project's own labeled data
+(`profiling/evaluation/train_repetition_classifier.py`, 250 real
+LibriStutter clips, 388 events) and the resulting weights are committed
+to the repo (`models/repetition_corroboration_classifier.npz`, ~17KB —
+distinct from the huge pretrained CrisperWhisper weights under `.cache/`,
+which are gitignored). Decided by evidence, not by default preference for
+either simplicity or sophistication, per `CLAUDE.md` standing rule 8 —
+full reasoning: `PHASE_3_ARCHITECTURE_REVIEW.md` §9,
+`VALIDATION.md` §12/§13.
+
+**What it does**: `word_repetition`/`sound_repetition` are the two types
+still almost entirely token-text-dependent (`block`/`prolongation` are
+already audio-native, §4a above). The token-path check can tell that two
+adjacent words are textually identical, but not whether that's a genuine
+disfluent re-attempt or a coincidental, grammatically ordinary repeat
+("that that...") — the transcript is identical either way. A small
+logistic-regression classifier over CrisperWhisper's own last-layer
+encoder embedding (`profiling/encoder_embedding.py` — bypasses `asr.py`'s
+`pipeline()` wrapper, which never exposes hidden states, for a direct,
+encoder-only model call) was found, via a pre-registered, cross-validated
+comparison, to separate genuine from coincidental repeats with a large,
+stable effect size (`VALIDATION.md` §12.6.2: Cohen's d > 1.0, 5/5 folds,
+non-overlapping ranges vs. a zero-training threshold on the same
+embedding). Applied as a hard gate — `require_repetition_classifier_
+confirmation` (default `true`) — the same architectural role Praat-gating
+plays for `prolongation` just above.
+
+**Lazy and graceful, like every other optional acoustic component here**:
+`RepetitionClassifierContext` defers the actual encoder load to the first
+real query, not `__init__` — a clip with no repetition candidate at all
+never pays the load cost. Unavailable `transformers`/`torch`, a missing
+model file, or no audio all degrade to a no-op (the gate is skipped, the
+token-path event fires as it always did) rather than blocking or
+crashing. **Real cost when it does engage**: a second CrisperWhisper
+encoder pass, ~30-90s — see the known-limitations section below for why
+this isn't "free" the way VAD/Praat are, and what would fix that.
+
+**Integrated-detector benchmark** (honest, out-of-fold cross-validated,
+not an in-sample number — `VALIDATION.md` §13.1): `Any` (both types) F1
+0.631 → 0.890, driven by a large false-positive reduction (209 → 22,
+89%) at a real recall cost (179 → 161 TP, 10%) — the same
+precision-for-recall trade shape every other audio-native corroboration
+change in this project has made (Praat-gating for `prolongation`, the
+original audio-native restructuring itself).
+
 ### Threshold personalization (calibration.py integration)
 
 `detect_disfluencies(tokens, config=None, audio_bytes=None,
@@ -503,6 +552,21 @@ sensitivity below what an uncalibrated speaker gets.
   detector for it couldn't be validated the way every other type here can
   be — see `ROADMAP.md` for the specific, scoped follow-up (verify whether
   UCLASS's finer annotations change this) before this is built.
+- **The `word_repetition`/`sound_repetition` corroboration classifier
+  adds real, user-facing latency, not yet removed** (`profiling/
+  repetition_classifier.py`, `require_repetition_classifier_confirmation`,
+  default `true` — see the dedicated subsection above). Enabling it
+  requires a second CrisperWhisper encoder pass (~30-90s) distinct from
+  the one `asr.py` already runs for transcription, because `asr.py` calls
+  CrisperWhisper through `transformers.pipeline()`, which never exposes
+  encoder hidden states. `PHASE_3_ARCHITECTURE_REVIEW.md` §5.1 originally
+  assumed reusing the encoder would cost nothing extra; building the real
+  integration found that assumption doesn't hold with this project's
+  current ASR call structure. The gate is lazy (only clips with an actual
+  repetition candidate pay this cost), but for those clips the cost is
+  real. Fix would mean restructuring `asr.py`'s core transcription call
+  to capture encoder states during its existing forward pass — not
+  attempted, a real, separately-scoped follow-up (`ROADMAP.md`).
 
 ---
 
@@ -730,6 +794,16 @@ untried option.
 **To tune detection:** edit `config.yaml` — no code changes needed for
 threshold tuning. To change detection *logic* (new event types, different
 repetition heuristics), edit `profiling/detect.py`.
+
+**To change the repetition-classifier gate**: the gate mechanism itself
+is `profiling/repetition_classifier.py`; the shared encoder-extraction
+primitives it depends on are `profiling/encoder_embedding.py`; the
+trained weights are `models/repetition_corroboration_classifier.npz`.
+Retraining on new data means re-running `profiling/evaluation/
+train_repetition_classifier.py` against a fresh `collect_raw_encoder_
+data.py` collection — there is no automated retraining trigger, and
+this project has no established process yet for deciding *when* a
+retrain is warranted (§4b, `VALIDATION.md` §13).
 
 **To change the difficulty model:** edit `profiling/profile.py`. EWMA update
 is in `update()`, the difficulty formula is in `factors_for_word()`, cold-
