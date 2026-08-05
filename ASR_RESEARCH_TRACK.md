@@ -166,7 +166,7 @@ from it.
   the reference itself was cleaned. The metric and the training data
   reinforce the same bias together.
 - **Decoding itself smooths toward fluency.** Beam search combined with
-  an implicit or explic't language-model prior favors higher-probability,
+  an implicit or explicit language-model prior favors higher-probability,
   well-formed sequences — a disfluent, low-probability fragment sequence
   is exactly what such decoding is built to suppress in favor of the
   fluent alternative it's "supposed to" represent.
@@ -1064,3 +1064,225 @@ project on cheaper alternatives:
   validated before they're trusted — not gatekept behind "nobody's shown
   this works yet." `CLAUDE.md` rule 8 (evidence-constrained, not
   preservation-constrained) governs every decision this track produces.
+
+---
+
+## End-of-session handoff — 2026-08-05 close
+
+**Read this section first if you are picking up cold.** It is written so
+a new session can act on it directly — "continue from the end-of-session
+handoff" — without re-deriving anything above.
+
+### What was completed today (full session, not just this track)
+
+1. Re-ran the shipped repetition-classifier gate against real ASR output
+   for the first time (`ROADMAP.md` item 19, `VALIDATION.md` §14/§14.1).
+   Mechanism confirmed safe; real-world impact found negligible because
+   real ASR starves both gated types of candidates.
+2. Opened this research track from that finding: reframed core question,
+   a formal problem statement, a real 13-source literature review, six
+   architectural directions explored without commitment, five research
+   questions, and a phased, evidence-gated plan (Stages A-E).
+3. **Stage A** (done): systematically categorized all 186 disfluent
+   ground-truth positions in the 120-clip Track B sample. Found ~53% of
+   `sound_repetition`/`word_repetition` losses happen even at
+   correctly-transcribed positions, via two distinct mechanisms (fragment
+   loss vs. pair-breaking).
+4. Pushed `main` and `asr-research` to GitHub, verified in sync by direct
+   hash comparison (not just trusting command output).
+5. Wrote an explicit Interpretation section before Stage C: named the
+   real remaining uncertainty (aggregate effect vs. instance-level
+   actionability vs. confound), three competing hypotheses (H1/H2/H3),
+   and the concrete design consequence (a duration-only baseline arm)
+   that shaped Stage C's actual protocol.
+6. **Stage B** (done): encoder representation-level probe. `sound_
+   repetition` positive (Cohen's d=0.894); `word_repetition` inconclusive
+   (d=0.428). One real identification bug caught and fixed before
+   trusting the numbers.
+7. **Stage C** (done): encoder-distance arm vs. a duration-only baseline
+   arm, scoped to `sound_repetition`. H1 (duration confound) refuted; H2
+   (genuine signature) supported; H3 (real but not yet instance-
+   actionable) also supported, simultaneously. Three real bugs caught and
+   fixed via the script's own safety-check assertions before trusting any
+   number, including a corrected pre-registered assumption (duration
+   direction).
+8. This final pass: a full documentation/consistency audit (this
+   section, plus edits to `CLAUDE.md`, `ARCHITECTURE.md`, `README.md`,
+   `HANDOFF.md`, `DOCS.md`, `VALIDATION.md`'s status header) to make sure
+   the objective hierarchy (user audio → ASR is one subsystem → transcript
+   is one evidence source, not ground truth → representations are
+   complementary, evidence-gated) is stated consistently, and that every
+   major doc accurately reflects today's conclusions, not just the state
+   at the start of the day.
+
+Every stage was pre-registered before running, every result — positive,
+negative, mixed, or inconclusive — was reported as measured, and every
+bug found was caught by a safety check built into the work itself, not
+discovered later by accident.
+
+### Current research state and the strongest conclusions the evidence actually supports
+
+- **Real ASR normalization is a real, measured, two-mechanism phenomenon
+  for `sound_repetition`/`word_repetition`**, not a hypothesis anymore —
+  Stage A traced it precisely (fragment loss; pair-breaking, 22/23 hand-
+  checked cases).
+- **CrisperWhisper's encoder retains genuine, duration-independent
+  disfluency signal for `sound_repetition`** even where decoded text
+  shows nothing — the strongest single conclusion from today's work, and
+  the confound named at the very start of Stage B has now been directly
+  refuted, not merely left unresolved.
+- **That signal alone is not yet precise enough to ship as a standalone
+  candidate generator** — the honest, load-bearing caveat on the
+  conclusion above. Real (AUC=0.723) is not the same claim as usable
+  alone (4.7% precision at 52.6% recall).
+- **`word_repetition` is a genuinely separate, still-open question** —
+  do not assume the `sound_repetition` conclusion transfers to it.
+- **No production code has changed.** `main` reflects only the Track B
+  validation of the already-shipped classifier (item 19); the entire
+  research-track arc (Stages A-C) lives on `asr-research` and has not
+  been merged, by design.
+
+### Remaining uncertainties and open research questions
+
+- Whether a fusion-style combination of the encoder signal with other
+  evidence (Stage A's mis-routing lead, acoustic features) actually
+  closes Stage C's precision gap — a real, untested hypothesis.
+- `word_repetition`'s question, unresolved (inconclusive at n=17, not a
+  negative result).
+- Stage B/C's control-group non-independence (positions pooled across
+  clips, not fully i.i.d.) — named, not yet addressed; a more rigorous
+  clip-level analysis would strengthen any result built on top of this
+  one before it carries real architectural weight.
+- Whether this generalizes beyond CrisperWhisper/LibriStutter (`ROADMAP.md`
+  item 10 — unaddressed by anything done today).
+- RQ3 (is the loss ASR-general or CrisperWhisper-specific) and RQ4 (the
+  not-yet-deep-read arXiv:2512.02027) — both still open, listed in §7,
+  neither touched this session.
+- Whether Stage A's incidentally-found triple-repeat detector bug
+  (`ROADMAP.md` item 21) is an isolated case or a broader pattern — not
+  investigated, flagged for `main`, independent of this track.
+
+### The exact proposed next stage
+
+**A fusion-style revision of the Stage C candidate mechanism for
+`sound_repetition`** — not Stage D (fine-tuning), because Stage D's own
+pre-registered gate (§9) requires richer-representation approaches to
+have *failed*, and today's evidence shows the opposite: the confound is
+refuted and the signal is genuine, just not sufficient alone. Concretely,
+this means combining the encoder-distance signal with at least one other
+already-available source of evidence — the clearest first candidate is
+Stage A's own "mis-routed" finding (§8, category 2: ~10% of true
+`sound_repetition` instances already surface as a `block`/`filler`/
+`phrase_repetition` prediction from existing detectors) — rather than
+relying on the encoder-distance signal as a sole decision-maker.
+
+**Why this logically follows, not just "what's left on the list"**: it
+is the cheapest next step consistent with everything measured today. It
+does not require new data collection, new model training, or GPU access
+— the two ingredients (encoder distances, existing detector outputs) both
+already exist. It directly targets Stage C's own diagnosed weakness
+(insufficient precision from a single signal under realistic class
+imbalance) rather than re-testing something already resolved (H1) or
+escalating past evidence that doesn't yet justify it (Stage D).
+
+**What hypotheses it is intended to test**:
+- **H-fusion-positive**: combining the encoder-distance signal with the
+  mis-routing signal (and/or other acoustic evidence) measurably improves
+  precision at a useful recall over the encoder-distance-only arm from
+  Stage C, without requiring a trained classifier (a rule-based or simple
+  weighted combination, matching this project's existing fusion
+  precedent, `ARCHITECTURE.md` §4).
+- **H-fusion-insufficient**: combining available signals still does not
+  reach a precision/recall operating point worth shipping — a genuine,
+  reportable negative result that would sharpen §9's evidence-threshold
+  question (is a *trained* combination, i.e. escalating within Stage C
+  rather than to Stage D, now justified by having tried the cheaper
+  rule-based version first).
+
+### Detailed plan for the next working session
+
+Execute in this order; each step is a prerequisite for the next being
+trustworthy, matching every other stage's own discipline this session:
+
+1. **Pre-register the fusion protocol** (before any code): exact signals
+   to combine (encoder-distance + Stage A's mis-routing predictions, at
+   minimum), exact combination rule proposed (start with the simplest —
+   OR-combine or a weighted sum — before considering a trained
+   combination), exact evaluation population (extend beyond the 19/966
+   Stage C used if feasible at reasonable cost — check first, per Stage
+   B's own "cost, scoped before running" precedent), and success
+   criteria fixed in advance (a concrete precision-at-recall bar that
+   would justify shipping, and what would count as H-fusion-insufficient).
+   **Deliverable**: a pre-registered protocol section appended to this
+   document's §8, dated, before any implementation.
+2. **Implement and run**, reusing existing infrastructure
+   (`profiling/encoder_embedding.py`, Stage A's categorization logic,
+   `profiling/evaluation/`'s established script conventions) — new
+   research code only, still on `asr-research`, still not touching
+   `main` or `profiling/detect.py` directly.
+   **Deliverable**: a new `profiling/evaluation/stage_c_fusion_*.py`
+   script (or equivalent), with the same self-audit discipline every
+   prior stage's script used (known-answer sanity checks before trusting
+   real output; count/population reconciliation against prior stages'
+   saved data before pairing anything).
+3. **Report the result exactly as it came out** — positive, negative, or
+   mixed, per this session's own standing discipline — in a dated
+   results subsection, updating this handoff's "current research state"
+   accordingly.
+4. **Update `ROADMAP.md`, `PAPER_DECISION_LOG.md`, `CHANGELOG.md`** with
+   the same granularity every stage this session received.
+5. **Decide the next branch action** based on the result: if
+   H-fusion-positive and the improvement is real and non-trivial per the
+   pre-registered bar, that's the evidence Stage C's own original
+   decision gate asked for ("benchmark against Track A and Track B...
+   proceed to shipping only if the Track B improvement is real and
+   non-trivial") — the next step becomes preparing this for a `main`
+   merge, which is its own deliberate decision, not automatic. If
+   H-fusion-insufficient, the next step is deciding between: (a) trying a
+   trained (not just rule-based) combination before concluding richer
+   representations are exhausted for `sound_repetition`, or (b) formally
+   costing out Stage D per §9's three-part test, now that two of its
+   three conditions have real evidence behind them.
+
+**Success criteria for the next session overall**: a pre-registered
+fusion protocol exists, a real result (any direction) is measured and
+reported with the same rigor as every stage this session, and a
+concrete, evidence-grounded decision about what comes after it is made
+and recorded — not left as an open question a third time.
+
+**Stopping conditions** (when to end that session, matching this one's
+own pattern): once the fusion result is measured, documented across all
+the standard files, committed and pushed to `asr-research`, and this
+handoff section is updated to reflect the new state — do not
+automatically continue into Stage D or a `main` merge in the same
+session without an explicit go-ahead, per standing rule 6 and this
+project's consistent pattern of pausing at exactly these decision points
+today.
+
+### Recommendations, risks, and decisions deserving attention before further implementation
+
+- **Do not merge anything from `asr-research` to `main` without an
+  explicit decision to do so.** Nothing here has cleared this project's
+  own bar for a production change yet (Stage C's own limitation section
+  says so directly — in-sample, exploratory, not a validated deployment
+  estimate).
+- **The control-group independence caveat (Stage B/C) is worth resolving
+  before this result is cited in anything higher-stakes** (a paper draft,
+  a architecture decision write-up) — cheap to address (a clip-level
+  bootstrap) relative to the risk of overstating confidence in the
+  effect size.
+- **Do not let the fusion step quietly turn into Stage D.** If the first,
+  cheap rule-based fusion attempt looks disappointing, the temptation
+  will be to jump straight to a trained combination or to fine-tuning —
+  resist that without re-checking §9's three-part test explicitly; a
+  disappointing cheap result is itself informative and should be reported
+  as such before escalating cost.
+- **`word_repetition` should not be forgotten** — it's easy for a project
+  to quietly narrow to "the type that worked." If a larger real-ASR
+  sample ever becomes available (ties to `ROADMAP.md` items 10/14-16),
+  re-running Stage B for `word_repetition` at higher n is a cheap,
+  valuable use of it.
+- **Item 21** (the triple-repeat detector bug) is small, `main`-side, and
+  unrelated to this track — a reasonable thing to fix in a spare moment
+  on `main` without waiting for this track to reach any particular
+  milestone first.

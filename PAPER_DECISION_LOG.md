@@ -4935,3 +4935,87 @@ assumption, and the recommended next step). `ROADMAP.md` updated with
 the outcome. `eval_results/20260805T215037_stage_c_duration_baseline.json`
 (raw scores, saved). No production code changed. On the `asr-research`
 branch only — `main` untouched.
+
+---
+
+## 2026-08-05 — End-of-session documentation, consistency, and handoff pass
+
+**What was done**
+Per the project owner's explicit request to formally close today's
+session, performed a full documentation/consistency audit rather than
+starting a new experimental stage:
+
+1. **Objective hierarchy stated explicitly and consistently.** Added a
+   new section to `CLAUDE.md` ("The objective, stated precisely") stating
+   the project's long-term objective is not to optimize Whisper, preserve
+   the existing architecture, maximize transcript quality, or pursue any
+   component for its own sake — it is the most accurate, explainable,
+   scientifically grounded speech-disfluency detector possible from the
+   user's audio — and the five-point evidence hierarchy that follows from
+   it (audio is fundamental; ASR is one subsystem; the transcript is one
+   evidence source, not ground truth; encoder/acoustic/confidence signals
+   are complementary, evidence-gated; architecture stays evidence-driven
+   in both directions). Reinforced consistently, not just declared once:
+   `ARCHITECTURE.md` §1's opening reframed to lead with the detection
+   objective (transcription explicitly named as scaffolding, not the
+   deliverable); `README.md`'s opening paragraph corrected the same way
+   for a general reader.
+2. **Internal consistency audit of `ASR_RESEARCH_TRACK.md`** (the
+   heaviest-edited file this session): fresh full read start to finish;
+   found and fixed one typo and confirmed no other structural
+   inconsistencies from today's many sequential edits.
+3. **Staleness audit and correction across every major doc**: `CLAUDE.md`
+   and `HANDOFF.md` both still described the ASR research track as "not
+   yet implemented" / "charter document... nothing implemented yet" —
+   stale as of Stage C's completion earlier today. Corrected in both,
+   plus `HANDOFF.md` §4's "what's proven" list extended with today's two
+   strongest new findings (the traced normalization mechanism; the
+   genuine-but-not-yet-actionable encoder signal), `DOCS.md`'s file-map
+   entry updated, and a new dated status paragraph added to
+   `VALIDATION.md`'s top (append-style, prior paragraphs kept per that
+   file's own convention) pointing to `ASR_RESEARCH_TRACK.md` for work
+   that doesn't belong in `VALIDATION.md` itself.
+4. **Formal end-of-session handoff written into `ASR_RESEARCH_TRACK.md`**
+   (new section, end of file): a summary of the full day (not just this
+   track), the strongest evidence-backed conclusions, named remaining
+   uncertainties, the exact proposed next stage (a fusion-style
+   combination, not fine-tuning) with the specific hypotheses it would
+   test, a fully-ordered next-session plan (deliverables, success
+   criteria, stopping conditions) written so a future session can act on
+   it directly without re-planning, and explicit recommendations/risks
+   (do not merge to `main` without a deliberate decision; do not let a
+   disappointing fusion result cause a silent jump to Stage D; the
+   control-group independence caveat should be resolved before this
+   result is cited anywhere higher-stakes; `word_repetition` should not
+   be quietly dropped).
+
+**Alternatives considered**
+- Begin the fusion-style Stage C revision (the evidence-justified next
+  step) in this same session, since the reasoning for it was already
+  clear. **Rejected**, per the owner's explicit instruction: "do not
+  begin the next experimental stage... simply for the sake of progress."
+  Scoped fully in the handoff instead, for a deliberate next start.
+- Leave the objective-hierarchy statement implicit (it was already
+  present in scattered form — `CLAUDE.md`'s original "scaffolding, not
+  the end product" line, `HANDOFF.md` §1's "not trusting the ASR
+  transcript as ground truth"). **Rejected**: the owner asked for it
+  stated *consistently*, not just present somewhere — scattered implicit
+  alignment is exactly the kind of thing a full audit is supposed to
+  catch and make explicit rather than assume is already sufficient.
+
+**Why this choice**
+Directly executes the requested close: a repository another researcher
+(or Claude instance) could pick up cold, understand the evidence and the
+reasoning without reconstruction, and continue from an unambiguous next
+step — the same standard this project has held every individual result
+to today, applied once more at the level of the whole session.
+
+**Measured result**
+Not a numeric result — a documentation/consistency pass. Files touched:
+`CLAUDE.md`, `ARCHITECTURE.md`, `README.md`, `HANDOFF.md`, `DOCS.md`,
+`VALIDATION.md`, `ASR_RESEARCH_TRACK.md` (typo fix + new end-of-session
+handoff section), `ROADMAP.md` (via `CHANGELOG.md` pointer only, no
+further change needed there). No code changes. Full test suite
+unaffected (documentation-only). Repository confirmed ready for the
+owner's own `git push` of both branches, per their explicit request not
+to push in this session.

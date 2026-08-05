@@ -8,6 +8,21 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-05 (asr-research branch)
 
+- **End-of-session documentation, consistency, and handoff pass.**
+  Stated the project's objective hierarchy explicitly and consistently
+  (`CLAUDE.md` new section; reinforced in `ARCHITECTURE.md`/`README.md`'s
+  openings): audio is fundamental, ASR is one subsystem, the transcript
+  is one evidence source not ground truth, representations are
+  complementary and evidence-gated. Full staleness audit across
+  `CLAUDE.md`/`HANDOFF.md`/`DOCS.md`/`VALIDATION.md` — corrected several
+  "not yet implemented" statements left over from before Stage C
+  completed. Wrote a formal end-of-session handoff into `ASR_RESEARCH_
+  TRACK.md` (full-day summary, strongest conclusions, open questions, the
+  exact proposed next stage and its hypotheses, an ordered next-session
+  plan with success/stopping criteria, and explicit risks/recommendations)
+  so a future session can continue without re-planning. No new experiment
+  started, per explicit instruction. → *PAPER_DECISION_LOG.md, "End-of-
+  session documentation, consistency, and handoff pass"*.
 - **Stage C done: H1 (duration confound) refuted, H2 (genuine signature)
   supported, H3 (real but not instance-actionable) also supported.**
   Encoder-distance arm AUC=0.723 (clears chance decisively); duration-

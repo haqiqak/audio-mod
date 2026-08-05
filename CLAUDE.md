@@ -16,6 +16,43 @@ transcription. Transcription (CrisperWhisper ASR) is scaffolding for that
 goal, not the end product. See `README.md` for what it does; `ARCHITECTURE.md`
 for how the code implements it today.
 
+## The objective, stated precisely — read this before proposing anything architectural
+
+This project's long-term objective is **not** to optimize Whisper,
+preserve the existing architecture, maximize transcript quality, or
+pursue any individual component for its own sake. The objective is to
+build **the most accurate, explainable, scientifically grounded
+speech-disfluency detector possible, using only the user's audio**.
+Every subsystem — CrisperWhisper ASR, transcripts, encoder embeddings,
+acoustic evidence, classifiers, confidence signals, and any future
+representation — exists only to serve that objective, and none of them
+*is* the objective. Keep this hierarchy in view whenever a change touches
+the ASR/detector boundary:
+
+1. **User audio is the fundamental source of information.** Everything
+   else in this pipeline is a derived representation of it.
+2. **ASR is one subsystem within the detection pipeline, not the project
+   itself.** CrisperWhisper was chosen because it was the best-evidenced
+   option for producing word-aligned, disfluency-preserving transcripts —
+   a decision that stays open to revision the same way any other does.
+3. **The transcript is one evidence source, not ground truth.** Treating
+   decoded ASR text as if it faithfully represented what the speaker
+   produced is exactly the assumption `ASR_RESEARCH_TRACK.md` found
+   real ASR output violates for at least two disfluency types — do not
+   silently re-adopt it elsewhere.
+4. **Encoder representations, acoustic features, confidence signals, and
+   any future representations are complementary evidence sources**,
+   incorporated only when evidence supports that they help — never
+   assumed to help by default, and never dismissed by default either.
+5. **Architectural decisions remain evidence-driven, not
+   preservation-driven** (this is standing rule 8 below, restated at the
+   objective level, not just the implementation level). If future
+   research shows another ASR, another representation, or another
+   processing strategy objectively improves the final detector, adopt
+   it. If an idea fails validation, reject it — regardless of how
+   attractive it seemed going in. Neither direction gets a thumb on the
+   scale.
+
 ## Where the project is right now
 
 **Both Phase 1 (Validation, Benchmarking, Analysis) and Phase 2
@@ -51,18 +88,27 @@ it's very likely already there with reasoning, and a change of plan
 should update it, not silently diverge from it.
 
 **A new, separate research track opened 2026-08-05: `ASR_RESEARCH_
-TRACK.md`.** Track B validation (`VALIDATION.md` §14/§14.1) found real
+TRACK.md`, on its own `asr-research` branch (kept separate so `main`
+stays stable and shippable — nothing from this track has merged to
+`main`).** Track B validation (`VALIDATION.md` §14/§14.1) found real
 ASR output essentially never produces the literal sub-word fragment
 tokens `sound_repetition` detection depends on — even at positions
 transcribed correctly — evidence that the ASR stage's own output
 representation may be discarding information this project's downstream
-objective needs, independent of any detector-side fix. This is being
-investigated as its own research track, on a dedicated `asr-research`
-branch, kept separate from `main` so the shipped state stays stable.
-**Read `ASR_RESEARCH_TRACK.md` before proposing anything about ASR
-representation richness, fine-tuning, or decoding changes** — it defines
-the problem, reviews the literature, and lays out a phased,
-evidence-gated plan; nothing there is implemented yet.
+objective needs, independent of any detector-side fix. **Stages A, B,
+and C are done** (systematic information-loss audit; an encoder
+representation-level probe finding a real, duration-confound-refuted
+signal for `sound_repetition`, Cohen's d=0.894/AUC=0.723; and a
+duration-baseline comparison confirming that signal is genuine but not
+yet precise enough to ship standalone) — real experiments, real bugs
+caught and fixed, real (sometimes mixed or inconclusive) results, all on
+the `asr-research` branch. **No production code has changed as a result
+— this is evidence-gathering, not yet a shipped decision.** The
+evidence-justified next step (a fusion-style revision, not fine-tuning)
+is scoped but not started. **Read `ASR_RESEARCH_TRACK.md` before
+proposing anything about ASR representation richness, fine-tuning, or
+decoding changes** — read its end-of-session handoff section first for
+exactly where this stands and what comes next.
 
 ## Standing rules for working in this repo
 

@@ -1,6 +1,24 @@
 # VALIDATION.md — evaluation methodology, datasets, and results
 
-**Status as of 2026-08-05: Phase 3's first shipped result.** Since the
+**Status as of 2026-08-05 (later the same day): the shipped result
+(below) re-validated against real ASR, and a separate research track
+opened from what that found.** §14/§14.1 re-ran the shipped repetition-
+classifier gate for the first time against real ASR output rather than
+the ground-truth-transcript tokens every number in the paragraph below
+was measured on: the gate's own mechanism transferred safely, but its
+real-world impact was negligible, because real ASR produces almost no
+`word_repetition`/`sound_repetition` candidates to gate in the first
+place. That finding — evidence the ASR stage itself, not the detector,
+may be the ceiling for these two types — was judged a bigger-than-one-
+finding checkpoint and opened its own research track, worked on its own
+`asr-research` branch (`main` untouched): see `ASR_RESEARCH_TRACK.md`
+for that track's full methodology and results (Stages A-C, all done as
+of this session's close) — not duplicated in this file, since it
+investigates the ASR stage's representation, not this project's existing
+detector-evaluation methodology.
+
+**Status as of 2026-08-05 (morning): Phase 3's first shipped result.**
+Since the
 Phase 2 close described below, a first-principles architecture review
 (`PHASE_3_ARCHITECTURE_REVIEW.md`) kept the ASR-first two-stage
 architecture and identified one scoped extension, carried through to a
