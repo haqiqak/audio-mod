@@ -4700,3 +4700,103 @@ the summary; new item 21 (the triple-repeat detector bug, for `main`,
 independent of this track). This entry. No code changes; no test suite
 impact (analysis-only, run against already-cached data, on the
 `asr-research` branch — none of this affects `main`).
+
+---
+
+## 2026-08-05 — Stage B (representation-level probe) done: mixed result, reported as such
+
+**What was done**
+Executed Stage B of `ASR_RESEARCH_TRACK.md` §8 (answers RQ2), per the
+project owner's explicit framing: "a hypothesis test, not an
+implementation task... a positive result, a negative result, or an
+inconclusive result are all acceptable outcomes." The exact protocol was
+pre-registered in `ASR_RESEARCH_TRACK.md` (target population, per-clip
+fluent centroid with leave-one-out controls, Cohen's d success criteria
+fixed at d>=0.5/positive, |d|<0.2/negative, matching Stage 1's own bar)
+*before* `profiling/evaluation/stage_b_representation_probe.py` was
+written or run.
+
+Built the extraction script reusing Stage 1's encoder primitives
+unmodified (`profiling/encoder_embedding.py`'s `extract_last_layer_
+states`/`pool_span`/`cosine_distance`), with a new span-selection layer
+for Track B's real ASR hyp-token boundaries (Stage 1 only ever used
+Track A's ground-truth token boundaries). Two real bugs caught and fixed
+before trusting any result, both by reconciling new numbers against
+already-trusted ones rather than accepting a plausible-looking output:
+
+1. **Target-identification used `audio_bytes=None`** to avoid triggering
+   the classifier gate without touching `config.yaml` — but this also
+   silently disabled the acoustic-native detectors (`block`,
+   `prolongation`), which could misclassify a Stage-A category-2 case
+   ("mis-routed to `block`") as category-1 ("no candidate at all") purely
+   because the detector that would have caught it was turned off too.
+   Caught because the first pass found 19/18 (`sound_repetition`/`word_
+   repetition`) targets against Stage A's already-known 19/17 — a
+   1-count mismatch, investigated rather than accepted as "close enough."
+   Fixed by passing real `audio_bytes` and forcing the classifier gate
+   off via `detect_disfluencies`'s own supported per-call `config`
+   override (never touching `config.yaml` on disk) — re-verified an
+   exact 19/17 match, across 31 distinct clips, before spending any
+   encoder time.
+2. Left-over dead code from an earlier draft of the audio-loading logic
+   (an unreachable `if False` branch) was caught and removed during
+   review before the script was run for real, not left in as harmless
+   clutter.
+
+Ran the real encoder pass: 31 clips, 1026s (~17 min) total, ~33s/clip —
+consistent with this project's previously-measured range, and lower cost
+than the pre-registration's conservative 38-clip estimate (which
+included category-2 cases before the bug above was found and corrected).
+
+**Result**: `sound_repetition` — positive, Cohen's d=0.894 (n=19 target,
+n=966 control), clearing the pre-registered d>=0.5 bar and close in
+magnitude to Stage 1's own original effect (d≈1.05) despite testing a
+completely different population and comparison. `word_repetition` —
+inconclusive, d=0.428 (n=17 target), falling between the pre-registered
+thresholds — direction positive, not established with confidence at this
+n, exactly the outcome the pre-registration flagged as plausible in
+advance given that type's more indirect test design (probing the
+*surviving* word's representation for a trace of a *deleted* partner,
+not a direct in-place fragment test).
+
+**Alternatives considered**
+- Treat `word_repetition`'s positive-but-sub-threshold result as a soft
+  confirmation since the direction agreed with `sound_repetition`.
+  **Rejected**: the pre-registration fixed the threshold before seeing
+  any data specifically to prevent this kind of after-the-fact
+  softening; reported as inconclusive, exactly as pre-registered.
+- Extend Stage C to both types on the strength of `sound_repetition`'s
+  result alone. **Rejected**: the pre-registration evaluates each type
+  against its own evidence; `sound_repetition` clearing the bar says
+  nothing about `word_repetition`, which is why they were pre-registered
+  and analyzed separately rather than pooled into one number from the
+  start.
+- Treat the confound (token-duration/word-identity, named in the
+  pre-registration before running) as resolved because the result came
+  out positive. **Rejected** — restated explicitly in the results
+  write-up as an open, unresolved limitation, plus one further
+  statistical caveat (control-group non-independence across positions
+  from the same clip) found only while interpreting the actual numbers,
+  disclosed even though it doesn't change either result's direction.
+
+**Why this choice**
+Directly executes Stage B exactly as pre-registered, applies the same
+audit-before-trusting discipline to this session's own new tooling that
+the project applies everywhere else (the 19-vs-18 count mismatch would
+have silently biased every downstream number if accepted rather than
+investigated), and reports a genuinely mixed result as a mixed result —
+per the owner's own explicit framing, an inconclusive or negative outcome
+here would have been exactly as valuable and exactly as reportable as the
+positive one that came out for `sound_repetition`.
+
+**Measured result**
+`profiling/evaluation/stage_b_representation_probe.py` (new, research
+code only — not imported by the live app). `ASR_RESEARCH_TRACK.md` §8
+(Stage B results section: table, per-criterion verdicts, limitations,
+and what this resolves for the decision gate — proceed to Stage C scoped
+to `sound_repetition` only). `ROADMAP.md` updated with the outcome.
+`eval_results/20260805T211000_stage_b_representation_probe.json` (raw
+distances, saved). No production code changed; full test suite unaffected
+(new file has no test coverage yet — analysis script, not app code, same
+convention as other `profiling/evaluation/` scripts). On the
+`asr-research` branch only — `main` untouched.

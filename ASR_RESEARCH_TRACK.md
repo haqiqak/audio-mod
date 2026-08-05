@@ -529,6 +529,216 @@ direction (b/f) is the priority, and Stage C is next. If no — richer
 representations alone are insufficient for this gap, and the track moves
 toward evaluating (a)/(d)'s higher cost directly, skipping Stage C.
 
+### Stage B — pre-registered protocol (2026-08-05, written before running)
+
+**This is a hypothesis test, not a validation exercise for a foregone
+conclusion.** The question is neutral: does CrisperWhisper's encoder
+retain discriminative information at positions where transcript-level
+evidence has been normalized away, or doesn't it. A positive, negative,
+or inconclusive result are all acceptable, correctly-reported outcomes —
+none is being aimed for in advance.
+
+**Target population** (the cases under test): every Stage A category-1
+position — `sound_repetition`/`word_repetition` ground-truth instances
+where real ASR aligned the position "correct" (transcribed accurately)
+yet the token-based candidate generator produced no candidate at all.
+19 `sound_repetition` + 17 `word_repetition` = **36 target positions**,
+re-identified directly from the underlying alignment data (not the
+printed diagnostic text) for this stage, spanning **38 distinct clips**
+that need a real encoder pass (scoped and counted before running, not
+estimated).
+
+- For `sound_repetition`, the target span is the real ASR hyp-token that
+  absorbed the fragment (e.g. the "considered" token that stands in for
+  ground truth's "considered-"/"considered" pair) — testing whether that
+  token's acoustic duration/representation still differs from an
+  ordinary occurrence of the same word.
+- For `word_repetition`, the target span is the *second* (correctly
+  transcribed) occurrence's hyp-token — testing whether its
+  representation carries a residual trace of the deleted first
+  occurrence, a more indirect and more speculative test than the
+  `sound_repetition` case, flagged as such rather than treated with equal
+  confidence.
+
+**Metric, reusing Stage 1's exact primitives unmodified**
+(`profiling/encoder_embedding.py`'s `extract_last_layer_states`,
+`pool_span`, `cosine_distance` — the same functions, not reimplemented):
+cosine distance from each target position's mean-pooled last-layer
+encoder embedding to a **per-clip fluent centroid**, computed the same
+way Stage 1 defined it — the mean pooled embedding over every ref
+position in that clip that is *not* ground-truth-disfluent and aligns
+"correct" (so a trustworthy real-ASR hyp-token span exists for it).
+Unlike Stage 1 (which ran entirely on Track A's ground-truth token
+timestamps), every span and every centroid here is built from **real ASR
+hyp-token boundaries on real audio** — the same underlying waveform, but
+the actual timestamps and word boundaries a real user's transcription
+would produce, which is the entire point of testing this on Track B
+rather than re-reading Stage 1's original Track A result.
+
+**Control group, added specifically to avoid a circularity risk Stage 1
+didn't have to handle**: Stage 1 only ever compared disfluent (TP/FP)
+spans against a centroid built purely from clean spans, so a clean span
+never had its own distance-to-centroid measured. Stage B needs that
+comparison distribution to exist, so: for each clip with at least one
+target position, a **matched-size sample of held-out fluent positions**
+from the same clip has its distance to a **leave-one-out centroid**
+computed (recomputed excluding that one point, so a fluent point is never
+compared against a centroid partly built from itself). This control
+group's distances are what "genuinely fluent, real ASR, same clips"
+looks like — the target group is compared against this, not against an
+assumed baseline of zero.
+
+**Success criteria, fixed in advance**:
+- **Positive result**: target-group distances are measurably larger than
+  control-group distances, Cohen's d >= 0.5 (the same bar Stage 1 used,
+  `VALIDATION.md` §11.4) — reported separately for `sound_repetition`
+  and `word_repetition` (different mechanisms, per Stage A; not pooled
+  into one number that could hide one type working and the other not).
+  A positive result here means direction (b/f) — richer representations,
+  no fine-tuning — is this track's next priority (Stage C).
+- **Negative result**: no measurable difference, or `|d| < 0.2` — encoder
+  representations alone do not recover this signal at these positions;
+  the track moves toward pricing out (a)/(d) directly (Stage D), skipping
+  Stage C for this specific gap. This is reported as a real, useful
+  finding, not a setback — it would mean the normalization happens
+  upstream of where a frozen encoder can see it, which is itself
+  something no prior work reviewed in §5 has confirmed either way.
+- **Inconclusive**: anywhere between, or effect size not stable/trustable
+  given n — reported as exactly that, not rounded toward whichever answer
+  seems more interesting. Given n=19/17 target positions per type, this
+  is a real possibility to expect going in, not a failure of the
+  experiment design.
+
+**Named limitations, stated before results are known**:
+- Same duration/word-identity confound Stage 1 named and never fully
+  resolved (`VALIDATION.md` §11.6) — a token that absorbed a fragment is
+  very likely *longer* than an ordinary token of the same word, and
+  encoder representations are known to be duration-sensitive in ways not
+  cleanly separable from a "disfluency signature" at this sample size.
+  Reported as a real limitation of the conclusion, not solved by this
+  design.
+- `word_repetition`'s target is the more indirect of the two tests (the
+  representation of the *surviving* word standing in for evidence about
+  the *deleted* one) — a negative result there is less informative than
+  a negative result for `sound_repetition`, and is analyzed and reported
+  separately for exactly this reason.
+- Single dataset (LibriStutter), single ASR backend (CrisperWhisper),
+  same generalization caveat every result in this project carries until
+  `ROADMAP.md` item 10 is addressed.
+- n=36 target positions total, split across two types — explicitly a
+  small-sample regime; this stage is designed to produce a *direction*
+  with an honestly-stated confidence, not a number treated as final.
+
+**Cost, scoped before running**: 38 distinct clips need a real encoder
+pass at this project's own previously-measured ~30-90s/clip
+(`ARCHITECTURE.md` §3) — roughly 20-55 minutes, bounded and known before
+starting, not open-ended.
+
+### Stage B — Results (2026-08-05): a mixed, honestly-reported outcome —
+positive for `sound_repetition`, inconclusive for `word_repetition`
+
+**A bug caught before trusting the target-identification pass, exactly
+the kind of self-check this project applies to its own new tooling, not
+just production code**: the first implementation identified target
+positions using `audio_bytes=None` (to keep the classifier gate from
+running without needing to touch `config.yaml`). That also silently
+disabled every *acoustic-native* detector (`block`, `prolongation`),
+which meant a real Stage-A category-2 case ("mis-routed to `block`")
+could be miscounted as category-1 ("no candidate at all") purely because
+the acoustic detector that would have fired was turned off along with
+the classifier. Caught by reconciling the identification pass's counts
+against Stage A's already-trusted numbers before running the (expensive)
+encoder step: the first pass found 19 `sound_repetition` / 18 `word_
+repetition` targets against Stage A's known 19/17 — a 1-count mismatch,
+investigated rather than shrugged off. Fixed by passing real
+`audio_bytes` and forcing the classifier gate off via an explicit
+`config` override (`profiling/detect.py`'s own supported per-call
+override, never touching `config.yaml`) instead of removing audio
+entirely — re-verified it reproduces Stage A's exact 19/17 split across
+31 distinct clips before any encoder time was spent.
+
+**Real cost, as scoped**: 31 clips (fewer than the pre-registration's
+conservative 38-clip estimate, which included category-2 cases dropped
+once identification was corrected), 1026s (~17 min) total encoder time,
+~33s/clip — consistent with this project's previously-measured range.
+
+**Results, per the pre-registered metric (cosine distance to each clip's
+own leave-one-out-controlled fluent centroid)**:
+
+| Type | n (target) | target mean distance | n (control) | control mean distance | Cohen's d |
+|---|---|---|---|---|---|
+| `sound_repetition` | 19 | 0.545 | 966 | 0.466 | **0.894** |
+| `word_repetition` | 17 | 0.504 | 966 | 0.466 | 0.428 |
+
+(Control group is the same pooled 966-position fluent baseline for both
+rows — every clean, correctly-aligned position across the 31 clips, each
+scored against a centroid that excludes itself.)
+
+**Against the pre-registered success criteria, read exactly as
+written**:
+- **`sound_repetition`: positive.** Cohen's d = 0.894 clears the
+  pre-registered d >= 0.5 bar clearly, and is close in magnitude to
+  Stage 1's own original TP-vs-FP effect (d ≈ 1.05, `VALIDATION.md`
+  §11.6) despite testing a completely different population (real-ASR
+  "normalized away" positions vs. Track A candidates) and a different
+  comparison (fluent controls vs. FP events). CrisperWhisper's encoder
+  retains a measurable trace of the sound-repetition fragment at the
+  position where the *decoded text* shows nothing at all.
+- **`word_repetition`: inconclusive, not negative.** Cohen's d = 0.428
+  falls between the pre-registered thresholds (below the 0.5 "positive"
+  bar, above the 0.2 "negative" bar) — exactly the outcome the
+  pre-registration flagged as plausible in advance, precisely because
+  this test is the more indirect one (probing the *surviving* word's
+  representation for a trace of the *deleted* partner, not a direct
+  fragment-in-place test). The direction is still positive (target mean
+  > control mean), so this is not evidence against a signal existing —
+  it is evidence this specific, indirect test doesn't establish one with
+  confidence at n=17. Per the pre-registration's own instruction, this is
+  reported as exactly that: inconclusive, not rounded toward either a
+  confirmation or a refutation.
+
+**Limitations, both the ones named in advance and one found while
+interpreting the result**:
+- The duration/word-identity confound named before running remains
+  unresolved: a token that absorbed a `sound_repetition` fragment is very
+  likely longer than an ordinary token of the same word, and this design
+  cannot yet separate "the encoder detected a disfluency" from "the
+  encoder detected an unusually long token" — both produce the same
+  measured effect here. This does not make the `sound_repetition` result
+  uninterpretable, but it does mean "the encoder carries recoverable
+  *disfluency* signal" is a slightly stronger claim than "the encoder
+  carries a recoverable acoustic-duration anomaly that correlates with
+  where a disfluency happened" — the data collected so far cannot fully
+  distinguish these, and future work (Stage C or a dedicated follow-up)
+  should test duration-matched controls before treating this as settled.
+- **A statistical caveat not in the original pre-registration, worth
+  naming honestly rather than glossing over now that real numbers exist**:
+  the 966-position control group pools multiple positions from the same
+  31 clips, which are not fully independent observations (shared
+  recording conditions, speaker, and centroid quality per clip) — the
+  standard Cohen's d/pooled-variance calculation used here treats every
+  point as independent, which likely overstates the effective sample size
+  somewhat. This doesn't change the direction of either result, but a
+  future, more rigorous pass (e.g. a clip-level bootstrap or per-clip
+  aggregation before computing the effect size) would be a stronger
+  version of this same test before it carries real architectural weight.
+- Single dataset, single ASR backend — the same standing caveat every
+  result in this document carries (§8, `ROADMAP.md` item 10).
+
+**What this resolves for the track's decision gate**: the pre-registered
+gate was written as a binary ("if yes... Stage C is next; if no...
+skip Stage C") because a clean split hadn't been considered fully in
+advance for two types disagreeing. The honest reading of a *mixed*
+result: proceed to **Stage C scoped specifically to `sound_repetition`**,
+where the signal is real and clears the bar — do not yet extend Stage C
+to `word_repetition` on the strength of this test; that type's question
+stays open, either for a larger sample, a less indirect test design, or
+folded into whatever Stage C or D eventually addresses `word_repetition`
+with. This is a genuine, useful, non-obvious finding either way: **not
+every type this track cares about behaves the same way**, which is
+itself evidence against treating "does the encoder help" as one
+project-wide yes/no question.
+
 **Stage C — Build a representation-native (not decoded-text-dependent)
 candidate path for the types Stage B confirms carry recoverable signal.**
 Extends this project's own `block`/`prolongation` precedent (§6f) to

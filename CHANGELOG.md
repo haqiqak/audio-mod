@@ -8,6 +8,21 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-05 (asr-research branch)
 
+- **Stage B (representation-level probe) done: mixed result, reported
+  honestly.** Pre-registered hypothesis test (positive/negative/
+  inconclusive all acceptable): does CrisperWhisper's encoder retain
+  discriminative signal at real-ASR positions where transcript-level
+  evidence was normalized away (Stage A). `sound_repetition`: **positive**
+  (Cohen's d=0.894, n=19, clears the pre-registered d>=0.5 bar).
+  `word_repetition`: **inconclusive** (d=0.428, n=17 — the more indirect
+  of the two tests, exactly as flagged as plausible in advance). One
+  identification bug caught and fixed before trusting the numbers
+  (`audio_bytes=None` was silently disabling acoustic-native detectors
+  too, not just the classifier gate). Stage C now proceeds scoped to
+  `sound_repetition` only, not extended to `word_repetition` on this
+  evidence. → *PAPER_DECISION_LOG.md, "Stage B (representation-level
+  probe) done: mixed result, reported as such"*; full results
+  `ASR_RESEARCH_TRACK.md` §8.
 - **`asr-research` branch created; Stage A (systematic information-loss
   audit) done.** Categorized all 186 disfluent ground-truth positions in
   the 120-clip Track B sample into four causes (normalized away,

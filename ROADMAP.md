@@ -774,7 +774,14 @@ phased evidence-gated research plan) and its own branch (`asr-research`),
 kept separate so `main` stays stable and shippable throughout. Item 20
 above was that track's Stage A (the systematic, no-new-data information-
 loss audit, now done) — Stage B and beyond are defined in
-`ASR_RESEARCH_TRACK.md` §8, not duplicated here.
+`ASR_RESEARCH_TRACK.md` §8, not duplicated here. **Stage B (the encoder
+representation-level probe) is also done, 2026-08-05: a mixed result —
+positive for `sound_repetition` (Cohen's d = 0.894, clears the
+pre-registered bar), inconclusive for `word_repetition` (d = 0.428, the
+more indirect of the two tests). Stage C now proceeds scoped specifically
+to `sound_repetition`, not extended to `word_repetition` on this
+evidence.** Full results, controls, and limitations:
+`ASR_RESEARCH_TRACK.md` §8.
 
 ## Near-term
 
