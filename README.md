@@ -1,11 +1,16 @@
 # Audio Profiler
 
-A standalone Streamlit app for verbatim speech transcription and disfluency
-profiling. Built for speakers who stutter — it captures exactly what was said
-(including repetitions, fillers, and false starts that standard ASR silently
-removes), builds a personalized profile of which sounds and word types are
+A standalone Streamlit app that detects, classifies, and localizes stuttering
+disfluencies from a speaker's own audio. Built for speakers who stutter — it
+identifies repetitions, fillers, blocks, and prolongations the moment they
+happen, builds a personalized profile of which sounds and word types are
 most difficult for that speaker, and calibrates detection to that speaker's
 own natural speaking tempo instead of a one-size-fits-all threshold.
+Verbatim transcription (CrisperWhisper — captures exactly what was said,
+including the repetitions and false starts standard ASR silently removes)
+is scaffolding toward that detection goal, not the end product: the
+transcript is one evidence source the detector uses, not the deliverable
+or an assumed ground truth.
 
 > This is one of several project docs — see [`DOCS.md`](DOCS.md) for the
 > full map (architecture, decision history, evaluation methodology,

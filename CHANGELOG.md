@@ -8,6 +8,16 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-05
 
+- **Objective hierarchy backported to `main` from the `asr-research`
+  branch's end-of-session pass.** `CLAUDE.md` gets a new "The objective,
+  stated precisely" section (audio is fundamental; ASR is one subsystem;
+  the transcript is one evidence source, not ground truth;
+  representations are complementary and evidence-gated; architecture
+  stays evidence-driven in both directions); `README.md`'s opening
+  reframed the same way. Self-contained versions only — no reference to
+  `asr-research`-only files. → *PAPER_DECISION_LOG.md, "Objective
+  hierarchy backported to `main` from the end-of-session pass"*.
+
 - **A separate research track opened: `ASR_RESEARCH_TRACK.md`,
   `asr-research` branch (not yet created).** Item 19's finding — real
   ASR structurally discards information certain disfluency types need —

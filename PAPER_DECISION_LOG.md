@@ -4605,3 +4605,51 @@ cross-references. `ASR_RESEARCH_TRACK.md` (new, ~400 lines). `CLAUDE.md`,
 config changes. `asr-research` branch not yet created — per the owner's
 explicit sequencing, that happens after `main` is committed with this
 entry's changes included.
+
+---
+
+## 2026-08-05 — Objective hierarchy backported to `main` from the end-of-session pass
+
+**What was done**
+The `asr-research` branch's end-of-session documentation/consistency
+pass (see that branch's own log entry, same date) added a new "The
+objective, stated precisely" section to `CLAUDE.md` — the project's
+long-term objective (the most accurate, explainable, scientifically
+grounded speech-disfluency detector possible from the user's audio, not
+optimizing Whisper, preserving architecture, or maximizing transcript
+quality for their own sake) and the five-point evidence hierarchy that
+follows from it — plus a reframed `README.md` opening paragraph making
+the same point for a general reader. Both were judged general project
+philosophy, not specific to the `asr-research` branch's own findings, so
+both are backported here to `main` directly, in a self-contained form
+with no reference to `asr-research`-only files (`ASR_RESEARCH_TRACK.md`
+does not exist on this branch).
+
+**Alternatives considered**
+- Leave `main`'s copy of `CLAUDE.md`/`README.md` as-is until the
+  research track eventually merges. **Rejected**: the objective
+  hierarchy is not a research-track finding — it's a standing
+  description of how this project should be understood and worked on,
+  true regardless of that track's outcome, and `main` is what most
+  readers (and clones) will actually see. Leaving it only on a research
+  branch would mean the project's most-read entry point doesn't state
+  its own governing objective.
+- Backport the full documentation pass (staleness fixes referencing
+  Stage A/B/C, `HANDOFF.md`/`DOCS.md`/`VALIDATION.md` updates).
+  **Rejected**: those specifically describe `asr-research`'s own
+  progress and reference `ASR_RESEARCH_TRACK.md`, which doesn't exist on
+  `main` — copying that content here would create dangling references to
+  a file this branch doesn't have, a worse inconsistency than the one
+  being fixed.
+
+**Why this choice**
+`main`'s own code is genuinely unchanged and stays that way — this is a
+documentation-only decision about which branch should carry which parts
+of today's writing, made deliberately rather than by default (everything
+staying on `asr-research`) or by convenience (everything copied
+wholesale, dangling references included).
+
+**Measured result**
+Not a numeric result. `CLAUDE.md`, `README.md` updated on `main`
+directly (self-contained versions, verified to reference no
+`asr-research`-only files). No code changes; full test suite unaffected.
