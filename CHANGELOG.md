@@ -8,6 +8,19 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-05 (asr-research branch)
 
+- **Stage C done: H1 (duration confound) refuted, H2 (genuine signature)
+  supported, H3 (real but not instance-actionable) also supported.**
+  Encoder-distance arm AUC=0.723 (clears chance decisively); duration-
+  only baseline AUC=0.483 (essentially chance — and a correction to the
+  pre-registered assumption's direction: target positions are very
+  slightly *shorter*, not longer, than typical). Absolute precision at a
+  useful recall is still low (4.7% at 52.6% recall) given realistic class
+  imbalance — not ready to ship standalone; a fusion-style revision is
+  the evidence-justified next step, not Stage D. Three real bugs in the
+  new analysis script caught and fixed via its own safety-check
+  assertions before trusting any number. → *PAPER_DECISION_LOG.md,
+  "Stage C done: H1 refuted, H2 supported, H3 also supported"*; full
+  results `ASR_RESEARCH_TRACK.md` §8.
 - **`main`/`asr-research` pushed to GitHub and verified in sync**
   (hashes compared directly, not just trusted push output). Added an
   "Interpretation" section to `ASR_RESEARCH_TRACK.md` §8 before Stage C:

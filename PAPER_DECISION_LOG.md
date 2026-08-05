@@ -4852,3 +4852,86 @@ Not a numeric result — an interpretive addition and a verified backup.
 `ASR_RESEARCH_TRACK.md` §8 (new "Interpretation" subsection). No code
 changes. `main`/`asr-research` confirmed pushed and in sync with
 `origin` before this entry was written.
+
+---
+
+## 2026-08-05 — Stage C done: H1 refuted, H2 supported, H3 also supported
+
+**What was done**
+Executed Stage C of `ASR_RESEARCH_TRACK.md` §8 exactly as pre-registered
+(target/control population reused from Stage B's saved data, no new
+encoder passes; a duration-only baseline arm added specifically to
+separate H1 from H2, per the Interpretation step's own recommendation).
+Built `profiling/evaluation/stage_c_duration_baseline.py`, computing ROC
+AUC (pure Python, Mann-Whitney-U formula, no scipy/sklearn dependency —
+sanity-checked against hand-computed known-answer cases, including a
+tie-handling case, before trusting it on real data) and precision at two
+pre-declared recall points for both arms.
+
+**Three real bugs caught by this stage's own safety checks, each
+investigated before proceeding, not one silently patched over the
+result**:
+1. A crash on real ASR tokens with `start`/`end` of `None` — fixed by
+   excluding those positions from the duration arm, with the count
+   reported explicitly.
+2. A large mismatch (3347 vs. Stage B's 966 saved control positions) —
+   traced to iterating all 120 clips instead of only the 31 Stage B
+   actually drew its control pool from. Fixed by applying the identical
+   population filter.
+3. A residual 1-position mismatch (967 vs. 966) after that fix — traced
+   to the exact same missing-timestamp position also making `pool_
+   span()` return `None` on the encoder side, meaning Stage B's own
+   arm silently excluded it too; once accounted for, both arms compute
+   over the identical 966-position population.
+
+**Result**: encoder arm AUC=0.723 (P@R>=0.5=0.047, P@R>=0.7=0.029);
+duration-only baseline AUC=0.483 (essentially chance). **A correction to
+the pre-registered assumption's direction, checked directly rather than
+assumed**: the protocol expected fragment-absorbing tokens to be
+*longer*; the data shows target positions are, if anything, very
+slightly *shorter* (mean duration z=-0.139) — duration carries no
+meaningful signal in either direction at this sample size. H1 (duration
+confound) is refuted, not merely unconfirmed. H2 (genuine signature) is
+supported — the encoder arm clears chance and clearly beats the duration
+baseline. H3 (real but not instance-actionable) is *also* supported,
+simultaneously: absolute precision at a useful recall (4.7% at 52.6%
+recall) is too low for standalone use given realistic 19-vs-966 class
+imbalance, regardless of the signal being genuine.
+
+**Alternatives considered**
+- Force H1/H2/H3 into a single selected outcome, since the
+  pre-registration was written as if they were mutually exclusive.
+  **Rejected**: the actual result shows two can hold simultaneously (a
+  genuine signal that isn't yet practically usable alone) — reporting
+  that precisely is more useful and more honest than picking the
+  single "winning" hypothesis the pre-registration's own framing implied
+  would exist.
+- Treat the 967-vs-966 count mismatch as close enough to ignore.
+  **Rejected**: investigated fully, traced to a specific, understood
+  mechanism (a shared missing-timestamp exclusion on both arms) rather
+  than assumed benign — the assertion was written specifically so a
+  mismatch this size would stop the run and require an explanation, not
+  silently pass.
+- Proceed to Stage D (fine-tuning) on the strength of H2 being
+  supported. **Rejected**: Stage D's own pre-registered gate requires
+  richer-representation approaches (Stage B/C) to be *insufficient* —
+  H1 being refuted here is the opposite of that condition. The
+  evidence-justified next step is a fusion-style Stage C revision, not
+  escalation to a materially more expensive intervention this evidence
+  doesn't yet call for.
+
+**Why this choice**
+Directly executes Stage C exactly as pre-registered, with the duration
+baseline arm the Interpretation step identified as necessary, and
+applies the same audit-before-trusting discipline to three real bugs in
+this session's own new tooling that the project applies to production
+code and to every other measured result this track has produced.
+
+**Measured result**
+`profiling/evaluation/stage_c_duration_baseline.py` (new, research code
+only). `ASR_RESEARCH_TRACK.md` §8 (Stage C results section: bug log,
+results table, per-hypothesis verdicts, the corrected duration-direction
+assumption, and the recommended next step). `ROADMAP.md` updated with
+the outcome. `eval_results/20260805T215037_stage_c_duration_baseline.json`
+(raw scores, saved). No production code changed. On the `asr-research`
+branch only — `main` untouched.

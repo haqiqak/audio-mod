@@ -835,6 +835,164 @@ number for this kind of change again) — proceed to shipping only if the
 Track B improvement is real and non-trivial, per the same standard item
 19 applied to the classifier gate.
 
+### Stage C — pre-registered protocol (2026-08-05, written before running), scoped to `sound_repetition` only
+
+Per Stage B's mixed result and the Interpretation above: Stage C is
+scoped to `sound_repetition` only (`word_repetition` did not clear the
+bar and is not extended here). Its job, precisely: distinguish H1
+(duration confound) / H2 (genuine signature) / H3 (real but not
+instance-actionable) — not to finalize a shipping decision.
+
+**Design, deliberately the cheapest version that can still distinguish
+the three hypotheses**: with only 19 positive (`sound_repetition`
+target) instances in the entire sample, training a real classifier
+(escalating past a threshold, mirroring §12's own M1-vs-M3 comparison)
+is not yet justified by data volume — a **threshold/ranking-based
+comparison**, not a trained model, matches this project's own precedent
+for what a small sample can support. Two candidate-scoring arms, each
+producing one score per position, evaluated identically:
+
+- **Encoder arm**: Stage B's own `encoder_distance` (cosine distance to
+  the clip's fluent centroid) — no new encoder passes needed, this data
+  already exists (`eval_results/20260805T211000_stage_b_representation_
+  probe.json`).
+- **Duration-only baseline arm**: each position's real-ASR token
+  duration, z-scored against that same word's duration wherever else it
+  appears as a *clean* (non-disfluent) token in the sample — cheap to
+  extract from the same cached `hyp_tokens`, no new ASR or encoder cost.
+  This is the arm the Interpretation section named as necessary to
+  separate H1 from H2 — without it, a positive result would be exactly
+  as consistent with "detected a long token" as "detected a disfluency."
+
+**Population**: the exact same 19 target (`sound_repetition`, Stage-A
+category 1) and 966 control (genuinely fluent) positions Stage B already
+collected — no new data collection for either arm.
+
+**Metric**: ROC AUC for each arm (threshold-free, appropriate given the
+19-vs-966 class imbalance — a single hand-picked threshold would hide how
+sensitive any conclusion is to where it's set), plus precision at two
+fixed, pre-declared recall points (0.5 and 0.7) so a concrete, realistic
+operating point is reported alongside the summary statistic.
+
+**Success criteria / how each hypothesis is read from the result, fixed
+in advance**:
+- **H2 (genuine signature) supported**: encoder-arm AUC is both
+  meaningfully above chance (0.5) *and* meaningfully above the
+  duration-arm AUC (not just numerically higher — a difference judged
+  small enough to plausibly be noise at n=19 does not count).
+- **H1 (duration confound) supported**: encoder-arm and duration-arm AUC
+  are close enough that the encoder signal adds nothing distinguishable
+  from duration alone.
+- **H3 (real but not actionable) supported**: both arms are near chance
+  or achieve only poor precision at both declared recall points, despite
+  Stage B's real, statistically supported group-level effect.
+
+**A limitation named before running, not after**: this evaluation is
+**in-sample** — the same 19+966 positions that produced Stage B's effect
+size are being reused to evaluate a threshold/ranking rule here, which is
+the same kind of optimism this project's own `VALIDATION.md` §13.1
+explicitly rejected for the repetition classifier ("naively applying the
+final shipped model back to that same data would give an optimistic,
+in-sample result"). At n=19 positives, a genuine held-out split would be
+too small to be stable either way, so this stage is explicitly scoped as
+**exploratory hypothesis-distinguishing, not a validated deployment
+estimate** — a result here that supports H2 is evidence to invest in a
+properly out-of-fold-validated follow-up (more data, a real train/test
+split), not evidence ready to ship on its own. This limitation is
+identical in kind to Stage 1's original pilot-vs-scaled-validation
+pattern (§0, item 17's own history) — a small first pass earns a larger,
+honest follow-up, not an immediate shipping decision.
+
+### Stage C — Results (2026-08-05): H1 refuted, H2 supported, H3 also
+supported — a genuine signal that isn't yet practically usable alone
+
+**Three real bugs caught by this stage's own safety checks before any
+result was trusted, each investigated rather than shrugged off**:
+1. A `TypeError` crash on the first run — some real-ASR tokens have
+   `start`/`end` of `None` (a real, if rare, property of real ASR output
+   not previously encountered by this exact code path). Fixed by
+   excluding positions with missing timestamps from the duration arm,
+   counted and reported explicitly, not silently dropped.
+2. A large, real mismatch (3347 vs. Stage B's 966 control positions) —
+   traced to iterating all 120 clips instead of only the 31 clips that
+   actually contain a target, unlike Stage B's own population. Fixed by
+   applying the identical `if not targets: continue` filter Stage B
+   used, restoring an exact target-count match.
+3. A residual 1-position mismatch (967 vs. 966) after that fix — turned
+   out to be the *same* missing-timestamp position from bug 1: `pool_
+   span()` also returns `None` for a missing start/end (checked inline
+   in `encoder_embedding.py`), so Stage B's own encoder arm silently
+   excluded this exact position too. Once accounted for, both arms
+   compute over the same 966-position control population — not a real
+   discrepancy, a consistent exclusion on both sides once traced fully.
+
+**Results**:
+
+| Arm | AUC | Precision @ Recall>=0.5 | Precision @ Recall>=0.7 |
+|---|---|---|---|
+| Encoder (Stage B's `encoder_distance`) | **0.723** | 0.047 (achieved R=0.526) | 0.029 (achieved R=0.737) |
+| Duration-only baseline | 0.483 | 0.018 (achieved R=0.526) | 0.020 (achieved R=0.737) |
+
+**Against the pre-registered criteria — and a genuine correction to a
+pre-registered assumption, checked directly rather than assumed**: the
+pre-registration expected fragment-absorbing tokens to be *longer* than
+ordinary tokens. The actual data shows the opposite of that specific
+assumption: target positions' mean duration z-score is **-0.139** (very
+slightly *shorter* than the control population's mean of 0, not
+longer), and the duration arm's AUC (0.483) sits essentially at chance
+— duration alone carries no meaningful discriminative signal in *either*
+direction at this sample size. This is recorded as a correction to the
+pre-registered assumption's specific direction, checked before writing
+up the result, not smoothed over because the final verdict still came
+out favorably.
+
+**H1 (duration confound): refuted, not just "not confirmed."** If the
+encoder signal were substantially explained by duration, the duration
+arm would show elevated AUC too. It doesn't — it's indistinguishable
+from chance. The encoder arm's real discrimination (AUC=0.723) is not
+attributable to the confound this track named before running Stage B.
+
+**H2 (genuine acoustic disfluency signature): supported.** The encoder
+arm clears chance by a real margin and clearly outperforms the duration
+baseline — exactly the pattern H2 predicted, on the pre-registered
+metric, decided before this run.
+
+**H3 (real but not yet instance-actionable): also supported —
+simultaneously, not as a contradiction.** The pre-registration treated
+H1/H2/H3 as if they'd point to a single answer; the actual result shows
+two of them can both be true at once, which is itself the finding worth
+reporting precisely rather than forcing a single checkbox. AUC=0.723
+means the encoder ranks a random true instance above a random clean one
+about 72% of the time — real, but the *absolute* precision achievable at
+a useful recall is still low (4.7% precision to catch about half of true
+instances, meaning roughly 19 false candidates for every true one at
+that operating point) — a direct consequence of the extreme, realistic
+class imbalance (19 positives vs. 966 negatives) that a single-signal,
+threshold-only mechanism cannot overcome on its own, however genuine the
+underlying signal is.
+
+**What this means for next steps, stated precisely rather than as a
+blanket "Stage C worked" or "Stage C failed"**: this signal should
+**not** be shipped as a standalone, primary candidate generator for
+`sound_repetition` on this evidence — the false-positive rate at any
+recall worth having is too high. But it is real, evidence-backed
+confirmation that CrisperWhisper's encoder carries genuine,
+duration-independent disfluency information, which is exactly the kind
+of signal this project has previously used as a *corroborating* input
+alongside other signals (the fusion pattern already shipped for
+`filler`/`stutter_marker`, and the gating role this exact encoder-
+distance idea already plays for the repetition classifier itself,
+§13) rather than a sole decision-maker. The natural, evidence-justified
+next direction is **not** Stage D (fine-tuning) — the confound this
+track worried about is refuted, and Stage D's own gate requires
+richer-representation approaches to have failed, which they haven't —
+it is a **fusion-style Stage C revision**: combine this signal with
+other available evidence (e.g. the acoustic mis-routing lead from Stage
+A, or additional acoustic features) rather than relying on it alone,
+following this project's own §6(e) precedent, before concluding richer
+representations "don't work" for `sound_repetition`. Not implemented in
+this session — a scoped next step, not started here.
+
 **Stage D — If B/C are insufficient**: this is the evidence threshold
 for seriously costing out (a) fine-tuning/continual adaptation or (d)
 multitask training. Not attempted before this point. Requires first

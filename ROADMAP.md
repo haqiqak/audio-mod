@@ -780,7 +780,16 @@ positive for `sound_repetition` (Cohen's d = 0.894, clears the
 pre-registered bar), inconclusive for `word_repetition` (d = 0.428, the
 more indirect of the two tests). Stage C now proceeds scoped specifically
 to `sound_repetition`, not extended to `word_repetition` on this
-evidence.** Full results, controls, and limitations:
+evidence.** **Stage C (encoder vs. duration-only baseline) is also
+done, 2026-08-05: H1 (duration confound) refuted — the duration arm sits
+at chance (AUC=0.483); H2 (genuine signature) supported — the encoder
+arm clears chance decisively (AUC=0.723); H3 (real but not yet
+actionable) also supported — absolute precision at a useful recall is
+still low (4.7% at 52.6% recall) given realistic class imbalance. Not
+ready to ship as a standalone candidate generator; the evidence-justified
+next step is a fusion-style revision combining this signal with others,
+not Stage D (fine-tuning) — the confound Stage D exists to react to has
+been refuted, not confirmed.** Full results, controls, and limitations:
 `ASR_RESEARCH_TRACK.md` §8.
 
 ## Near-term
