@@ -4405,3 +4405,203 @@ Near-term "deferred learned tier" bullet, ~5 duplicated "Completed"
 entries trimmed to one-line pointers. No code, config, or test changes;
 existing item numbering and every other file's cross-references to it are
 unchanged.
+
+---
+
+## 2026-08-05 — Track B validation of the shipped repetition-classifier gate (item 19 executed)
+
+**What was done**
+Per the project owner's explicit go-ahead ("temporarily freeze new
+feature development and first run Track B on the shipped classifier
+[...] measure first, conclude second, implement third"), executed item
+19 exactly as pre-registered (`VALIDATION.md` §14, written *before*
+either run). Two full `track_b.py` runs over the identical, already-
+cached 120-clip speaker-stratified sample (all 120 clips' real
+CrisperWhisper output already cached from the 2026-08-04 run — zero new
+ASR inference needed for either condition, confirmed `120/120 from
+cache` in both logs), differing only in `require_repetition_classifier_
+confirmation` (`config.yaml`, toggled and restored to its shipped
+default `true` afterward — `git diff --stat config.yaml` confirmed clean
+before this entry was written).
+
+Results (overall slice, the real end-user-facing metric):
+`word_repetition` TP/FP/FN 1/19/41 -> 1/12/41 (F1 0.032 -> 0.036);
+`sound_repetition` 0/0/42 -> 0/0/42 (unchanged, zero candidates either
+condition); `Any` (all 5 types) 11/70/175 -> 11/63/175 (F1 0.082 ->
+0.085). Compared raw candidate volume (TP+FP at gate-off) against Track
+A's own out-of-fold numbers (§13.1, 250 clips): `word_repetition`
+0.167 candidates/clip here vs. 1.176/clip there (~7x lower);
+`sound_repetition` 0.000/clip here vs. 0.376/clip there (complete
+collapse), while ground-truth prevalence of both types in this sample
+(0.35/clip each) is the same order of magnitude as Track A's — the
+population exists, real ASR's output just isn't producing candidates
+from it.
+
+Per standing rule 3 (audit a dramatic result before trusting it — a flat
+zero across an entire 120-clip sample, for either condition, is exactly
+that kind of result), re-ran gate-off with `--verbose` and hand-inspected
+every `true=sound_repetition` case. Found the mechanism: LibriStutter's
+`sound_repetition` ground truth is a reconstructed fragment token (a
+dataset-representation convention, documented 2026-08-03); real
+CrisperWhisper output normalizes disfluent fragments into the clean full
+word even at positions it transcribes correctly, so `detect.py`'s
+fragment-repeat candidate check (which requires an actual sub-word
+fragment token in the transcript) has essentially nothing to match,
+independent of ASR accuracy at that position. One case's ground-truth
+event surfaced as an acoustic-native `block` prediction instead of
+`sound_repetition` — a lead, not yet investigated further, that the
+acoustic signal may still be present and simply mis-routed by the
+current type taxonomy.
+
+**Alternatives considered**
+- Treat the technically-positive `Any` F1 delta (0.082 -> 0.085) as a
+  clean "transfers, no further action" result and move on. **Rejected**:
+  the pre-registered protocol itself named this exact risk ("can't be
+  quietly upgraded to confirmed after the fact if it turns out to look
+  favorable") — reporting only the aggregate number without the
+  candidate-volume context and the small-n caveat (1 true positive total
+  for `word_repetition`, 0 for `sound_repetition`, in either condition)
+  would be technically true and substantively misleading.
+- Re-run Track B with fresh ASR inference instead of the existing cache,
+  to rule out the cache itself as stale or unrepresentative.
+  **Rejected**: `track_b.py`'s `events` are always recomputed fresh from
+  cached `hyp_tokens` regardless of config (`_save_cache`'s own
+  docstring, confirmed by direct code reading before relying on it) — the
+  cache holds ASR output only, never detector output, so re-running ASR
+  would burn significant time (~30-90s/clip x120) to reproduce identical
+  `hyp_tokens` already on disk. Isolating exactly one variable (the gate)
+  while holding ASR output fixed is the correct experimental design here,
+  not a shortcut that compromises it.
+- Immediately start redesigning `sound_repetition`'s candidate generation
+  in this same session. **Rejected for now, tracked instead as `ROADMAP.
+  md` item 20**: the project owner's request scoped this step to
+  "measure first, conclude second" before further implementation: this
+  entry documents the measurement and conclusion; the redesign itself
+  needs its own scoping (starting with the hand-trace of a larger FN
+  sample item 20 proposes) rather than being improvised on top of a
+  result just now confirmed.
+
+**Why this choice**
+Directly executes the pre-registered protocol with the same rigor as
+every other decision this session: measured before concluding, audited
+the most surprising individual number (the `sound_repetition` zero)
+before trusting it rather than reporting it as-is, and reported the full,
+nuanced picture (mechanism validated safe + real-world impact negligible
++ a specific new structural cause found) instead of forcing a binary
+transfers/doesn't-transfer verdict the data didn't cleanly support.
+
+**Measured result**
+`VALIDATION.md` §14 (pre-registered protocol, written before either run)
+and §14.1 (full results, candidate-volume comparison, hand-checked
+examples). `ROADMAP.md`: item 19 marked done with the full result
+summary; new item 20 (redesign `sound_repetition`/`word_repetition`
+candidate generation for real ASR — now the highest-priority open item,
+ahead of item 18 and the deferred-learned-tier bullet, both re-flagged
+accordingly); the "First-principles reassessment" section's closing
+paragraph updated with the outcome. `config.yaml` unchanged from its
+shipped state (`require_repetition_classifier_confirmation: true`) —
+the gate stays enabled; this result does not call for disabling it, only
+for not treating it as sufficient on its own. No code changes; no test
+suite impact.
+
+---
+
+## 2026-08-05 — A separate research track opened: `ASR_RESEARCH_TRACK.md`, `asr-research` branch
+
+**What was done**
+Per the project owner's explicit framing ("this feels like a major
+research checkpoint rather than simply another roadmap item... treat
+this as the beginning of a separate architectural research direction"),
+wrote `ASR_RESEARCH_TRACK.md` — a charter document (not implementation)
+for a new, dedicated research track, developed on its own branch
+(`asr-research`, not yet created at the time of this entry — created only
+after `main` is committed, per the owner's explicit sequencing) so `main`
+stays stable throughout.
+
+The document: (1) restates item 19's finding as a reframed core question
+— "how do we preserve the speech-production information that
+conventional ASR intentionally removes" rather than "how do we improve
+the detector" — including the project owner's own framing of it ("that
+dust is now gold to us," attributed); (2) a formal problem statement
+that explicitly does *not* reopen `PHASE_3_ARCHITECTURE_REVIEW.md`'s
+two-stage-architecture conclusion — a narrower question about
+representation richness, not pipeline structure; (3) restates this
+project's seven-type taxonomy as an explicit "what must survive in the
+representation" checklist, kept in view before any architectural
+discussion, per the owner's explicit instruction to keep the target in
+hindsight throughout; (4) a real literature review — 13 verified sources
+found via web search this session (not assumed or fabricated), covering
+field-level ASR bias against disfluent speech (arXiv:2405.06150),
+CrisperWhisper's own design (arXiv:2408.16589, re-read for precisely
+what its verbatim claim covers), continual-learning ASR adaptation
+(arXiv:2606.14391), multitask joint ASR+disfluency training
+(arXiv:2211.08726, arXiv:2409.10177, arXiv:1908.05378), bypassing
+decoded text entirely (arXiv:2311.00867), SSL/encoder representation
+probing (arXiv:2409.10704, and arXiv:2311.05203 — the latter an
+independent, external corroboration of this project's own Stage 1 result:
+Whisper's encoder layers, not just decoded text, carry disfluency-
+relevant signal), and hybrid fusion (arXiv:2512.13632); one title-relevant
+paper (arXiv:2512.02027) flagged honestly as not yet deep-read rather
+than cited with unearned confidence; (5) six architectural directions
+laid out without commitment, each mapped to what this project already
+has (e.g. "richer intermediate representations" is the cheapest, since
+`profiling/encoder_embedding.py` and Stage 1's methodology already
+exist); (6) five research questions in priority order; (7) a phased,
+evidence-gated research plan (Stages A-E, mirroring item 17's own
+successful staged/gated structure) with an explicit three-part test for
+when a purpose-built ASR/representation would actually be justified;
+(8) explicit non-goals, stating this does not commit to building a new
+ASR and does not authorize any change to `main` on its own.
+
+Cross-referenced from `CLAUDE.md` (new pointer, alongside the existing
+`PHASE_3_ARCHITECTURE_REVIEW.md` one), `DOCS.md` (new file-map entry,
+both the quick-reference table and the full table), `HANDOFF.md` (new
+reading-order item 11), and `ROADMAP.md` (item 20 reframed as this
+track's Stage A, with a pointer to the full plan rather than duplicating
+it).
+
+**Alternatives considered**
+- Add a large new section directly to `ROADMAP.md` instead of a separate
+  document. **Rejected**: the scope here (problem statement, a real
+  literature review, six unpicked architectural directions, a five-stage
+  research plan, branch charter) is categorically larger than any other
+  `ROADMAP.md` item, and `ROADMAP.md`'s own stated purpose is a
+  priority-ordered list pointing *at* full reasoning elsewhere, not
+  containing it — exactly the pattern already established for the phase
+  research-plan/architecture-review documents (`PHASE_2_RESEARCH_PLAN.md`,
+  `PHASE_3_ARCHITECTURE_REVIEW.md`), which this new document follows.
+- Number this as "Phase 4." **Rejected**: the owner explicitly framed
+  this as "a separate architectural research track," parallel to and
+  independent of the numbered phase sequence, not the next sequential
+  phase closing the current one — Phase 3 is not closed, and this track's
+  own outcome (possibly "no purpose-built ASR needed, cheaper
+  representation work sufficed") is not yet known, unlike a phase number
+  which this project has only ever assigned in hindsight at a close.
+- Cite the Mandarin joint-training paper's arXiv ID directly as newly
+  re-verified. **Rejected**: it was not found via this session's own
+  searches (the ID could not be independently located), so it is
+  referenced only via `ROADMAP.md`'s existing citation, not re-asserted
+  as freshly confirmed — consistent with this project's discipline of
+  not upgrading a claim's confidence without actually re-checking it.
+- Begin Stage A's hand-trace (already scoped as `ROADMAP.md` item 20) in
+  this same session. **Not done**: the owner's explicit sequencing was
+  to finalize `main` for commit first, create the branch, and only then
+  continue — this entry documents the charter, not the first experiment.
+
+**Why this choice**
+Matches the project owner's explicit read of the situation: item 19 was a
+different *kind* of finding than a normal roadmap item (evidence the
+ASR stage's representation, not the detector, may be the ceiling for
+certain types) and deserves the same weight a phase-opening document
+gets — a real literature pass, explored-not-committed architecture
+options, and a pre-registered, evidence-gated plan — before any
+implementation, on a branch that keeps `main`'s currently-validated state
+untouched while that investigation happens.
+
+**Measured result**
+Not a numeric result — a new charter document and a set of documentation
+cross-references. `ASR_RESEARCH_TRACK.md` (new, ~400 lines). `CLAUDE.md`,
+`DOCS.md`, `HANDOFF.md`, `ROADMAP.md` updated with pointers, no code or
+config changes. `asr-research` branch not yet created — per the owner's
+explicit sequencing, that happens after `main` is committed with this
+entry's changes included.

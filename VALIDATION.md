@@ -2865,3 +2865,214 @@ touching a delicate, multiply-patched call with several documented bug
 workarounds — a real, separately-scoped risk, not undertaken in the same
 session as the classifier's own validation). See `ARCHITECTURE.md`'s
 known-limitations section and `ROADMAP.md` for this as a named follow-up.
+
+---
+
+## 14. Track B validation of the shipped repetition-classifier gate (2026-08-05) — pre-registered protocol, before running
+
+**Why this exists.** §11-§13 validated Stage 1, the corroboration-
+mechanism comparison, and the integrated-detector benchmark entirely on
+Track A — `detect_disfluencies(clip.tokens, ...)` called with
+LibriStutter's own ground-truth tokens, confirmed by direct inspection of
+`profiling/evaluation/track_a.py`'s `evaluate()`. The gate has never been
+run against real CrisperWhisper transcription output. Separately, Track B
+itself (the harness that does run real ASR) was last executed as the
+120-clip speaker-stratified sample on 2026-08-04, before the gate existed
+in any form — so no Track B number to date reflects this decision either
+way. `ROADMAP.md`'s "First-principles reassessment" section (2026-08-05)
+identified this as the project's single biggest open bottleneck; this
+section is the pre-registered protocol for closing it, written before any
+of the two runs below have executed, per standing rule 1.
+
+**Dataset.** The existing 120-clip speaker-stratified LibriStutter sample
+(`VALIDATION.md` §8.4.3's dataset — 40/40 speakers, round-robin order).
+All 120 clips' real CrisperWhisper transcription output is already cached
+(`eval_datasets/_track_b_cache/`, confirmed present for all 120 clip names
+before this section was written) from the 2026-08-04 run
+(`eval_results/20260804T100451177010Z_libristutter_B.json`, 120/120 cache
+hits, git commit `023dc95`). **No new ASR inference is required for this
+comparison** — `track_b.py`'s `events` are always recomputed fresh from
+cached `hyp_tokens` regardless of config (see `_save_cache`'s docstring),
+so re-running `track_b.py` against this cache with the gate toggled
+isolates exactly one variable: the classifier gate, with the ASR output,
+the dataset, and every other line of `detect.py` held fixed. The
+classifier itself *will* run for real on this audio for any clip whose
+real ASR output happens to produce a `word_repetition`/`sound_repetition`
+candidate — that real ~30-90s-per-affected-clip encoder cost is part of
+what this run measures, not something bypassed by the cache.
+
+**Conditions.** Two full `track_b.py` runs over the identical 120 clips,
+identical cache, differing only in `config.yaml`'s
+`require_repetition_classifier_confirmation`:
+- **Gate OFF** (`false`) — the pre-classifier detector, i.e. what Track B
+  measured before this decision existed.
+- **Gate ON** (`true`) — today's shipped default.
+
+**Metrics.** Per `track_b.py`'s standard output, for `word_repetition`,
+`sound_repetition`, and the combined `Any` label: precision, recall, F1,
+and raw TP/FP/FN counts (counts matter as much as the derived rates given
+the sample size — see the small-n caveat below), on all three of Track
+B's standard slices (overall / preserved / preserved_ctx1), plus mean WER
+and the FP-attribution/alignment-op diagnostics `track_b.py` already
+prints. `Any` F1 (overall slice) is the single primary metric this
+decision turns on, matching how the Track A integrated-gate benchmark
+(§13.1) was itself summarized.
+
+**Success criteria, fixed in advance.**
+- **Transfers**: gate ON's `Any` F1 (overall slice) is higher than gate
+  OFF's, and the improvement is not solely an artifact of near-zero event
+  volume in one condition (i.e. both TP+FP+FN counts are large enough to
+  read the rates as meaningful, not a 2-vs-1-event comparison). If this
+  holds, the gate-on configuration is confirmed as the real-world
+  baseline going forward and no further action is needed before resuming
+  Phase 3 work.
+- **Does not transfer**: gate ON's `Any` F1 (overall slice) is flat or
+  lower than gate OFF's. If this holds, the next step is diagnostic, not
+  a reversion: compare `word_repetition`/`sound_repetition` **candidate
+  volume** (TP+FN at the token-path level, before the gate's own
+  precision/recall split) between Track A's ground-truth tokens and Track
+  B's real ASR tokens on the same clips, to test this project's own
+  standing hypothesis (`ROADMAP.md`'s reassessment, §2) that the
+  classifier only ever refines precision among *surviving* candidates and
+  cannot recover candidates ASR already destroyed upstream — i.e.
+  determine whether the gap is because the gate hurts real candidates it
+  shouldn't (a detector/classifier problem, fixable) or because there
+  simply aren't enough real candidates left for the gate to help with (an
+  ASR-fidelity problem, per Phase 1's own dominant finding).
+- **Small-sample honesty, stated in advance**: 120 clips is Track B's
+  existing largest speaker-diverse sample, but `word_repetition`/
+  `sound_repetition` events within it are a fraction of that — the exact
+  count is not yet known at the time this protocol is written. If the
+  resulting TP+FP+FN counts are small (single digits to low tens), the
+  result will be reported as directionally informative, not as a
+  precision-confirmed number, per standing rule 3 — this is stated now,
+  before the counts are known, specifically so the result can't be
+  quietly upgraded to "confirmed" after the fact if it turns out to look
+  favorable.
+
+**What this does not decide.** A "transfers" result does not itself
+validate the classifier's training distribution as representative of all
+real-world speech (LibriStutter remains synthetic-injection, single
+dataset, single ASR backend — `ROADMAP.md` item 10's open question). It
+answers the narrower, prerequisite question this session is scoped to:
+does the gate's Track-A-measured benefit survive contact with this
+project's own real ASR pipeline at all, on the data already in hand.
+
+### 14.1 Results (2026-08-05): the gate's mechanism transfers safely, but its
+real-world impact is currently negligible — and the reason why is now
+directly measured, not just hypothesized
+
+Both runs executed against the identical, already-cached 120-clip
+speaker-stratified sample (no new ASR inference — confirmed
+`120/120 from cache` in both run logs), differing only in
+`require_repetition_classifier_confirmation`. Overall slice (the real
+end-user-facing metric):
+
+| Type | Gate OFF TP/FP/FN | Gate ON TP/FP/FN | Precision (off->on) | Recall (off->on) | F1 (off->on) |
+|---|---|---|---|---|---|
+| `word_repetition` | 1/19/41 | 1/12/41 | 0.050 -> 0.077 | 0.024 -> 0.024 | 0.032 -> 0.036 |
+| `sound_repetition` | 0/0/42 | 0/0/42 | n/a -> n/a | 0.000 -> 0.000 | n/a -> n/a |
+| **Any (all 5 types)** | **11/70/175** | **11/63/175** | **0.136 -> 0.149** | 0.059 -> 0.059 | **0.082 -> 0.085** |
+
+Full logs: `eval_datasets/_gate_off_run_output.txt`,
+`eval_datasets/_gate_on_run_output.txt`. Saved runs:
+`eval_results/20260805T125451692170Z_libristutter_B.json` (gate off),
+`eval_results/20260805T130631020774Z_libristutter_B.json` (gate on).
+
+**Against the pre-registered criteria (§14): technically "transfers"
+(`Any` F1 0.082 -> 0.085, both conditions have non-trivial aggregate
+counts), but reporting it at that level alone would be misleading given
+the standing "don't quietly upgrade a favorable-looking small number"
+caveat this section pre-registered.** The honest, complete picture has
+three separate parts:
+
+**1. The gate's core mechanism is validated as sound on real ASR text.**
+Where a `word_repetition` candidate exists at all, the gate suppresses 7
+of 19 false candidates (37% FP reduction) with the one true positive
+preserved untouched (TP unchanged, 1 -> 1) — the same
+precision-up/recall-flat shape as the Track A result (§13.1), just at a
+much smaller scale. This is a real, positive, non-harmful result: the
+classifier is not misfiring or over-suppressing on real, ASR-corrupted
+input text, which was a genuine open question before this run.
+
+**2. The practical impact on this sample is negligible, because there are
+almost no candidates for the gate to act on in the first place —
+confirming the reassessment's central hypothesis directly.** Comparing
+raw candidate volume (TP+FP at gate-off, i.e. before any gating) against
+Track A's own out-of-fold gate-off numbers (§13.1, 250 clips):
+
+| Type | Track A candidates/clip (ground-truth tokens) | Track B candidates/clip (real ASR, this run) | Ratio |
+|---|---|---|---|
+| `word_repetition` | 294/250 = 1.176 | 20/120 = 0.167 | ~7x fewer |
+| `sound_repetition` | 94/250 = 0.376 | 0/120 = 0.000 | complete collapse |
+
+Ground-truth prevalence of both types in this 120-clip sample (42 each,
+~0.35/clip) is the same order of magnitude as Track A's sample, so this
+is not an artifact of the 120-clip sample simply containing fewer real
+disfluencies of these types — the population exists; the detector's
+candidate-generation step, operating on real ASR output, essentially
+isn't finding it. A gate that only refines precision among survivors
+cannot move a number this starved of survivors.
+
+**3. Direct hand-check of the `sound_repetition` zero (standing rule 3 —
+audit a dramatic result before trusting it), and a specific, previously-
+undocumented mechanism found.** Re-ran gate-off with `--verbose`
+(`eval_datasets/_gate_off_verbose_output.txt`) and inspected every
+`true=sound_repetition` line. Representative cases:
+
+```
+ref[5]='considered-' (true=sound_repetition) -> align=correct, hyp_word='considered', detector_predicted={}
+ref[5]='the-'        (true=sound_repetition) -> align=correct, hyp_word='the',        detector_predicted={}
+ref[27]='I-'         (true=sound_repetition) -> align=correct, hyp_word='I',          detector_predicted={'block'}
+```
+
+LibriStutter's `sound_repetition` ground truth is stored as a
+reconstructed reference token with a trailing hyphen (`load_libristutter_
+csv`'s documented reconstruction approximation, `PAPER_DECISION_LOG.md`,
+2026-08-03) — a dataset-representation convention for "an acoustic
+sound-repetition fragment occurred here," not a literal transcribable
+token. **Even where CrisperWhisper aligns `correct`** (i.e. transcribed
+that word position accurately, by this project's own alignment
+scoring), the real output it produces is the clean, full word
+("considered," not a fragment like "c- considered"). `detect.py`'s
+`sound_repetition` candidate check (the fragment-repeat check,
+`is_fragment_repeat`) requires an actual sub-word fragment token to exist
+adjacent to the real word in the ASR output — and a real, fluency-
+normalizing verbatim-ASR system essentially never emits one, regardless
+of whether it "got the word right" in the alignment sense. This is a
+narrower and more specific claim than the general "ASR fidelity is the
+bottleneck" framing already established (Phase 1): **it is not merely
+that ASR sometimes mis-transcribes a sound-repetition; it is that the
+current detection strategy's input assumption (a literal fragment token
+appearing in the transcript) appears to almost never hold for real ASR
+output at all**, independent of how accurate that ASR otherwise is. One
+suggestive detail worth naming, not yet investigated further: in the
+`'I-'` case above, the acoustic signal wasn't lost entirely — it surfaced
+as a `block` prediction instead, from the acoustic-native detector,
+hinting the underlying acoustic event may still be detectable, just
+mis-routed by today's type taxonomy rather than fully invisible.
+
+**Small-sample honesty, as pre-registered.** `word_repetition` has
+exactly 1 true positive in this entire 120-clip sample, in both
+conditions — nowhere near enough to trust the *precise* F1 numbers above
+as stable estimates. `sound_repetition` has zero true positives in either
+condition, so its "0.000 recall, both conditions" is not evidence the
+gate doesn't work for that type — it's evidence the type's current
+candidate generator essentially never gets invoked on real audio in this
+sample at all, which is the more important and more specific finding
+(point 3 above). The *qualitative* mechanism finding (fragment tokens
+absent from real ASR output) does not depend on this sample size the way
+the quantitative F1 numbers do — it is a structural property of the
+detection strategy versus what verbatim ASR actually produces, visible in
+every one of the handful of cases inspected.
+
+**Verdict.** The classifier gate is confirmed safe and mildly beneficial
+on real ASR output — no reason to disable it, and it stays the shipped
+default. But it is not, on its own, a fix for this project's real-world
+performance gap, because the deeper problem (Phase 3's item 17 was never
+positioned to address) is candidate-generation loss under real ASR,
+concentrated specifically and severely in `sound_repetition`. This
+directly resolves the pre-registered "does not transfer -> investigate
+why" branch's question: the interaction is an **ASR/detector candidate-
+generation problem**, not a classifier-precision problem. See
+`ROADMAP.md` for how this reprioritizes Phase 3.

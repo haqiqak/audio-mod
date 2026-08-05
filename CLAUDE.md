@@ -39,14 +39,30 @@ evidence-backed extension (`ROADMAP.md` item 17); that extension is now
 trained, shipped model artifact), decided by a pre-registered,
 cross-validated comparison, default `true`. Full arc: `VALIDATION.md`
 §11 (Stage 1 signal validation) → §12 (mechanism comparison) → §13
-(implementation + benchmark). One real, accepted cost remains open and
-tracked as `ROADMAP.md` item 18 (added live-app latency, not yet
-resolved). Read `PHASE_3_ARCHITECTURE_REVIEW.md` before proposing
-anything that touches the ASR/detector boundary. `ROADMAP.md` reflects
-the current state: priorities in order, each linked to the specific
-finding that justifies it. If you're about to suggest a next step, check
-`ROADMAP.md` first — it's very likely already there with reasoning, and
-a change of plan should update it, not silently diverge from it.
+(implementation + benchmark) → §14 (Track B validation of that result
+against real ASR, 2026-08-05 — see below). One real, accepted cost
+remains open and tracked as `ROADMAP.md` item 18 (added live-app
+latency, de-prioritized behind item 20, not yet resolved). Read
+`PHASE_3_ARCHITECTURE_REVIEW.md` before proposing anything that touches
+the ASR/detector boundary. `ROADMAP.md` reflects the current state:
+priorities in order, each linked to the specific finding that justifies
+it. If you're about to suggest a next step, check `ROADMAP.md` first —
+it's very likely already there with reasoning, and a change of plan
+should update it, not silently diverge from it.
+
+**A new, separate research track opened 2026-08-05: `ASR_RESEARCH_
+TRACK.md`.** Track B validation (`VALIDATION.md` §14/§14.1) found real
+ASR output essentially never produces the literal sub-word fragment
+tokens `sound_repetition` detection depends on — even at positions
+transcribed correctly — evidence that the ASR stage's own output
+representation may be discarding information this project's downstream
+objective needs, independent of any detector-side fix. This is being
+investigated as its own research track, on a dedicated `asr-research`
+branch, kept separate from `main` so the shipped state stays stable.
+**Read `ASR_RESEARCH_TRACK.md` before proposing anything about ASR
+representation richness, fine-tuning, or decoding changes** — it defines
+the problem, reviews the literature, and lays out a phased,
+evidence-gated plan; nothing there is implemented yet.
 
 ## Standing rules for working in this repo
 

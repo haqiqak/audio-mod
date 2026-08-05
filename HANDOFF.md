@@ -58,13 +58,28 @@ anything is untested or undecided:
   Cohen's d > 1.0, confirmed to hold and grow at a larger scale with
   tuned regularization. Integrated-detector benchmark: `Any` (both
   types) F1 0.631 → 0.890. Default `true`
-  (`require_repetition_classifier_confirmation`); the one real, accepted
-  cost is added live-app latency (a second ~30-90s encoder pass on
-  affected clips) — the follow-up to remove that is `ROADMAP.md` item 18,
-  not yet started. → **`PHASE_3_ARCHITECTURE_REVIEW.md`** for the
-  foundational decision, **`VALIDATION.md` §11-§13** for the full Stage 1
-  → comparison → implementation arc, `ROADMAP.md` items 17-18 for current
-  status.
+  (`require_repetition_classifier_confirmation`). **Important caveat,
+  found and closed the same day**: that entire result (§11-§13) was
+  validated exclusively on Track A (ground-truth transcript tokens,
+  never real ASR output) — surfaced by a deliberate first-principles
+  reassessment (`ROADMAP.md`'s "First-principles reassessment" section)
+  and closed by actually re-running Track B (item 19, done 2026-08-05,
+  `VALIDATION.md` §14/§14.1): the gate's *mechanism* is confirmed safe on
+  real ASR text, but its real-world impact is currently negligible,
+  because real ASR produces almost no `word_repetition`/`sound_
+  repetition` candidates for it to act on in the first place —
+  `sound_repetition` specifically produced **zero** candidates across the
+  120-clip real-ASR sample, traced to a specific mechanism (the candidate
+  check needs a literal sub-word fragment token in the transcript; real
+  verbatim ASR essentially never produces one). **This — not latency, not
+  the learned tier — is now the project's top-priority open item**,
+  tracked as `ROADMAP.md` item 20. Item 18 (latency removal) and the
+  deferred-learned-tier direction are both explicitly re-flagged as
+  premature until item 20 is resolved, since neither has a healthy
+  candidate population to operate on yet. → **`PHASE_3_ARCHITECTURE_
+  REVIEW.md`** for the foundational decision, **`VALIDATION.md` §11-§14**
+  for the full Stage 1 → comparison → implementation → Track B validation
+  arc, `ROADMAP.md` items 17-20 for current status.
 
 **If you are about to suggest "what should we do next," don't guess —
 read `ROADMAP.md` first.** It is very likely already there, in priority
@@ -122,6 +137,19 @@ for a first read:
 10. **`CLAUDE.md`** — short, stable orientation and the standing rules
     (condensed again in §5 below). Loaded automatically for a Claude Code
     session; read it directly if you're a human or a different tool.
+11. **`ASR_RESEARCH_TRACK.md`** — opened 2026-08-05, a separate research
+    track (own branch, `asr-research`) investigating whether the ASR
+    stage's own output *representation* is rich enough for this
+    project's taxonomy, triggered by Track B finding that real ASR
+    essentially never preserves the sub-word fragment tokens `sound_
+    repetition` detection depends on. Read this before proposing or
+    implementing anything about ASR representation richness, decoding
+    changes, or fine-tuning — it's a charter document (problem
+    statement, literature review, architectural options, phased
+    evidence-gated plan), not yet an implemented decision. Narrower than
+    item 9 above: it doesn't reopen whether there should be a distinct
+    ASR stage, only whether what that stage hands the detector is rich
+    enough.
 
 ## 4. What's proven vs. what's still a hypothesis
 

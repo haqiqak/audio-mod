@@ -8,6 +8,39 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-05
 
+- **A separate research track opened: `ASR_RESEARCH_TRACK.md`,
+  `asr-research` branch (not yet created).** Item 19's finding — real
+  ASR structurally discards information certain disfluency types need —
+  judged a bigger-than-one-item checkpoint. New charter document: the
+  reframed core question ("how do we preserve the speech-production
+  information conventional ASR intentionally removes"), a real 13-source
+  literature review (field-level ASR bias, CrisperWhisper's own design,
+  continual-learning adaptation, multitask joint training, bypassing
+  decoded text, SSL/encoder probing — including one paper independently
+  corroborating this project's own Stage 1 result), six architectural
+  directions explored without commitment, and a phased evidence-gated
+  research plan (Stages A-E) with explicit criteria for when a
+  purpose-built ASR/representation would be justified. Does not reopen
+  `PHASE_3_ARCHITECTURE_REVIEW.md`'s two-stage-architecture conclusion.
+  `main` stays stable; work happens on the new branch once created. →
+  *PAPER_DECISION_LOG.md, "A separate research track opened:
+  `ASR_RESEARCH_TRACK.md`, `asr-research` branch"*.
+- **Track B validation of the shipped repetition-classifier gate (item
+  19 executed)**: re-ran the existing 120-clip speaker-stratified sample,
+  gate on/off, reusing cached ASR output (zero new inference). Gate's
+  mechanism confirmed safe on real ASR text (37% FP reduction on
+  `word_repetition` candidates, zero recall cost) but real-world impact
+  negligible (`Any` F1 0.082 -> 0.085) because real ASR starves both
+  gated types of candidates (`word_repetition` ~7x fewer/clip than
+  Track A; `sound_repetition` zero candidates across all 120 clips,
+  either condition). Hand-check found the specific mechanism: the
+  fragment-token candidate check's input assumption essentially never
+  holds for real (fluency-normalizing) ASR output. Gate stays enabled
+  (shipped default unchanged). New `ROADMAP.md` item 20 (redesign
+  candidate generation for real ASR) now the top-priority open item. →
+  *PAPER_DECISION_LOG.md, "Track B validation of the shipped repetition-
+  classifier gate (item 19 executed)"*; full results `VALIDATION.md`
+  §14/§14.1.
 - **First-principles reassessment written into `ROADMAP.md`**: re-checked
   the whole project against its stated objective from scratch. Confirmed
   by direct code inspection that Phase 3's entire shipped result (the

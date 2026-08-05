@@ -191,8 +191,8 @@ be validating were built.
 
 This section is analysis, not an authorization to act — per standing rule
 4, no threshold/config/architecture change follows from it automatically.
-The concrete, evidence-seeking next step it argues for is tracked as item
-19 below, and items 10 and the deferred-learned-tier bullet are
+The concrete, evidence-seeking next step it argued for is tracked as item
+19 below, and items 10 and the deferred-learned-tier bullet were
 re-flagged (not re-ordered or renumbered) accordingly. If a fresh Track B
 run confirms the shipped Track-A wins transfer, this section's concern is
 answered and the existing Phase 3 ordering can resume as-is. If it
@@ -200,6 +200,27 @@ doesn't, that gap — not any item currently below — becomes the project's
 real next finding to chase, and the reason will be traceable (candidate-
 generation loss vs. genuine transfer failure) using infrastructure that
 already exists.
+
+**Update, 2026-08-05 — item 19 executed, verdict: partial confirmation,
+with a sharper finding than either branch anticipated.** The gate's own
+mechanism transfers safely to real ASR text (a real, non-harmful 37% FP
+reduction on the `word_repetition` candidates that exist, zero recall
+cost) — but its real-world impact on this sample is negligible (`Any` F1
+0.082 -> 0.085) because real ASR output starves both gated types of
+candidates before the gate ever gets a chance to matter:
+`word_repetition` candidate volume is ~7x lower per clip than Track A's
+ground-truth-token rate, and `sound_repetition` produced **zero**
+candidates across all 120 clips, either condition. Direct hand-check
+(`VALIDATION.md` §14.1, point 3) found a specific, previously-
+undocumented mechanism for the `sound_repetition` collapse: its candidate
+check requires a literal sub-word fragment token in the ASR transcript,
+and real verbatim ASR essentially never produces one — even on positions
+it otherwise transcribes correctly — because it normalizes disfluent
+fragments into the full word. This is narrower and more actionable than
+the general "ASR fidelity is the bottleneck" framing: it names the exact
+structural mismatch between the current detection strategy and what real
+ASR output actually looks like. New item 20 below tracks the resulting,
+now-highest-priority follow-up. Full results: `VALIDATION.md` §14.1.
 
 ---
 
@@ -670,21 +691,77 @@ list, not separate from it.
     per `requirements.txt`'s own standing warning about touching this
     code path) before being attempted.
 
-19. **[New, 2026-08-05, from the "First-principles reassessment" section
+19. ~~[New, 2026-08-05, from the "First-principles reassessment" section
     above] Re-run Track B on the existing 120-clip speaker-stratified
     sample with today's code, repetition-classifier gate on and off, before
-    any further Track-A-only detector work.** Every Phase 2 detector fix
-    (`sound_repetition`, `prolongation`) and Phase 3's classifier gate
-    (item 17) were validated exclusively on Track A (ground-truth
-    transcript tokens — confirmed by direct inspection of `track_a.py`'s
-    `evaluate()`); Track B has not been run since any of them shipped. No
-    new data acquisition needed — this is a re-run against an existing
-    sample using existing infrastructure (`track_b.py`, the per-clip ASR
-    cache). Directly answers whether this project's last two phases of
-    work have moved the number that actually reflects the stated
-    objective. Elevated ahead of item 18 (see reassessment §4/§6) — do not
-    spend further effort on the classifier's delivery cost before checking
-    whether its benefit survives real ASR output.
+    any further Track-A-only detector work~~ — **done, 2026-08-05.**
+    Both conditions run against the identical, already-cached 120-clip
+    sample (zero new ASR inference: `120/120 from cache` both runs), gate
+    toggled via config only, per the pre-registered protocol
+    (`VALIDATION.md` §14). **Result: technically "transfers"** (`Any` F1
+    0.082 -> 0.085, `word_repetition` FP reduced 19 -> 12 at zero recall
+    cost — the gate's mechanism is safe and correctly-behaved on real ASR
+    text) **but the practical impact is negligible**, because real ASR
+    starves both gated types of candidates before the gate ever gets a
+    chance to matter: `word_repetition` candidate volume is ~7x lower per
+    clip than Track A's ground-truth-token rate; `sound_repetition`
+    produced **zero** candidates across all 120 clips, either condition.
+    A direct hand-check (standing rule 3, since a flat zero across an
+    entire sample is exactly the kind of dramatic result that needs
+    auditing before being trusted) found the specific mechanism: LibriStutter's
+    `sound_repetition` ground truth is a reconstructed fragment token, and
+    real verbatim ASR normalizes disfluent fragments into the clean full
+    word even when it transcribes that position correctly — so the
+    fragment-repeat candidate check's input assumption (a literal
+    sub-word fragment token in the transcript) essentially never holds for
+    real ASR output, independent of ASR accuracy. This is a narrower,
+    more actionable finding than the general "ASR is the bottleneck"
+    framing — it names the exact structural mismatch. Full results and
+    the hand-checked examples: `VALIDATION.md` §14.1. See
+    `PAPER_DECISION_LOG.md`'s 2026-08-05 "Track B validation of the
+    shipped repetition-classifier gate" entry for the complete record.
+    **Classifier gate stays enabled (shipped default unchanged)** — it is
+    confirmed safe and mildly beneficial, just not sufficient on its own.
+    Item 20 below is the resulting, now-highest-priority follow-up.
+
+20. **[New, 2026-08-05, highest priority — directly from item 19's
+    result; now the opening move of a dedicated research track, see
+    below] Investigate and, if a fix is evidence-supported, redesign how
+    `sound_repetition` (and secondarily `word_repetition`) candidates are
+    generated from real ASR output — not just how they're gated once
+    found.** Item 19 found this is now the project's dominant, specific,
+    measured bottleneck: the current fragment-token-based candidate check
+    essentially never fires on real verbatim-ASR transcripts, even on
+    correctly-transcribed positions, because real ASR normalizes away the
+    literal sub-word fragment the check depends on. One concrete, already-
+    surfaced lead worth checking first (cheap, no new data): in the one
+    hand-inspected case where the true event wasn't caught as
+    `sound_repetition`, the acoustic-native detector caught it as `block`
+    instead (`VALIDATION.md` §14.1, point 3) — suggesting the acoustic
+    signal may still be present and simply mis-routed by today's type
+    taxonomy, not fully lost. Before designing a fix: hand-trace a larger
+    sample of the 42 `sound_repetition` and 41 `word_repetition` false
+    negatives from this run's cached data (no new ASR cost) to check how
+    often this "caught as the wrong type" pattern holds versus genuine
+    total loss, following the same hand-verification discipline as
+    §8.2.1/§8.4.4. Elevated ahead of item 18 (latency removal) and ahead
+    of the deferred-learned-tier bullet below — both are premature until
+    this candidate-generation gap, which governs whether either has
+    anything real to operate on, is understood.
+
+**A separate research track opened from this checkpoint, 2026-08-05: see
+`ASR_RESEARCH_TRACK.md`.** Item 19's finding — that real ASR structurally
+discards information certain disfluency types need, independent of any
+detector-side fix — was judged a bigger-than-one-item checkpoint: not
+"how do we improve the detector" but "how do we preserve the
+speech-production information conventional ASR intentionally removes."
+That question gets its own charter document (problem statement,
+literature review, architectural options explored without commitment,
+phased evidence-gated research plan) and its own branch (`asr-research`),
+kept separate so `main` stays stable and shippable throughout. Item 20
+above is that track's Stage A (the systematic, no-new-data information-
+loss audit) — its exit criterion and the stages after it are defined in
+`ASR_RESEARCH_TRACK.md` §8, not duplicated here.
 
 ## Near-term
 
@@ -710,7 +787,13 @@ list, not separate from it.
   and its nested-CV/checkpointing infrastructure exist and are proven on
   item 17). See "First-principles reassessment" above, §3 point 2 and §6:
   this item should be re-opened as a live candidate, evaluated against
-  Track B from the start rather than Track A alone.**
+  Track B from the start rather than Track A alone. **Sequencing update,
+  2026-08-05**: item 20 now sits ahead of this one too — item 19's result
+  shows real ASR barely produces any `word_repetition`/`sound_repetition`
+  candidates in the first place, and a learned classifier trained on the
+  same starved candidate population would inherit the identical ceiling.
+  Understand and address candidate generation first (item 20); revisit
+  this once there's a healthier candidate population to train against.**
 - ~~Ablation studies~~ — **done**, see "Phase 2 is closed" above and `VALIDATION.md`
   §9. Follow-on fine-grained work (e.g. isolating VAD's effect once a
   confidence-sensitive metric exists) stays here.
