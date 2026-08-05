@@ -59,6 +59,7 @@ import phonetic
 
 from .acoustic import _praat_features
 from .config import load_config
+from .repetition_classifier import RepetitionClassifierContext
 
 
 # ── Token normalisation ───────────────────────────────────────────────────────
@@ -492,6 +493,22 @@ def detect_disfluencies(
     rate_alpha     = float(cfg.get("prolongation_rate_alpha",     1.2))
     rate_floor     = float(cfg.get("prolongation_rate_floor",     1.5))
     require_praat_stable = bool(cfg.get("require_praat_stability_for_prolongation", False))
+    # word_repetition/sound_repetition corroboration classifier (2026-08-05,
+    # VALIDATION.md section 12.6.2, CLAUDE.md standing rule 8): defaults ON
+    # -- a pre-registered, cross-validated comparison found this clears the
+    # decision bar decisively (Cohen's d > 1.0, 5/5 folds, non-overlapping
+    # ranges vs. the zero-training-threshold alternative). Graceful no-op
+    # via RepetitionClassifierContext when transformers/torch or the model
+    # artifact are unavailable, or no audio is given -- same principle as
+    # every other optional acoustic component in this file.
+    require_repetition_classifier = bool(
+        cfg.get("require_repetition_classifier_confirmation", True)
+    )
+    rc_ctx = RepetitionClassifierContext(
+        audio_bytes,
+        enabled=require_repetition_classifier
+        and bool({"word_repetition", "sound_repetition"} & enabled),
+    )
 
     # ── Personalize thresholds from a speaker's calibration baseline ──────────
     # Only ever raises a speaker's own bar above the global floor — never
@@ -683,15 +700,38 @@ def detect_disfluencies(
                 elif word.endswith("-") and (prev_low == low or prev_low.startswith(low)):
                     is_fragment_repeat, fragment_first = True, False
 
+            # word_repetition/sound_repetition corroboration classifier gate
+            # (2026-08-05, VALIDATION.md section 12.6.2). Computed lazily,
+            # ONLY when a candidate has actually been found below (is_
+            # fragment_repeat, or the exact-match condition) -- calling
+            # rc_ctx.confirms_repetition() triggers the classifier's
+            # (real, ~30-90s) encoder load on first use, so it must never
+            # run for a token pair that was never going to fire anyway.
+            # Graceful no-op (True) when the classifier is unavailable or
+            # disabled, same convention as praat_ok above.
+            def _rc_ok() -> bool:
+                return (not require_repetition_classifier) or rc_ctx.confirms_repetition(
+                    rows[i].get("start"), rows[i].get("end"),
+                )
+
             if is_fragment_repeat:
-                where = "before" if fragment_first else "after"
-                add(i, "sound_repetition", 0.86,
-                    f"sub-word fragment repeated {where} this word")
+                # Deliberately NOT `if is_fragment_repeat and _rc_ok():` as
+                # an elif condition -- a rejected candidate must not fall
+                # through to the near-repetition check below, which would
+                # trivially re-match the same identical-after-normalization
+                # pair (defeating the gate). The branch is still selected
+                # by is_fragment_repeat alone; _rc_ok() only gates whether
+                # it actually fires.
+                if _rc_ok():
+                    where = "before" if fragment_first else "after"
+                    add(i, "sound_repetition", 0.86,
+                        f"sub-word fragment repeated {where} this word")
 
             # ── Exact back-to-back repetition (word-level) ────────────────────
             elif "word_repetition" in enabled and low and prev_low and low == prev_low:
-                add(i, "word_repetition", 0.92, "same word repeated back-to-back",
-                    _word_repetition_extra(clean))
+                if _rc_ok():  # same non-fallthrough reasoning as above
+                    add(i, "word_repetition", 0.92, "same word repeated back-to-back",
+                        _word_repetition_extra(clean))
 
             # ── Near-repetition (word-level) ──────────────────────────────────
             elif low and prev_low and len(low) >= 2 and len(prev_low) >= 2:

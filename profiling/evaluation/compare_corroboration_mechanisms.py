@@ -1,20 +1,25 @@
-"""compare_corroboration_mechanisms.py — VALIDATION.md §12: 5-fold,
+"""compare_corroboration_mechanisms.py — VALIDATION.md §12/§12.6: 5-fold,
 clip-split cross-validated comparison of (S1,M1), (S1,M3), (S2,M1) —
-see that section for the full pre-registered protocol and reasoning.
+see those sections for the full pre-registered protocol and reasoning.
 
 Consumes the .npz produced by collect_raw_encoder_data.py — no encoder
 pass here, this is pure numpy analysis over already-collected embeddings,
-so it runs in seconds, not minutes.
+so it runs in seconds/minutes, not hours.
 
 Deliberately implements logistic regression (M3) with plain numpy rather
 than adding scikit-learn as a new dependency (§12.3's stated reasoning).
 L2-regularized: with a ~1280-dim embedding and roughly a hundred training
 events per fold, an *unregularized* fit would be badly underdetermined
 (more parameters than samples) — this is a real, stated methodological
-choice, not a hyperparameter search. The L2 strength is fixed, not tuned
-per fold (tuning it would need its own nested CV and is out of scope for
-this comparison) — flagged explicitly in the results as a limitation of
-this specific implementation, not a claim about classifiers in general.
+choice, not a hyperparameter search.
+
+**Nested cross-validation (VALIDATION.md §12.6, added after §12's first
+result used a fixed L2=5.0)**: for each outer fold, the L2 strength is
+selected by an inner, clip-split k-fold CV over that fold's own training
+data only (never touching the outer test fold), then the model is refit
+on the full outer-training set with the selected value before evaluating
+on the outer test fold. This directly answers whether §12.5's result was
+an artifact of the arbitrary fixed L2=5.0 choice.
 
 Usage
 ─────
@@ -35,7 +40,8 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 N_FOLDS = 5
-L2_STRENGTH = 5.0  # fixed, not tuned -- see module docstring
+N_INNER_FOLDS = 3
+L2_GRID = (0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0)
 LR = 0.5
 EPOCHS = 800
 
@@ -85,7 +91,7 @@ def _best_threshold_by_f1(signal: np.ndarray, labels: np.ndarray) -> float:
     return best_t
 
 
-def _fit_logistic_regression(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, float]:
+def _fit_logistic_regression(X: np.ndarray, y: np.ndarray, l2: float) -> tuple[np.ndarray, float]:
     """M3: L2-regularized logistic regression via batch gradient descent."""
     n, d = X.shape
     w = np.zeros(d)
@@ -93,11 +99,50 @@ def _fit_logistic_regression(X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, 
     for _ in range(EPOCHS):
         z = X @ w + b
         p = 1.0 / (1.0 + np.exp(-np.clip(z, -30, 30)))
-        grad_w = X.T @ (p - y) / n + (L2_STRENGTH / n) * w
+        grad_w = X.T @ (p - y) / n + (l2 / n) * w
         grad_b = float(np.mean(p - y))
         w -= LR * grad_w
         b -= LR * grad_b
     return w, b
+
+
+def _select_l2_by_nested_cv(
+    embeddings: np.ndarray, labels: np.ndarray, clip_ids: np.ndarray,
+) -> float:
+    """VALIDATION.md §12.6: pick the L2 strength that maximizes mean F1 over
+    an inner, clip-split k-fold CV -- computed entirely within the caller's
+    outer-training data, never touching the outer test fold. Falls back to
+    the grid's median if there are too few distinct clips to form
+    N_INNER_FOLDS non-empty inner folds (can happen on a small outer-train
+    set), rather than crashing or silently picking a degenerate split."""
+    inner_fold_map = _clip_folds(clip_ids, n_folds=N_INNER_FOLDS)
+    inner_fold_ids = np.array([inner_fold_map[c] for c in clip_ids])
+    n_distinct_folds = len(set(inner_fold_ids.tolist()))
+    if n_distinct_folds < 2:
+        return float(np.median(L2_GRID))
+
+    best_l2, best_f1 = L2_GRID[0], -1.0
+    for l2 in L2_GRID:
+        fold_f1s = []
+        for f in range(N_INNER_FOLDS):
+            test_mask = inner_fold_ids == f
+            train_mask = ~test_mask
+            if test_mask.sum() == 0 or train_mask.sum() == 0:
+                continue
+            X_train, X_test = _standardize(embeddings[train_mask], embeddings[test_mask])
+            y_train = labels[train_mask].astype(np.float64)
+            if len(set(y_train.tolist())) < 2:
+                continue  # can't fit/evaluate meaningfully with one class in inner-train
+            w, b = _fit_logistic_regression(X_train, y_train, l2)
+            proba = 1.0 / (1.0 + np.exp(-np.clip(X_test @ w + b, -30, 30)))
+            pred = (proba >= 0.5).astype(int)
+            _, _, f1 = _prf1(pred, labels[test_mask])
+            fold_f1s.append(f1)
+        if fold_f1s:
+            mean_f1 = float(np.mean(fold_f1s))
+            if mean_f1 > best_f1:
+                best_f1, best_l2 = mean_f1, l2
+    return best_l2
 
 
 def _standardize(train: np.ndarray, test: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -119,20 +164,29 @@ def _cv_threshold(signal: np.ndarray, labels: np.ndarray, fold_ids: np.ndarray) 
     return results
 
 
-def _cv_classifier(embeddings: np.ndarray, labels: np.ndarray, fold_ids: np.ndarray) -> list[tuple[float, float, float]]:
+def _cv_classifier(
+    embeddings: np.ndarray, labels: np.ndarray, fold_ids: np.ndarray, clip_ids: np.ndarray,
+) -> tuple[list[tuple[float, float, float]], list[float]]:
+    """Returns (per-fold precision/recall/F1, per-fold selected L2) -- the
+    L2 list is reported alongside results so the chosen values are part of
+    the permanent record, not just an internal implementation detail."""
     results = []
+    chosen_l2s = []
     for f in range(N_FOLDS):
         test_mask = fold_ids == f
         train_mask = ~test_mask
         if test_mask.sum() == 0 or train_mask.sum() == 0:
             continue
+        l2 = _select_l2_by_nested_cv(embeddings[train_mask], labels[train_mask], clip_ids[train_mask])
+        chosen_l2s.append(l2)
+
         X_train, X_test = _standardize(embeddings[train_mask], embeddings[test_mask])
         y_train = labels[train_mask].astype(np.float64)
-        w, b = _fit_logistic_regression(X_train, y_train)
+        w, b = _fit_logistic_regression(X_train, y_train, l2)
         proba = 1.0 / (1.0 + np.exp(-np.clip(X_test @ w + b, -30, 30)))
         pred = (proba >= 0.5).astype(int)
         results.append(_prf1(pred, labels[test_mask]))
-    return results
+    return results, chosen_l2s
 
 
 def _summarize(name: str, results: list[tuple[float, float, float]]) -> str:
@@ -177,8 +231,10 @@ def run(npz_path: Path) -> None:
         m = mask
         print("  " + _summarize("(S1, M1) distance-to-centroid + threshold",
                                  _cv_threshold(s1[m], labels[m], fold_ids[m])))
-        print("  " + _summarize("(S1, M3) raw embedding + logistic regression",
-                                 _cv_classifier(embeddings[m], labels[m], fold_ids[m])))
+        m3_results, m3_l2s = _cv_classifier(embeddings[m], labels[m], fold_ids[m], clip_ids[m])
+        print("  " + _summarize("(S1, M3) raw embedding + logistic regression (nested-CV L2)",
+                                 m3_results))
+        print(f"    selected L2 per outer fold: {[round(x, 2) for x in m3_l2s]}")
 
         partner_mask = m & has_partner
         n_pos_p = int(labels[partner_mask].sum())

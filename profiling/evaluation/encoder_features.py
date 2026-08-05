@@ -3,83 +3,35 @@ CrisperWhisper's own last-layer encoder hidden states and test them as a
 zero-training corroboration signal for word_repetition/sound_repetition/
 filler, per the protocol pre-registered before this module was written.
 
-`profiling/asr.py` calls CrisperWhisper through `transformers.pipeline()`,
-which never exposes hidden states — only the decoded text/timestamps. This
-module bypasses that wrapper for a direct model call, but deliberately
-loads *only the encoder* (`model.get_encoder()`), not the full seq2seq
-model: Stage 1 only needs the last encoder layer's output
-(`last_hidden_state`, the encoder's default primary output — no
-`output_hidden_states=True` flag or decoding step needed at all), so no
-generation/decoding happens here. This is cheaper than the pre-
-registration assumed, but still real: Whisper always pads to a fixed 30s
-window before the encoder runs, so the encoder pass alone is the dominant
-cost of a full transcription (~44s of the measured ~54s on CPU/fp32 for a
-4s clip — `ARCHITECTURE.md` §3) and is NOT proportionally cheaper for
-shorter clips. See `run_encoder_signal_stage1.py`'s module docstring for
-the resulting run-time/scoping decision this forced.
+**Refactored 2026-08-05** (§12.6.2's decision made the live app need this
+same extraction logic, not just evaluation scripts): the shared,
+model-agnostic primitives (`EncoderStates`, `load_encoder`,
+`extract_last_layer_states`, `pool_span`, `cosine_distance`) now live in
+the core module `profiling/encoder_embedding.py` and are re-exported here
+for backward compatibility — this module keeps only what's genuinely
+evaluation-specific (uses `LabeledClip`-style `ground_truth`, which the
+live detector never has): the fluent-centroid computation and the raw-
+record collection built for §11/§12's measurements. `profiling/
+evaluation/` must never be imported into core app code (this module's own
+historical docstring said so, and now `profiling/repetition_classifier.py`
+depends on `profiling/encoder_embedding.py` instead, keeping that
+boundary intact).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-import os
 from typing import Any
 
 import numpy as np
 
-FRAME_SECONDS = 0.02  # Whisper encoder's fixed output resolution: a 30s
-                       # input window always produces 1500 frames (30 / 1500).
-
-
-@dataclass
-class EncoderStates:
-    hidden_states: np.ndarray  # [n_frames, hidden_dim], float32, last layer only
-    frame_seconds: float = FRAME_SECONDS
-
-
-def load_encoder(model_id: str | None = None):
-    """Load CrisperWhisper's processor + encoder-only submodule directly.
-
-    Returns (processor, encoder). Requires `transformers`/`torch` — not
-    imported at module level so this file's pure-math functions (pool_span,
-    cosine_distance, fluent_centroid) stay importable/testable without them.
-    """
-    from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
-
-    mid = model_id or os.environ.get("CRISPERWHISPER_MODEL", "nyrahealth/CrisperWhisper")
-    processor = AutoProcessor.from_pretrained(mid)
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(mid, low_cpu_mem_usage=True)
-    model.eval()
-    return processor, model.get_encoder()
-
-
-def extract_last_layer_states(processor, encoder, samples: np.ndarray, sr: int) -> EncoderStates:
-    """samples: float32 mono audio in [-1, 1] — the exact shape
-    `profiling.acoustic.load_wav_samples()` already returns, reused here
-    rather than a second WAV decoder."""
-    import torch
-
-    inputs = processor(samples, sampling_rate=sr, return_tensors="pt")
-    with torch.no_grad():
-        out = encoder(inputs.input_features)
-    hidden = out.last_hidden_state[0].to(torch.float32).numpy()
-    return EncoderStates(hidden_states=hidden)
-
-
-def pool_span(states: EncoderStates, start: float | None, end: float | None) -> np.ndarray | None:
-    """Mean-pool encoder frames overlapping [start, end] seconds
-    (VALIDATION.md §11.1's "mean-pooled encoder hidden state across the
-    encoder frames whose time range overlaps [start, end]")."""
-    if start is None or end is None:
-        return None
-    n = states.hidden_states.shape[0]
-    if n == 0:
-        return None
-    f0 = max(0, min(n - 1, int(round(start / states.frame_seconds))))
-    f1 = max(0, min(n - 1, int(round(end / states.frame_seconds))))
-    if f1 < f0:
-        f0, f1 = f1, f0
-    return states.hidden_states[f0:f1 + 1].mean(axis=0)
+from profiling.encoder_embedding import (  # noqa: F401 -- re-exported for backward compatibility
+    FRAME_SECONDS,
+    EncoderStates,
+    cosine_distance,
+    extract_last_layer_states,
+    load_encoder,
+    pool_span,
+)
 
 
 def fluent_centroid(

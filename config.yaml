@@ -37,6 +37,20 @@ profiling:
     # 0.084) simultaneously -- see VALIDATION.md section 9.5 for the full
     # results table and decision.
     require_praat_stability_for_prolongation: true
+    # Hard gate on candidate word_repetition/sound_repetition events: a
+    # small trained classifier (models/repetition_corroboration_
+    # classifier.npz) over CrisperWhisper's own encoder embedding must
+    # confirm the candidate; graceful no-op when transformers/torch, the
+    # model file, or audio are unavailable. Flipped ON 2026-08-05: a
+    # pre-registered, cross-validated comparison found this clears the
+    # decision bar decisively (Cohen's d > 1.0, 5/5 folds, non-
+    # overlapping ranges vs. a zero-training threshold) -- see
+    # VALIDATION.md section 12.6.2/13 for the full results and decision.
+    # Adds real latency when it engages (a second CrisperWhisper encoder
+    # pass, ~30-90s, only on clips with an actual repetition candidate)
+    # -- see ARCHITECTURE.md section 4b before enabling in a latency-
+    # sensitive context.
+    require_repetition_classifier_confirmation: true
     block_gap_seconds: 0.55
     near_repetition_similarity: 0.75
     # Words this short or shorter are compared by pronunciation (ARPAbet phoneme

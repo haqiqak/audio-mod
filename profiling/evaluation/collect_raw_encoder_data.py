@@ -9,6 +9,17 @@ module docstring) — this is a separate run because Stage 1's original
 runner only ever computed and saved the aggregate distance-to-centroid
 number, never the raw embedding vectors §12's comparison needs.
 
+**Checkpointing (added 2026-08-04, after a real run was killed mid-way by
+an unrelated session interruption and lost all progress — nothing had
+been saved, since the original version only wrote output at the very
+end)**: the output `.npz` is now saved after *every* clip, not just at
+completion — cheap relative to the ~30-90s/clip encoder cost this
+project has already measured. If `--out` already exists when this script
+starts, it's loaded as a checkpoint: clips already recorded as processed
+are skipped, and newly-collected records are appended to (not replacing)
+what's already there. Re-running the exact same command after an
+interruption resumes rather than restarting from clip 1.
+
 Usage
 ─────
     python -m profiling.evaluation.collect_raw_encoder_data \\
@@ -51,18 +62,34 @@ def run(data_dir: Path, audio_dir: Path, n_clips: int | None, out_path: Path) ->
         clips = clips[:n_clips]
     print(f"{len(clips)} clips loaded.\n")
 
+    all_records: list[dict] = []
+    processed_clips: set[str] = set()
+    if out_path.exists():
+        all_records, processed_clips = _load_checkpoint(out_path)
+        print(f"Resuming from checkpoint: {out_path} "
+              f"({len(processed_clips)} clips already processed, "
+              f"{len(all_records)} records so far).\n")
+
+    remaining = [c for c in clips if c.name not in processed_clips]
+    if not remaining:
+        print("Nothing left to do -- every requested clip is already in the checkpoint.")
+        return out_path
+    print(f"{len(remaining)} clips remaining to process "
+          f"({len(clips) - len(remaining)} already done).\n")
+
     print("Loading CrisperWhisper's processor + encoder (not the full "
           "model -- no decoding) ...")
     t0 = time.perf_counter()
     processor, encoder = load_encoder()
     print(f"Loaded in {time.perf_counter() - t0:.1f}s.\n")
 
-    all_records: list[dict] = []
     t_encode_total = 0.0
-    for i, clip in enumerate(clips, 1):
+    for i, clip in enumerate(remaining, 1):
         samples, sr = load_wav_samples(clip.audio_bytes) if clip.audio_bytes else (None, None)
         if samples is None:
-            print(f"[{i}/{len(clips)}] {clip.name}: no audio, skipped")
+            print(f"[{i}/{len(remaining)}] {clip.name}: no audio, skipped")
+            processed_clips.add(clip.name)
+            _save_npz(all_records, processed_clips, out_path)
             continue
         events = detect_disfluencies(clip.tokens, audio_bytes=clip.audio_bytes)
 
@@ -75,25 +102,74 @@ def run(data_dir: Path, audio_dir: Path, n_clips: int | None, out_path: Path) ->
             states, clip.name, clip.tokens, clip.ground_truth, events, TARGET_TYPES,
         )
         all_records.extend(records)
-        print(f"[{i}/{len(clips)}] {clip.name}: encoder pass {dt:.1f}s, "
-              f"{len(records)} scorable events")
+        processed_clips.add(clip.name)
 
-    print(f"\nTotal encoder time: {t_encode_total:.1f}s "
-          f"({t_encode_total / max(1, len(clips)):.1f}s/clip average)")
-    print(f"Total scorable events collected: {len(all_records)}\n")
+        # Checkpoint after every clip: cheap (a small compressed array
+        # write) relative to the 30-90s/clip encoder cost, and means an
+        # interruption loses at most one clip's work, not the whole run.
+        _save_npz(all_records, processed_clips, out_path)
 
-    _save_npz(all_records, out_path)
+        print(f"[{i}/{len(remaining)}] {clip.name}: encoder pass {dt:.1f}s, "
+              f"{len(records)} scorable events (checkpointed)")
+
+    print(f"\nTotal encoder time this run: {t_encode_total:.1f}s "
+          f"({t_encode_total / max(1, len(remaining)):.1f}s/clip average)")
+    print(f"Total scorable events (all checkpoints): {len(all_records)}")
+    print(f"Total clips processed (all checkpoints): {len(processed_clips)}\n")
     print(f"Saved: {out_path}")
     return out_path
 
 
-def _save_npz(records: list[dict], out_path: Path) -> None:
+def _load_checkpoint(out_path: Path) -> tuple[list[dict], set[str]]:
+    """Reconstruct the record-dict list + processed-clips set from a
+    previously-saved .npz, so a resumed run can append to it correctly."""
+    data = np.load(out_path, allow_pickle=True)
+    n = len(data["labels"])
+    records = []
+    for i in range(n):
+        partner = None
+        if bool(data["has_partner"][i]):
+            partner = data["partner_embeddings"][i]
+        records.append({
+            "clip_id": str(data["clip_ids"][i]),
+            "index": int(data["indices"][i]),
+            "type": str(data["types"][i]),
+            "label": int(data["labels"][i]),
+            "embedding": data["embeddings"][i],
+            "centroid": data["centroids"][i],
+            "partner_embedding": partner,
+        })
+    processed_clips = set(str(c) for c in data["processed_clips"].tolist())
+    return records, processed_clips
+
+
+def _save_npz(records: list[dict], processed_clips: set[str], out_path: Path) -> None:
     """Pack the variable-shape record list into fixed-width parallel arrays
     for .npz storage. partner_embedding rows that are None are stored as
     NaN-filled vectors with a parallel has_partner boolean array, rather
-    than omitted, so array lengths stay aligned across all fields."""
+    than omitted, so array lengths stay aligned across all fields.
+    `processed_clips` is saved separately from the records themselves so a
+    clip that legitimately produced zero scorable events is still
+    remembered as done (not re-processed on resume)."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     if not records:
-        raise ValueError("No records collected -- nothing to save.")
+        # A checkpoint can legitimately have zero records so far (e.g. the
+        # first several clips had no scorable events) -- save an empty-but-
+        # well-shaped file rather than raising, so resume logic still works.
+        np.savez_compressed(
+            out_path,
+            embeddings=np.zeros((0, 0), dtype=np.float32),
+            centroids=np.zeros((0, 0), dtype=np.float32),
+            partner_embeddings=np.zeros((0, 0), dtype=np.float32),
+            has_partner=np.zeros(0, dtype=bool),
+            labels=np.zeros(0, dtype=np.int64),
+            clip_ids=np.empty(0, dtype=object),
+            indices=np.zeros(0, dtype=np.int64),
+            types=np.empty(0, dtype=object),
+            processed_clips=np.array(sorted(processed_clips), dtype=object),
+        )
+        return
 
     hidden_dim = records[0]["embedding"].shape[0]
     n = len(records)
@@ -117,7 +193,6 @@ def _save_npz(records: list[dict], out_path: Path) -> None:
             partner_embeddings[i] = r["partner_embedding"]
             has_partner[i] = True
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         out_path,
         embeddings=embeddings,
@@ -128,6 +203,7 @@ def _save_npz(records: list[dict], out_path: Path) -> None:
         clip_ids=clip_ids,
         indices=indices,
         types=types,
+        processed_clips=np.array(sorted(processed_clips), dtype=object),
     )
 
 
