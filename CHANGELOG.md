@@ -8,6 +8,16 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-05 (asr-research branch)
 
+- **`main`/`asr-research` pushed to GitHub and verified in sync**
+  (hashes compared directly, not just trusted push output). Added an
+  "Interpretation" section to `ASR_RESEARCH_TRACK.md` §8 before Stage C:
+  what Stages A+B have and haven't established (a real aggregate effect
+  for `sound_repetition`, not yet instance-level or confound-resolved),
+  three competing hypotheses Stage C should distinguish (duration
+  confound / genuine signature / real-but-not-actionable), and a
+  concrete design consequence — Stage C needs a duration-only baseline
+  comparison arm. → *PAPER_DECISION_LOG.md, "Interpretation added before
+  Stage C: uncertainty, rationale, competing hypotheses"*.
 - **Stage B (representation-level probe) done: mixed result, reported
   honestly.** Pre-registered hypothesis test (positive/negative/
   inconclusive all acceptable): does CrisperWhisper's encoder retain

@@ -739,6 +739,91 @@ every type this track cares about behaves the same way**, which is
 itself evidence against treating "does the encoder help" as one
 project-wide yes/no question.
 
+### Interpretation: what remains uncertain after Stages A+B, and why Stage C is the right next experiment (2026-08-05)
+
+**What Stages A and B have actually established, precisely stated.**
+Stage A: roughly half of `sound_repetition`/`word_repetition` losses on
+real ASR happen even at correctly-transcribed positions, and the
+surface-level mechanism differs by type (fragment loss vs. pair-breaking).
+Stage B: for `sound_repetition`, there is a real, measurable, *aggregate*
+statistical difference — as a group, the 19 "normalized away" positions
+sit farther from the fluent centroid than the 966 genuinely fluent
+control positions, at an effect size (d=0.894) too large to dismiss as
+noise. That is what has been shown. It is not yet the same thing as
+"this is usable evidence for detection."
+
+**The scientific uncertainty that remains, stated as open questions, not
+assumed answers:**
+
+1. **Is the Stage B signal a genuine disfluency signature, or a duration
+   artifact wearing a disfluency's clothes?** A token that absorbed a
+   fragment is very likely longer than an ordinary token of the same
+   word — Stage B named this confound before running and could not
+   resolve it with the design used. The result is consistent with either
+   "the encoder detected the disfluent production itself" or "the
+   encoder detected an unusually long span, which happens to correlate
+   with where disfluencies occur." Both produce the same group-level
+   effect size; nothing measured so far distinguishes them.
+2. **Is a real aggregate effect strong enough at the instance level to
+   build anything on?** Cohen's d=0.894 describes a *population*
+   difference — two overlapping distributions with different means. It
+   does not by itself say whether a threshold or classifier operating on
+   one position at a time could separate individual disfluent positions
+   from individual fluent ones at a precision/recall this project could
+   actually ship. A real, sizeable group effect and a usable per-instance
+   detector are related but different claims, and only the first has been
+   tested.
+3. **`word_repetition` remains genuinely open.** Not negative, not
+   positive — undetermined whether a real, smaller effect exists there or
+   whether the more indirect test design simply can't see one at n=17.
+
+**Why Stage C is the correct next experiment, not a premature jump to
+implementation.** Stage C is the cheapest available step that can
+actually discriminate between the possibilities above, because it
+requires the signal to do something a group-mean comparison never
+tested: separate *individual* real candidates from individual non-
+candidates, scored against real ground truth (Track B, not just an
+aggregate distance comparison) — exactly the standard this project holds
+every other detector-side claim to (`ROADMAP.md` item 19's own lesson:
+never trust a Track-A-style or aggregate-only number for a claim about
+real-world detection value). Building and evaluating a small,
+representation-native candidate mechanism for `sound_repetition` is a
+direct, falsifiable test of whether Stage B's aggregate result survives
+contact with the same "does this actually help" standard the repetition
+classifier was held to before it shipped.
+
+**Competing hypotheses Stage C is designed to distinguish:**
+
+- **H1 — Duration confound.** The signal is mainly token duration, not a
+  disfluency signature. Predicts: a representation-native detector built
+  on this signal performs little better than a naive "flag unusually
+  long words" baseline, with poor precision (many long-but-fluent words
+  falsely flagged).
+- **H2 — Genuine acoustic disfluency signature.** The encoder captures
+  something about the disfluent production itself (a residual trace of
+  the aborted repetition, altered voicing/energy/pitch at the boundary)
+  that is separable from duration alone. Predicts: the detector
+  meaningfully beats a duration-only baseline and holds up across
+  different words and durations, not just long ones.
+- **H3 — Real but not (yet) actionable.** The group-level effect is real
+  (Stage B stands either way) but individual disfluent and fluent
+  positions overlap too much for a usable per-instance decision rule with
+  this signal alone. Predicts: no threshold or simple classifier reaches
+  acceptable precision/recall, even though the aggregate difference is
+  genuine — a different, more specific conclusion than H1, and one that
+  would point toward combining this signal with others (Stage C's own
+  fusion-style precedent, §6e) rather than abandoning it.
+
+**One concrete design consequence for Stage C's own pre-registration,
+noted here rather than deferred silently**: because H1 vs. H2 is exactly
+the confound question Stage B couldn't resolve, Stage C's protocol should
+include an explicit duration-only baseline as a comparison arm (flag
+positions whose real-ASR token duration is anomalous for that word,
+using no encoder signal at all) — not just a "does the new detector work
+in isolation" evaluation. Beating that baseline, not just beating chance,
+is what would separate H2 from H1 with real evidence rather than
+continuing to carry the same unresolved confound forward.
+
 **Stage C — Build a representation-native (not decoded-text-dependent)
 candidate path for the types Stage B confirms carry recoverable signal.**
 Extends this project's own `block`/`prolongation` precedent (§6f) to

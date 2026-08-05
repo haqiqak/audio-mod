@@ -4800,3 +4800,55 @@ distances, saved). No production code changed; full test suite unaffected
 (new file has no test coverage yet — analysis script, not app code, same
 convention as other `profiling/evaluation/` scripts). On the
 `asr-research` branch only — `main` untouched.
+
+---
+
+## 2026-08-05 — Interpretation added before Stage C: uncertainty, rationale, competing hypotheses
+
+**What was done**
+Per the project owner's explicit request, pushed `main` and
+`asr-research` to GitHub before any further work (`git push origin
+main`, `git push -u origin asr-research`), then re-fetched and directly
+compared local vs. remote commit hashes (not just trusted the push
+output) to confirm both branches are backed up: `main` local/remote
+`e7add1b`, `asr-research` local/remote `d68de95`, both exact matches,
+`git branch -vv` showing no ahead/behind drift.
+
+Added an "Interpretation" section to `ASR_RESEARCH_TRACK.md` §8, written
+before any Stage C code, stating precisely what Stages A and B have and
+haven't established (a real aggregate group-level effect for `sound_
+repetition`, not yet an instance-level, actionable, or confound-resolved
+one), three named competing hypotheses Stage C should distinguish
+(duration confound / genuine acoustic signature / real-but-not-yet-
+actionable), and one concrete design consequence: Stage C's own
+pre-registration should include an explicit duration-only baseline
+comparison arm, not just "does the new detector work in isolation,"
+since that is the direct test that separates the duration-confound
+hypothesis from the genuine-signature one.
+
+**Alternatives considered**
+- Proceed straight to Stage C's implementation without a written
+  interpretation step. **Rejected**: the owner explicitly asked for this
+  as a distinct, prerequisite step, and it surfaced a concrete
+  methodological improvement (the duration-only baseline arm) that
+  Stage C's own pre-registration would otherwise have missed — writing
+  the interpretation first paid for itself immediately, not just as
+  documentation hygiene.
+- Trust the `git push` command's own success output as sufficient
+  confirmation of backup. **Rejected**, per the owner's explicit
+  instruction to verify, not assume: re-ran `git fetch` and compared
+  hashes directly.
+
+**Why this choice**
+Matches this track's own standing discipline (§8's own stage-gate
+pattern) applied one level up: before spending real effort on Stage C's
+implementation, state clearly what is and isn't yet known, so Stage C is
+designed to answer the actual open question (is this signal usable and
+genuine) rather than just "does a stronger version of Stage B's number
+exist."
+
+**Measured result**
+Not a numeric result — an interpretive addition and a verified backup.
+`ASR_RESEARCH_TRACK.md` §8 (new "Interpretation" subsection). No code
+changes. `main`/`asr-research` confirmed pushed and in sync with
+`origin` before this entry was written.
