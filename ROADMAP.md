@@ -11,6 +11,198 @@ deleting the line.
 
 ---
 
+## First-principles reassessment (2026-08-05) — a strategic gut-check, not an evidence log
+
+**What this section is, and isn't.** Every other section of this file is a
+chronological record: what was proposed, what was found, what shipped. This
+section is different in kind — it's a deliberate exercise in setting that
+whole record aside and asking, from the project's stated objective alone
+("given arbitrary speech recorded through a microphone, detect, classify,
+and localize disfluencies as accurately as possible so they can later be
+corrected"), whether the path the record describes is still the path worth
+being on. It was written in response to the project owner asking exactly
+that — not "what did we do" but "if you'd never seen this roadmap, what
+would you do next?" Where it disagrees with the rest of this file, that
+disagreement is the point; it is not a correction of prior entries (which
+stay, per this file's own append-discipline) but a fresh answer to a
+different question, checked against the actual code rather than against
+this file's own prior narrative.
+
+**The finding that anchors it.** `profiling/evaluation/track_a.py`'s
+`evaluate()` calls `detect_disfluencies(clip.tokens, audio_bytes=clip.
+audio_bytes)` — and `clip.tokens` are LibriStutter's own ground-truth/
+reconstructed annotation tokens (via `load_libristutter_dir_with_audio`),
+never CrisperWhisper's real transcription output. That is Track A by
+design (§3 of this project's evaluation methodology) — a legitimate,
+pre-registered, honestly-labeled thing to measure. But it means **every
+piece of Phase 3 work to date** — Stage 1's encoder-signal validation
+(`run_encoder_signal_stage1.py`), the raw-embedding collection
+(`collect_raw_encoder_data.py`), the corroboration-mechanism comparison
+(`compare_corroboration_mechanisms.py`), and the integrated-gate benchmark
+that produced item 17's headline `Any` F1 0.631→0.890 result
+(`benchmark_integrated_gate.py`) — reuses that same ground-truth-token
+loading path. None of it has ever seen real ASR output. And separately:
+Track B (the one harness that *does* run real ASR) was last executed as
+120 speaker-stratified clips on 2026-08-04, **before** the `sound_
+repetition` fix, the prolongation redesign, or the repetition classifier
+existed. Nothing shipped in Phase 2 or Phase 3 has been re-checked against
+Track B since. Both facts are independently verifiable by reading the
+scripts named above; neither is a new measurement, just a noticing.
+
+### 1. Would we still choose this architecture, starting today?
+
+The two-stage ASR-then-detect split itself: yes — `PHASE_3_ARCHITECTURE_
+REVIEW.md` already re-litigated this from scratch against 2024-2026
+literature and found no alternative (SSL classifiers, end-to-end
+audio-region models, joint ASR+detection training) decisively better
+without infrastructure this project doesn't have. No new evidence here
+changes that.
+
+What I would *not* rebuild the same way is this project's **evaluation
+architecture**. Track A is fast (no ~30-90s/clip ASR cost) and free to
+iterate against, so nearly every fast feedback loop built this session —
+encoder-distance stats, nested cross-validation, the classifier itself —
+plugged into it by default, because it's the metric that's cheap to check
+against, not necessarily the one that answers the project's actual
+question. That's a defensible engineering shortcut for any single
+experiment. Left unexamined across two full phases, it quietly became the
+project's real optimization target.
+
+### 2. Are we optimizing the right problems?
+
+Split the last two phases' detector-side changes into two categories, and
+the answer differs by category:
+
+- **Transcript-fidelity-independent fixes** — the `sound_repetition`
+  ordering fix (item 3) and the `prolongation` Praat-gating redesign
+  (item 5). These are legitimately validated by Track A alone, because
+  their correctness doesn't depend on what ASR wrote down: a Praat-measured
+  pause is a Praat-measured pause regardless of the transcript, and an
+  ordering bug in candidate matching only ever helps once a candidate's
+  text has already survived to the detector. Track A is the right tool for
+  these, and shipping them on Track A evidence was sound reasoning, not a
+  shortcut.
+- **Transcript-fidelity-dependent work** — the repetition classifier (item
+  17). Its entire premise is "given a text-identical repeated-word
+  candidate, is it a real disfluency or a coincidental repeat" — a
+  question about candidates that *survived* to the detector. It says
+  nothing about candidates ASR corrupted or dropped before they ever
+  became candidates, and Phase 1's own numbers say that's where most of
+  the real-world recall loss already lives (~99%→~6-15% Track A→B recall;
+  35.1% detector-attributable vs. 64.9% ASR-attributable at full speaker
+  diversity, item 2). The classifier improves precision among survivors —
+  real, but narrower than "improves disfluency detection on arbitrary
+  microphone speech," and untested against the actual bottleneck.
+
+Verdict: not misdirected, but increasingly narrow. Two phases have made
+the "given an intact transcript" case measurably better without a single
+re-check of whether that translates to the "given real ASR output" case —
+which is the actual stated objective, and which this project's own Phase 1
+proved is not the same case.
+
+### 3. Assumptions that no longer deserve to survive unexamined
+
+1. **"Track A improvement → ship it, Track B validation can wait."**
+   Correct for the two transcript-agnostic fixes above. It was never
+   re-derived per decision, though, and the repetition classifier shipped
+   under the same blanket assumption without the property (fidelity
+   independence) that made it safe for the earlier two. This needs to be a
+   per-decision check, not a standing default.
+2. **"No training pipeline exists, so the learned tier stays deferred."**
+   Literally false now. `train_repetition_classifier.py`, checkpointed
+   data collection, and nested-CV regularization selection are real,
+   working infrastructure, built this session. The "Near-term" section's
+   "deferred learned tier" bullet still argues from the old premise —
+   worth re-opening on its own merits (§6 below), not left parked on
+   reasoning that predates the thing it's reasoning about.
+3. **Item 10's framing (second ASR backend / real speech as a "parallel
+   generalization check," not a prerequisite)** was correct reasoning for
+   Phase 2's transcript-agnostic fixes. It does not straightforwardly carry
+   over to the classifier, whose validity is specifically a question about
+   real ASR behavior.
+4. **The implicit assumption that a Track A F1 gain is informative about
+   deployment value on its own, absent any Track B check.** This is the
+   one most worth retiring as a default: Phase 1's own headline finding
+   already contradicts it in general (most of this app's real-world
+   behavior is governed by what ASR did to the audio, not by what the
+   detector does with clean text), and nothing since has re-tested whether
+   that finding still applies to what's shipped since.
+
+### 4. Is the current roadmap still what I'd choose?
+
+Not in its current ordering. Items 14-16 (dataset expansion) and item 10
+(second ASR backend / real disfluent speech) currently read as
+lower-priority / parallel — accurate for the era when the only shipped
+work was transcript-agnostic. As written today, the roadmap's most natural
+next step is item 18 (removing the classifier's live-app latency cost) —
+polishing the delivery of a component whose real-world benefit hasn't yet
+been checked at all. That's effort spent making an unvalidated result
+faster, before spending a much cheaper amount of effort finding out
+whether it's valid.
+
+### 5. Locally optimal, or globally optimal?
+
+Locally optimal, in a specific and nameable way: the project climbed the
+gradient of the metric that's cheapest to iterate against (Track A — no
+ASR cost, existing infrastructure) and built increasingly sophisticated
+machinery on top of it (encoder embeddings, nested cross-validation, a
+trained classifier), while the metric that's actually proven to reflect
+the stated objective (Track B) has been run exactly three times in this
+project's history — a 30-clip pilot, a 90-clip run, and the 120-clip
+speaker-stratified run — all of them **before** any Phase 2 or Phase 3
+detector change shipped. Zero Track B runs since. That is the textbook
+shape of local optimization: real, honest, well-validated progress on the
+easy-to-measure proxy, with no recent check on whether it moved the hard-
+to-measure target.
+
+### 6. Higher-impact directions that should replace some current Phase 3 work
+
+**Elevate:**
+- Re-run Track B (the existing 120-clip speaker-stratified sample — no new
+  acquisition needed) with today's code, classifier gate on and off. Cheap
+  relative to the work it would be validating, and directly answers
+  whether anything shipped in Phase 2 or Phase 3 has moved the real-world
+  number at all. This is the single highest-leverage thing not yet done.
+- Item 10 (second ASR backend / FluencyBank): promote from "parallel
+  generalization check" to a real prerequisite for trusting the next
+  Track-A-only detector change, given the classifier precedent above.
+- The deferred learned tier (WavLM/wav2vec2 classifier, "Near-term"
+  section): re-open as a live candidate now that a training pipeline
+  exists — evaluated Track-B-first this time, not Track-A-alone.
+
+**De-prioritize:**
+- Item 18 (removing the classifier's latency cost). Optimizing the
+  delivery cost of a component whose real-world benefit is unverified is
+  premature — verify the benefit first; the latency work is still worth
+  doing, just not next.
+
+### 7. The single biggest bottleneck
+
+Not a specific undetected disfluency type, not the absence of a training
+pipeline (that objection no longer holds — §3.2), not latency. It is that
+**this project has no closed feedback loop between "a change looks good on
+Track A" and a confirmed check that it helped on Track B.** Every answer
+above traces back to this one gap. Closing it is not expensive — the
+alignment and caching infrastructure already exists, and the sample
+already exists — it has simply not been re-run since the things it would
+be validating were built.
+
+### What this implies for next steps
+
+This section is analysis, not an authorization to act — per standing rule
+4, no threshold/config/architecture change follows from it automatically.
+The concrete, evidence-seeking next step it argues for is tracked as item
+19 below, and items 10 and the deferred-learned-tier bullet are
+re-flagged (not re-ordered or renumbered) accordingly. If a fresh Track B
+run confirms the shipped Track-A wins transfer, this section's concern is
+answered and the existing Phase 3 ordering can resume as-is. If it
+doesn't, that gap — not any item currently below — becomes the project's
+real next finding to chase, and the reason will be traceable (candidate-
+generation loss vs. genuine transfer failure) using infrastructure that
+already exists.
+
+---
+
 ## Phase 1 is closed (2026-08-03)
 
 Validation, Benchmarking, Analysis, and Scientific Understanding — see
@@ -238,7 +430,14 @@ for these three (see item 10's revised framing below).
     Track B pipeline on the same audio already downloaded — cheaper than a
     new dataset, no new licensing/acquisition; (b) integrate FluencyBank
     Timestamped (real people who stutter, word-level timestamps — see item
-    16 below) and re-run Track B against it.
+    16 below) and re-run Track B against it. **Re-flagged, 2026-08-05
+    (see "First-principles reassessment" above): this item's own framing
+    below ("no longer a blocking prerequisite") was reasoned about
+    transcript-agnostic Phase 2 fixes specifically — it does not
+    automatically extend to item 17's classifier, whose validity is a
+    question about real ASR behavior. Item 19 (a Track B re-run) is the
+    cheaper, more immediate check; this item remains the deeper
+    cross-backend generalization question behind it.**
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every
@@ -471,6 +670,22 @@ list, not separate from it.
     per `requirements.txt`'s own standing warning about touching this
     code path) before being attempted.
 
+19. **[New, 2026-08-05, from the "First-principles reassessment" section
+    above] Re-run Track B on the existing 120-clip speaker-stratified
+    sample with today's code, repetition-classifier gate on and off, before
+    any further Track-A-only detector work.** Every Phase 2 detector fix
+    (`sound_repetition`, `prolongation`) and Phase 3's classifier gate
+    (item 17) were validated exclusively on Track A (ground-truth
+    transcript tokens — confirmed by direct inspection of `track_a.py`'s
+    `evaluate()`); Track B has not been run since any of them shipped. No
+    new data acquisition needed — this is a re-run against an existing
+    sample using existing infrastructure (`track_b.py`, the per-clip ASR
+    cache). Directly answers whether this project's last two phases of
+    work have moved the number that actually reflects the stated
+    objective. Elevated ahead of item 18 (see reassessment §4/§6) — do not
+    spend further effort on the classifier's delivery cost before checking
+    whether its benefit survives real ASR output.
+
 ## Near-term
 
 - **Validate `block` against SEP-28k/KSoF specifically** — LibriStutter's
@@ -489,7 +704,13 @@ list, not separate from it.
   clear evidence-backed next architectural step, deliberately deferred until
   a baseline exists to prove it actually helps — that baseline now exists
   (§8.3) — see `PAPER_DECISION_LOG.md`'s 2026-08 restructuring entry for the
-  full reasoning on why this wasn't built immediately.
+  full reasoning on why this wasn't built immediately. **Re-flagged,
+  2026-08-05: the other half of the original deferral reasoning — "no
+  training pipeline exists" — is now false (`train_repetition_classifier.py`
+  and its nested-CV/checkpointing infrastructure exist and are proven on
+  item 17). See "First-principles reassessment" above, §3 point 2 and §6:
+  this item should be re-opened as a live candidate, evaluated against
+  Track B from the start rather than Track A alone.**
 - ~~Ablation studies~~ — **done**, see "Phase 2 is closed" above and `VALIDATION.md`
   §9. Follow-on fine-grained work (e.g. isolating VAD's effect once a
   confidence-sensitive metric exists) stays here.
@@ -579,37 +800,24 @@ dropped — do not re-litigate without new evidence.
 
 ## Completed
 
-- **`sound_repetition` fragment-ordering bug fixed and measured — the
-  first real detector code change of Phase 2** — 2026-08-04. Recall
-  0.000→0.920 on the full 499-clip benchmark; `Any` label exactly
-  unchanged (pure type-reclassification). Root cause was deeper than
-  previously documented (both orderings were broken, not just one) — see
-  `VALIDATION.md` §8.2.1. A related Track B cache-staleness bug found and
-  fixed alongside it (cache now stores ASR output only, detector output
-  always recomputed fresh). See `PAPER_DECISION_LOG.md`.
-- **Roadmap reprioritized by evidence: second-ASR-backend gate lifted for
-  three detector-side items** — 2026-08-04. Explicitly re-examined
-  whether item 10 (second ASR backend) remained a necessary prerequisite
-  for the prolongation redesign and the `sound_repetition`/
-  `phrase_repetition` fixes, now that speaker-stratified Track B had
-  completed. Decision: no — all three rest on Track A/literature evidence
-  that never involved ASR. Item 10 re-scoped from blocking prerequisite to
-  parallel generalization check. See `PAPER_DECISION_LOG.md`.
+Full detail for items already covered above (struck-through in the
+numbered Phase 2/3 list) is not repeated here — see item 1-16's own text
+for `sound_repetition`'s fix, the second-ASR-backend gate lift, the
+speaker-stratified Track B result, and the Phase 1/2 opening reviews. This
+section covers everything else: earlier work with no corresponding
+numbered item above, plus a couple of one-line pointers back for
+chronological completeness.
+
+- **`sound_repetition` fragment-ordering fix** — see item 3 above.
+- **Second-ASR-backend gate lifted for three detector-side items** — see
+  the note directly above item 3 above.
 - **"Whisper did not predict an ending timestamp" warning investigated and
   confirmed external** — 2026-08-04. Verified via direct evidence (not
   assumed): our own token budget has ample headroom on every clip checked;
   the warning originates from `transformers`' own Whisper decoding logic.
   No fix needed. See `ARCHITECTURE.md` §3 and `PAPER_DECISION_LOG.md`.
-- **Speaker-stratified Track B: the "~0% detector-attributable" finding
-  revised, not confirmed** — 2026-08-04. Resolved the Phase 1 closing
-  review's speaker-clustering caveat directly: re-ran Track B across all
-  40 speakers (120 clips, pre-registered before running). `R_B|preserved_
-  ctx1` recall dropped from 1.0 (7 speakers) to 0.667 (40 speakers);
-  decomposition revised to 35.1% detector-attributable / 64.9%
-  ASR-attributable — ASR-fidelity remains the majority driver. Hand-traced
-  every miss to `sound_repetition`/`phrase_repetition`'s already-known
-  structural gaps (item 10), not `word_repetition` or a new failure mode.
-  See `VALIDATION.md` §8.4.3 and `PAPER_DECISION_LOG.md`.
+- **Speaker-stratified Track B (35.1%/64.9% detector/ASR attribution
+  split)** — see item 2 above.
 - **Per-type definition audit: literature vs. dataset vs. implementation**
   — 2026-08-03. Full audit: `PHASE_2_RESEARCH_PLAN.md` §10. For each of
   the 7 types, checked whether our detector's exact operational trigger
@@ -625,39 +833,18 @@ dropped — do not re-litigate without new evidence.
   datasets themselves make (documented, not actioned);
   `phrase_repetition` found to be more faithful to the literature than any
   available dataset's own label. See `PAPER_DECISION_LOG.md`.
-- **Adversarial self-review of the Phase 2 plan + Step 1 implemented and
-  benchmarked** — 2026-08-03. Actively tried to disprove
-  `PHASE_2_RESEARCH_PLAN.md`'s own conclusions (`PHASE_2_RESEARCH_PLAN.md`
-  §9); found and fixed weak sourcing on the prolongation-first claim
-  (upgraded from one preprint to two peer-reviewed sources), directly
-  addressed the rule-based-vs-deep-learning tension, found no direction
-  strong enough to change the plan's ordering. Implemented Step 1
-  (taxonomy/documentation refinements: `word_repetition` SLD/OD sub-tag,
-  explicit dataset-validation-status labeling, silent-only-block
-  documentation) and **benchmarked it against the frozen Phase 1 Track A
-  baseline — confirmed byte-for-byte identical**, proving the change is
-  purely additive. See `PAPER_DECISION_LOG.md`.
-- **Phase 2 opening literature review: taxonomy checked against the field
-  before any implementation** — 2026-08-03. Full review:
-  `PHASE_2_RESEARCH_PLAN.md`. Core 5-type taxonomy (filler, sound_repetition,
-  word_repetition, block, prolongation) confirmed scientifically sound
-  against clinical speech-pathology and computational-detection literature —
-  no redesign needed. Found a real, cheap, additive taxonomy refinement
-  (monosyllabic/polysyllabic split for `word_repetition`); confirmed a real,
-  previously-undocumented architectural gap (`block` is silent-only, no
-  audible/struggle sub-type); identified prolongation as the
-  highest-confidence Phase 2 detector-side target via three converging
-  sources of evidence; independently corroborated two of Phase 1's own
-  findings via unrelated external studies. See `PAPER_DECISION_LOG.md`.
-- **Phase 1 (Validation, Benchmarking, Analysis, Scientific Understanding)
-  formally closed** — 2026-08-03. Critical review of the full methodology
-  (`VALIDATION.md` §7.2–§7.4): fixed the Track B decomposition's $R_A$
-  approximation (now exact, not approximated); identified and scoped two
-  new generalization limits (speaker-clustering in the Track B subset,
-  items 1–2 above; single-ASR-backend/single-dataset dependence, item 1
-  above); reconciled documentation drift across `README.md`/
-  `ARCHITECTURE.md`/`VALIDATION.md`. Closing summary: `PHASE_1_SUMMARY.md`.
-  See `PAPER_DECISION_LOG.md`.
+- **Adversarial self-review of the Phase 2 plan** — 2026-08-03. Actively
+  tried to disprove `PHASE_2_RESEARCH_PLAN.md`'s own conclusions
+  (`PHASE_2_RESEARCH_PLAN.md` §9): found and fixed weak sourcing on the
+  prolongation-first claim (upgraded from one preprint to two peer-reviewed
+  sources), directly addressed the rule-based-vs-deep-learning tension,
+  found no direction strong enough to change the plan's ordering. See
+  `PAPER_DECISION_LOG.md`. (Step 1's implementation itself is item 1
+  above.)
+- **Phase 2 opening literature review** — see "Phase 2 opening literature
+  review is done" section above.
+- **Phase 1 formally closed** — see "Phase 1 is closed" section above;
+  full closing summary in `PHASE_1_SUMMARY.md`.
 - **Track B scaled 30 → 90 clips — context-strict finding confirmed as a
   major research conclusion** — 2026-08-03. `R_B|preserved_ctx1` recall =
   1.0 again at n=7 (up from n=2), stable ~5.5% sample-attrition rate. The

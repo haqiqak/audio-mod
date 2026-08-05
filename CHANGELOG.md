@@ -8,6 +8,19 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-05
 
+- **First-principles reassessment written into `ROADMAP.md`**: re-checked
+  the whole project against its stated objective from scratch. Confirmed
+  by direct code inspection that Phase 3's entire shipped result (the
+  repetition classifier, item 17) was validated only on Track A
+  (ground-truth transcript tokens — `track_a.py`'s `evaluate()` never
+  touches real ASR output), and that no Phase 2/3 detector change has
+  been re-checked against Track B since it was last run (2026-08-04,
+  before any of them shipped). New `ROADMAP.md` item 19 (re-run Track B
+  before further Track-A-only work); item 10 and the deferred-learned-
+  tier bullet re-flagged in place. Also trimmed ~5 duplicated entries in
+  `ROADMAP.md`'s "Completed" section down to pointers. → *PAPER_DECISION_
+  LOG.md, "First-principles reassessment of the whole project, written
+  into ROADMAP.md"*.
 - **Decision executed in full: (S1, M3) implemented, benchmarked, and
   shipped as the new default.** Trained the final classifier (`models/
   repetition_corroboration_classifier.npz`, this project's first

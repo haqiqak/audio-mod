@@ -4321,3 +4321,87 @@ train_repetition_classifier.py`, `benchmark_integrated_gate.py` (new).
 (new subsection) + known-limitations entry. `VALIDATION.md` §13/§13.1/
 §13.2 (implementation, benchmark, latency limitation). Full suite: 66/66
 (was 59/59). `ROADMAP.md` item 17 to be marked fully implemented.
+
+---
+
+## 2026-08-05 — First-principles reassessment of the whole project, written into ROADMAP.md
+
+**What was done**
+The project owner asked a deliberately roadmap-blind question: ignoring
+everything already planned, and starting only from the project's stated
+objective (detect/classify/localize disfluencies in arbitrary microphone
+speech), what would the next step actually be? This was treated as a real
+audit, not a rhetorical exercise — re-derived by reading code directly
+rather than trusting this log's own prior narrative. Direct inspection of
+`profiling/evaluation/track_a.py`'s `evaluate()` confirmed
+`detect_disfluencies(clip.tokens, audio_bytes=clip.audio_bytes)` is called
+with `clip.tokens` sourced from LibriStutter's own ground-truth/
+reconstructed annotations (`load_libristutter_dir_with_audio`), never
+CrisperWhisper's real ASR output. Because Stage 1 (`run_encoder_signal_
+stage1.py`), the raw-embedding collection (`collect_raw_encoder_data.py`),
+the corroboration-mechanism comparison (`compare_corroboration_
+mechanisms.py`), and the integrated-gate benchmark (`benchmark_integrated_
+gate.py`) all reuse this same clip-loading path, **the entirety of item
+17 — Phase 3's first and only shipped result — has been validated
+exclusively under perfect-transcript conditions.** Separately confirmed:
+Track B (the harness that does run real ASR) was last executed as 120
+speaker-stratified clips on 2026-08-04, before the `sound_repetition` fix,
+the prolongation redesign, or the repetition classifier existed — none of
+Phase 2 or Phase 3's shipped detector changes have been re-checked against
+it since.
+
+The full reassessment (answering the owner's seven specific questions —
+architecture choice, right-problem check, assumptions that shouldn't
+survive, roadmap re-ranking, local-vs-global optimization, higher-impact
+alternatives, single biggest bottleneck) was written into `ROADMAP.md`
+under a new, clearly-scoped "First-principles reassessment" heading,
+explicitly marked as a different kind of content from the rest of that
+file (analysis, not a chronological log) so a reader knows which lens
+they're reading under. A new item 19 (re-run Track B on the existing
+120-clip sample, gate on/off, before any further Track-A-only detector
+work) was added as the concrete, actionable output of the reassessment;
+item 10 and the "deferred learned tier" Near-term bullet were annotated
+in place (not renumbered or deleted) noting that their original deferral
+reasoning no longer fully applies. `ROADMAP.md`'s "Completed" section was
+also trimmed where it duplicated full text already carried by the
+numbered Phase 2/3 list (items 1-16), replacing ~5 duplicated paragraphs
+with one-line pointers back to the item that already has the detail.
+
+**Alternatives considered**
+- Treat this as a rhetorical/framing exercise and write a section that
+  restates existing conclusions in the requested voice. **Rejected**: the
+  owner's own standing instructions for this project ("optimize toward
+  discovering the truth," "treat contradicted expectations as findings")
+  apply here as much as to any experiment; a reassessment that doesn't
+  risk finding something uncomfortable isn't a reassessment.
+- Act immediately on the reassessment's conclusion (e.g., re-run Track B
+  in this same session). **Rejected for now**: the owner's immediately
+  preceding request explicitly scoped this session to documentation
+  ("do not begin any new research, experiments, implementations... unless
+  a genuine inconsistency must be corrected first") and the current
+  request asked specifically for the reassessment to be written into
+  `ROADMAP.md`, not executed. The re-run is recorded as item 19 for a
+  deliberate future go-ahead, consistent with standing rule 4.
+- Renumber `ROADMAP.md`'s items during the redundancy cleanup for a
+  cleaner read. **Rejected**: `VALIDATION.md`, `HANDOFF.md`, and this log
+  all cite specific item numbers; renumbering would silently break every
+  existing cross-reference for a purely cosmetic gain.
+
+**Why this choice**
+Directly answers what was asked, grounded in a re-verified fact (not
+re-cited from memory) rather than a repackaging of prior conclusions —
+and the fact itself is materially important: it means the project's most
+recent and most sophisticated piece of work (the trained classifier) is
+also the piece with the least-tested connection to the project's actual
+real-world objective, which is exactly the kind of thing standing rule 8
+("evidence-constrained, not preservation-constrained") exists to surface
+rather than let ride on the strength of Track A's own polish.
+
+**Measured result**
+Not a numeric result — a documentation/strategy change.
+`ROADMAP.md`: new "First-principles reassessment" section (~7 sub-answers
++ a concrete next-steps list), new item 19, annotations on item 10 and the
+Near-term "deferred learned tier" bullet, ~5 duplicated "Completed"
+entries trimmed to one-line pointers. No code, config, or test changes;
+existing item numbering and every other file's cross-references to it are
+unchanged.
