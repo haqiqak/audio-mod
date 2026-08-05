@@ -416,6 +416,107 @@ an ASR problem. This is the direct continuation of `ROADMAP.md` item 20.
 cases per type to trust the categorization (rule 3 — small samples get
 an explicit "too small to trust" caveat, not a confident headline).
 
+**Stage A: done, 2026-08-05.** Systematically categorized all 186
+disfluent ground-truth positions in the 120-clip Track B sample (not a
+hand-picked few — every `sound_repetition`, `word_repetition`,
+`phrase_repetition`, and `prolongation` instance), using the existing
+`--verbose` diagnostic output, cross-checked line-by-line against
+`track_b.py`'s own alignment/scoring code to reconcile exactly with the
+official scored counts (a categorization bug was caught this way before
+being trusted — see the alternatives-considered note in `PAPER_DECISION_
+LOG.md`). Four categories, applied per instance: **(1)** ASR transcribed
+the position correctly, but the detector generated no candidate at all
+("normalized away"); **(2)** ASR transcribed the position correctly, but
+the detector caught it as a *different* type ("mis-routed"); **(3)** ASR
+made a genuine transcription error at that position (substitution or
+deletion), no candidate generated; **(4)** genuine ASR error, and
+something was predicted at the misaligned word (not credited as a match
+by the scorer, correctly).
+
+| Type (n) | (1) Normalized away | (2) Mis-routed | (3) Genuine ASR error | (4) ASR error + coincidental type |
+|---|---|---|---|---|
+| `sound_repetition` (42) | 19 (45.2%) | 4 (9.5%) | 16 (38.1%) | 3 (7.1%) |
+| `word_repetition` (42, 1 TP) | 17 (40.5%) | 5 (11.9%) | 11 (26.2%) | 8 (19.0%) |
+| `phrase_repetition` (40, 3 TP) | 20 (50.0%) | 0 | 9 (22.5%) | 8 (20.0%) |
+| `prolongation` (62, 0 TP)* | 4 (6.5%) | 0 | 50 (80.6%) | 8 (12.9%) |
+
+\* `prolongation` is included for completeness only — it is already
+acoustic-native (Praat-gated, §3's table), so a *text*-alignment-based
+categorization like this one is the wrong lens for it; its near-total
+"(3) genuine ASR error" share mostly reflects that mismatch, not a
+comparable finding to the other three types. Not investigated further
+here.
+
+**Findings, in order of how much they change this track's picture:**
+
+1. **For `sound_repetition` and `word_repetition`, roughly half of all
+   losses (54.7% and 52.4% respectively) happen even when ASR
+   transcribed the position "correctly."** This confirms, at full sample
+   scale rather than a handful of anecdotal cases, that item 19's
+   original finding generalizes: normalization loss is not a rare edge
+   case for these two types, it is roughly as common as ordinary ASR
+   transcription error (categories 3+4: 45.2% for `sound_repetition`,
+   45.2% for `word_repetition` — coincidentally identical totals, not
+   the same cases).
+2. **`sound_repetition`'s and `word_repetition`'s "correct-but-lost"
+   mechanisms are different, not the same story told twice.**
+   `sound_repetition` loses the literal fragment token (§0's original
+   finding: "considered-" -> "considered," nothing left to detect).
+   `word_repetition` loses the *pair*: a direct, targeted follow-up check
+   (not just re-reading the same diagnostic lines) traced every `align=
+   correct` `word_repetition` position back through the actual cached ASR
+   token sequence and found **22 of 23 such cases (95.7%) have the
+   *other* half of the repeated pair deleted, substituted, or displaced**
+   — e.g. ground truth "will will be" survives in `hyp_tokens` as
+   "...soon. That will be..." (the first "will" gone entirely, the
+   second transcribed correctly but now adjacent to nothing that matches
+   it). This is consistent with, and a more specific instance of, the
+   same fluency-normalizing behavior §4 describes generally: a decoder
+   biased toward well-formed output has a direct incentive to treat an
+   immediate word repeat as one intended word, not two, and this data
+   shows it usually acts on that incentive by dropping the first
+   occurrence rather than merging or garbling it. **One exception, flagged
+   as an open, separate finding**: a single case (clip
+   `2092-145706-0025`) has the full repeated pair intact and adjacent in
+   the hyp sequence (`['wolf', 'wolf', 'wolf,']` — a genuine triple
+   repeat) yet still wasn't caught — this is a detector-logic question
+   (a candidate-matching edge case on runs of 3+ identical words), not an
+   ASR-representation question, and is out of this track's scope; noted
+   for `ROADMAP.md` separately rather than investigated further here.
+3. **The "mis-routed" category (2) is real but modest** (9.5%/11.9% for
+   `sound_repetition`/`word_repetition`) — not the dominant recovery
+   opportunity a single hand-picked example might have suggested, but
+   real enough to be worth Stage C's attention once Stage B is done: a
+   `block`, `filler`, or `phrase_repetition` label sometimes already
+   fires at exactly the position a `sound_repetition`/`word_repetition`
+   should have, meaning the acoustic-native detectors are already, by
+   accident, catching some of this signal under the wrong name.
+4. **~45% of losses for both types are ordinary ASR transcription
+   error** (categories 3+4), unrelated to fragment/pair-normalization —
+   a different, more general problem (this project's already-documented
+   ASR-fidelity gap, Phase 1) that this track's representation-focused
+   questions (RQ2 onward) are not expected to fix, and should not be
+   conflated with the normalization-specific mechanism above when this
+   track reports progress later.
+
+**Small-sample honesty**: category-level percentages above are stable
+enough to trust the *ranking* (normalization-loss and plain-ASR-error are
+both large, roughly comparable contributors; mis-routing is real but
+smaller) but individual cell counts (e.g. `sound_repetition`'s 3-count
+category 4) are still small in absolute terms — treat precise
+percentages as directional, not as fixed rates to design a fix against
+without re-checking at a larger scale later.
+
+**What this resolves for the track's own plan**: RQ1 is answered for
+`sound_repetition`/`word_repetition` — loss is broad (roughly half of all
+misses), not isolated to a couple of anecdotal cases, and it has at least
+two distinct mechanisms (fragment loss, pair-breaking) that a single fix
+is unlikely to address at once. Stage B is next: does CrisperWhisper's
+encoder still carry a detectable signature at the ~50% of positions
+category (1) identifies as "text says nothing, but ASR heard the position
+fine" — directly testable with Stage 1's existing methodology, no new
+data collection needed.
+
 **Stage B — Representation-level probe (no training, reuses Stage 1's
 exact methodology).** Answers RQ2. For the types Stage A finds are
 genuinely lost from decoded text, re-run the Stage 1 encoder-distance

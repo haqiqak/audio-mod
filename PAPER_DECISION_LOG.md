@@ -4605,3 +4605,98 @@ cross-references. `ASR_RESEARCH_TRACK.md` (new, ~400 lines). `CLAUDE.md`,
 config changes. `asr-research` branch not yet created — per the owner's
 explicit sequencing, that happens after `main` is committed with this
 entry's changes included.
+
+---
+
+## 2026-08-05 — `asr-research` branch created; Stage A (systematic information-loss audit) done
+
+**What was done**
+Created the `asr-research` branch off the now-committed `main`
+(`e7add1b`). Executed Stage A of `ASR_RESEARCH_TRACK.md` §8 (answers
+RQ1): categorized all 186 disfluent ground-truth positions in the
+existing 120-clip Track B sample — not a hand-picked subset — into four
+causes, using the existing `--verbose` diagnostic output already cached
+from item 19's work (`eval_datasets/_gate_off_verbose_output.txt`, gate
+off, zero new ASR cost). Categories: (1) ASR transcribed the position
+correctly, no candidate generated ("normalized away"); (2) transcribed
+correctly, caught as a different type ("mis-routed"); (3) genuine ASR
+transcription error, no candidate; (4) genuine ASR error, something
+predicted at the misaligned word (not scored as a match).
+
+Result table: `sound_repetition` 19/4/16/3 (of 42); `word_repetition`
+17/5/11/8 (of 42, 1 TP); `phrase_repetition` 20/0/9/8 (of 40, 3 TP);
+`prolongation` included for completeness but flagged as the wrong lens
+(already acoustic-native, not text-alignment-dependent). Headline: for
+`sound_repetition`/`word_repetition`, categories (1)+(2) — losses that
+happen even when ASR transcribed the position correctly — account for
+~53% of all misses, confirming item 19's finding generalizes across the
+full sample rather than being a handful of anecdotal cases.
+
+A targeted follow-up (not just re-reading the diagnostic text — re-ran
+the actual alignment against cached `hyp_tokens` for every `word_
+repetition` position where the current-word alignment was "correct")
+found the specific mechanism for that type: 22 of 23 such cases have the
+*other* half of the repeated pair deleted or displaced by ASR — a
+different, more specific mechanism than `sound_repetition`'s fragment-
+token loss, not the same story restated. One case (a genuine, fully
+intact, adjacent triple repeat, `['wolf', 'wolf', 'wolf,']`) was still
+missed despite nothing wrong with the ASR output — a detector-logic bug
+unrelated to this track's question, flagged separately as `ROADMAP.md`
+item 21.
+
+**A real bug in the analysis itself, caught before trusting the result
+(rule 3 applied to this session's own tooling, not just the project's
+production code)**: the first version of the categorization script
+determined "true positive" by checking `true_type in predicted` without
+first requiring `align == "correct"` — `track_b.py`'s own scoring
+function only ever credits a prediction as a match when the reference
+position aligns "correct" (a coincidental type-label match at a
+mis-aligned hyp word is not attributable back to the reference instance,
+by design — see `score_clip`'s own code comment). The bug inflated
+`word_repetition`'s apparent TP count from the true value of 1 to 4, and
+silently dropped one row entirely (a ref word containing an apostrophe,
+`"Heaven's"`, broke a single-quote-only parsing regex). Caught by
+reconciling the script's totals against the already-trusted, officially-
+scored Track B table (item 19) before writing up any conclusion — found
+a real discrepancy, fixed the categorization order and the regex, and
+re-ran before this entry was written.
+
+**Alternatives considered**
+- Trust the first (buggy) categorization pass since its headline
+  direction ("losses happen even at correct-alignment positions") didn't
+  actually change once fixed. **Rejected**: the specific counts did
+  change (word_repetition TP 4 -> 1, one missing row recovered), and this
+  project's own standing discipline (audit surprising or newly-computed
+  numbers before trusting them, not just the ones that look dramatic) is
+  exactly what caught this before it became a wrong citation elsewhere.
+- Investigate the single triple-repeat miss (item 21) as part of this
+  track. **Rejected**: it's a plain detector-logic bug (a candidate check
+  not handling 3+ identical adjacent words), unrelated to ASR
+  representation richness — this track's charter explicitly scopes it to
+  representation questions; mixing in an unrelated detector fix would
+  blur what this branch is actually testing. Logged on `ROADMAP.md`
+  instead, for `main`.
+- Move straight to Stage B (representation probe) using only the four
+  hand-picked examples already in `VALIDATION.md` §14.1, skipping the
+  full 186-position categorization. **Rejected**: `ASR_RESEARCH_TRACK.md`
+  §8's own pre-registered exit criterion for Stage A requires enough
+  hand-checked cases to trust the categorization, not a few anecdotes —
+  the full sweep is what makes the ~50% "normalized away" figure a
+  measured result rather than an extrapolation from 3-4 examples.
+
+**Why this choice**
+Directly executes Stage A exactly as `ASR_RESEARCH_TRACK.md` §8
+pre-registered it, at the systematic scale that section's own exit
+criterion required, and applies the same audit-before-trusting discipline
+to this session's own new analysis tooling that the project applies to
+every other result — a bug in a one-off script is exactly as capable of
+producing a wrong "measured" number as a bug in production code, and
+deserves the same scrutiny before being written down.
+
+**Measured result**
+`ASR_RESEARCH_TRACK.md` §8 (Stage A results section, full table + four
+findings + small-sample caveats). `ROADMAP.md` item 20 marked done with
+the summary; new item 21 (the triple-repeat detector bug, for `main`,
+independent of this track). This entry. No code changes; no test suite
+impact (analysis-only, run against already-cached data, on the
+`asr-research` branch — none of this affects `main`).

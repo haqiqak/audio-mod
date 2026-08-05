@@ -724,30 +724,43 @@ list, not separate from it.
     confirmed safe and mildly beneficial, just not sufficient on its own.
     Item 20 below is the resulting, now-highest-priority follow-up.
 
-20. **[New, 2026-08-05, highest priority — directly from item 19's
+20. ~~[New, 2026-08-05, highest priority — directly from item 19's
     result; now the opening move of a dedicated research track, see
     below] Investigate and, if a fix is evidence-supported, redesign how
     `sound_repetition` (and secondarily `word_repetition`) candidates are
     generated from real ASR output — not just how they're gated once
-    found.** Item 19 found this is now the project's dominant, specific,
-    measured bottleneck: the current fragment-token-based candidate check
-    essentially never fires on real verbatim-ASR transcripts, even on
-    correctly-transcribed positions, because real ASR normalizes away the
-    literal sub-word fragment the check depends on. One concrete, already-
-    surfaced lead worth checking first (cheap, no new data): in the one
-    hand-inspected case where the true event wasn't caught as
-    `sound_repetition`, the acoustic-native detector caught it as `block`
-    instead (`VALIDATION.md` §14.1, point 3) — suggesting the acoustic
-    signal may still be present and simply mis-routed by today's type
-    taxonomy, not fully lost. Before designing a fix: hand-trace a larger
-    sample of the 42 `sound_repetition` and 41 `word_repetition` false
-    negatives from this run's cached data (no new ASR cost) to check how
-    often this "caught as the wrong type" pattern holds versus genuine
-    total loss, following the same hand-verification discipline as
-    §8.2.1/§8.4.4. Elevated ahead of item 18 (latency removal) and ahead
-    of the deferred-learned-tier bullet below — both are premature until
-    this candidate-generation gap, which governs whether either has
-    anything real to operate on, is understood.
+    found~~ — **Stage A done, 2026-08-05 (on the `asr-research` branch;
+    not yet merged to `main`).** Systematically categorized all 186
+    disfluent ground-truth positions in the 120-clip sample (not a
+    hand-picked few) into four causes. Headline: for `sound_repetition`
+    and `word_repetition`, ~50% of losses happen even when ASR
+    transcribed the position correctly — confirming item 19's finding
+    generalizes, not an edge case. The two types lose signal by different
+    mechanisms: `sound_repetition` loses the literal fragment token;
+    `word_repetition` loses the *pair* — a targeted follow-up found 22/23
+    "correctly transcribed" `word_repetition` positions have the *other*
+    half of the repeat deleted or displaced by ASR. "Mis-routed to a
+    different type" (the original `block`-instead-of-`sound_repetition`
+    lead) is real but modest (~10%), not the dominant recovery
+    opportunity. The remaining ~45% of losses for both types are ordinary
+    ASR transcription error, unrelated to normalization — a different,
+    already-known problem this track doesn't expect to fix. Full
+    breakdown, per-category examples, and the small-sample caveats:
+    `ASR_RESEARCH_TRACK.md` §8 (Stage A results). Stage B (representation
+    probe) is next.
+
+21. **[New, 2026-08-05, small, detector-side, independent of the ASR
+    research track — found while doing item 20's Stage A hand-trace]
+    `word_repetition`'s exact-match candidate check appears to miss runs
+    of 3+ identical adjacent words.** One case (clip `2092-145706-0025`)
+    has a genuine triple repeat fully intact and adjacent in the ASR
+    output (`['wolf', 'wolf', 'wolf,']`) yet was not flagged. This is a
+    detector-logic question, not an ASR-representation one — out of
+    `ASR_RESEARCH_TRACK.md`'s scope, flagged here instead. Not
+    investigated further this session (n=1, found incidentally); worth a
+    small, cheap look on `main` independent of the research track,
+    starting with a targeted synthetic test for a 3-repeat run before
+    assuming a fix.
 
 **A separate research track opened from this checkpoint, 2026-08-05: see
 `ASR_RESEARCH_TRACK.md`.** Item 19's finding — that real ASR structurally
@@ -759,8 +772,8 @@ That question gets its own charter document (problem statement,
 literature review, architectural options explored without commitment,
 phased evidence-gated research plan) and its own branch (`asr-research`),
 kept separate so `main` stays stable and shippable throughout. Item 20
-above is that track's Stage A (the systematic, no-new-data information-
-loss audit) — its exit criterion and the stages after it are defined in
+above was that track's Stage A (the systematic, no-new-data information-
+loss audit, now done) — Stage B and beyond are defined in
 `ASR_RESEARCH_TRACK.md` §8, not duplicated here.
 
 ## Near-term

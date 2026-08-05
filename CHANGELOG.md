@@ -6,6 +6,25 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-05 (asr-research branch)
+
+- **`asr-research` branch created; Stage A (systematic information-loss
+  audit) done.** Categorized all 186 disfluent ground-truth positions in
+  the 120-clip Track B sample into four causes (normalized away,
+  mis-routed, genuine ASR error, ASR error + coincidental type). For
+  `sound_repetition`/`word_repetition`, ~53% of losses happen even at
+  correctly-transcribed positions, confirming item 19's finding
+  generalizes. Found `word_repetition`'s specific mechanism: 22/23
+  "correct" positions have the other half of the repeated pair deleted
+  by ASR — different from `sound_repetition`'s fragment-token loss. A
+  bug in the analysis script itself was caught and fixed before trusting
+  the numbers (reconciled against the official scored table). One
+  unrelated detector bug found incidentally (a genuine triple repeat
+  missed) → new `ROADMAP.md` item 21, for `main`, not this track. →
+  *PAPER_DECISION_LOG.md, "`asr-research` branch created; Stage A
+  (systematic information-loss audit) done"*; full results
+  `ASR_RESEARCH_TRACK.md` §8.
+
 ## 2026-08-05
 
 - **A separate research track opened: `ASR_RESEARCH_TRACK.md`,
