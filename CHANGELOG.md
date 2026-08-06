@@ -8,6 +8,23 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-06 (asr-research branch)
 
+- **Phase 2 of the ASR research track formally opened: full design-space
+  plan, pre-registered.** Re-opened the complete design space from first
+  principles (7 directions: different ASR, different representation,
+  hybrid, decoding, fine-tuning, purpose-built, further acoustic-native
+  extension) rather than assuming item 10 was automatically correct.
+  New, verified literature (catastrophic forgetting/representational
+  drift under fine-tuning; WavLM's own paper on its paralinguistic-
+  sensitivity design objective; a real hybrid-beats-baselines result,
+  arXiv:2605.12387) grounds a pre-registered 3-arm design: stock
+  `whisper-large-v3` through Track B and through the layer-sweep
+  methodology, plus WavLM-Large's representation. Exact success/failure
+  criteria, confounders, costs, and outcome-to-conclusion mapping for
+  every arm combination, plus an adversarial self-critique of the plan
+  itself. Nothing implemented yet. → *PAPER_DECISION_LOG.md, "Phase 2
+  of the ASR research track formally opened..."*; full plan
+  `ASR_RESEARCH_TRACK.md`.
+
 - **Integrative reassessment: current architecture's cheap investigation
   is exhausted; item 10 elevated as the next step.** Full evidence
   inventory across the entire track (Track B through decoding), evidence/

@@ -625,6 +625,343 @@ directly).
 
 ---
 
+## Phase 2 of this research track: comprehensive design-space investigation (opened 2026-08-06)
+
+**Governing statement, per the project owner's explicit framing:** *we
+are no longer optimizing for the best research process — we are
+optimizing for the best product through rigorous research.* Everything
+below exists to answer one question with evidence: what speech
+representation actually gives this application the best foundation for
+detecting, classifying, and localizing disfluencies — not to defend
+CrisperWhisper, and not to replace it for novelty's sake. Product and
+paper advance together; this phase's deliverable is a decision the
+product can act on, backed by a record the paper can cite.
+
+**Explicit instruction honored**: comparing pretrained ASRs (item 10)
+was elevated as *the strongest current hypothesis*, not assumed as the
+correct next step. This section re-opens the full design space from
+first principles before committing to that or any other direction.
+
+### The complete design space, considered with an open mind
+
+Every realistic direction identified, none pre-selected:
+
+| Direction | What it means concretely | Status before this phase |
+|---|---|---|
+| (a) A different pretrained ASR (full system) | Swap CrisperWhisper for another ASR's transcription output, run through Track B | item 10 — proposed, never run |
+| (b) A different pretrained *representation* (encoder only, not necessarily an ASR at all) | Extract encoder states from a model not fine-tuned for verbatim ASR — stock Whisper, or a genuinely self-supervised model (WavLM, HuBERT) | Named in §6(b)/§5's literature review, never tested |
+| (c) Hybrid architecture | Keep CrisperWhisper for transcription; source the *corroboration signal* from a different model | This project already does a version of this informally (encoder-distance from CrisperWhisper's own encoder); never tried a different signal source |
+| (d) Decoder/decoding modifications | Change *how* CrisperWhisper decodes, not what model produces the representation | `num_beams` tested (Stage-decoding, negative); other levers (logit/entropy inspection) unexplored |
+| (e) Fine-tuning / continual adaptation | Adapt CrisperWhisper's (or another model's) weights toward this project's taxonomy | Stage D, gated on infrastructure this project doesn't have (§9) |
+| (f) Purpose-built disfluency-preserving ASR/representation | Train something new, from scratch or via heavy adaptation, specifically for this objective | The track's own eventual "if everything else fails" tier (§9) |
+| (g) Reduce reliance on ASR text further (extend the acoustic-native precedent) | More of what `block`/`prolongation` already do — detect directly from audio, no token candidate required | Partially explored (the superseded fusion-style revision); still a live, cheap option |
+
+### Research questions for this phase
+
+- **RQ-A** (extends item 10's original framing): does a different
+  pretrained ASR's **decoded text** preserve `sound_repetition`/`word_
+  repetition` evidence better than CrisperWhisper's, run through the
+  same Track B alignment pipeline this track already has? Answers
+  whether item 2's/Stage A's findings are CrisperWhisper-specific or
+  general to ASR systems, at the text level.
+- **RQ-B**: does a different pretrained model's **encoder
+  representation** carry a stronger, or more depth-distributed, disfluency
+  signal than CrisperWhisper's own — specifically testing (i) whether
+  CrisperWhisper's own fine-tuning is what concentrated the signal into
+  only the last layer (stock `whisper-large-v3`, same architecture, no
+  verbatim fine-tuning), and (ii) whether a model never trained for ASR
+  at all, explicitly designed for paralinguistic sensitivity (WavLM),
+  carries a cleaner signal than any Whisper-family encoder can.
+- **RQ-C**: is the "only the last layer matters" pattern this track's
+  own layer sweep found a property of CrisperWhisper's *fine-tuning*
+  specifically, or of the Whisper *architecture* generally? (Answered
+  directly by RQ-B(i)'s stock-Whisper arm, reusing the exact layer-sweep
+  methodology already built.)
+- **RQ-D** (the product-facing question this phase ultimately serves):
+  would a **hybrid** architecture — CrisperWhisper for transcription,
+  a different, paralinguistic-specialized model for corroboration —
+  outperform either model alone? Not fully testable until RQ-A/B/C have
+  results; this phase lays the groundwork, does not claim to answer it
+  yet.
+- **RQ-E** (a **reasoned proposal**, explicitly speculative, no literature
+  or prior evidence backing it — offered per this project's own standing
+  discipline that novel ideas are welcome when labeled honestly): does
+  the model's own **decoding-time uncertainty** (token-level entropy or
+  top-k probability spread at each generation step) carry information
+  neither the decoded text nor the encoder's spatial representation
+  does? A disfluency smoothed into a fluent token might still leave a
+  trace in *how confidently* the model chose that token, independent of
+  both signals this track has tested so far. Not scoped for
+  implementation this phase — recorded here so it isn't lost, and so a
+  future reader knows it was considered, not overlooked.
+
+### Literature review for this phase
+
+**Reused from this track's existing 13-source review** (§5 above,
+`ASR_RESEARCH_TRACK.md`'s original literature pass): CrisperWhisper's own
+design (retokenization + attention-alignment, not necessarily
+fragment-level preservation, arXiv:2408.16589); WavLM already identified
+as the best-published word-level stuttering-detection representation
+found in this project's research (F1=0.554, arXiv:2409.10704); Whisper
+encoder layers shown to carry disfluency signal for a *different* task in
+a study whose finding this track's own layer sweep did not replicate
+(arXiv:2311.05203) — the discrepancy driving RQ-C.
+
+**New for this phase, checked directly this session, not assumed:**
+
+- **Catastrophic forgetting / representational drift under fine-tuning
+  is a real, independently documented phenomenon**, both Whisper-specific
+  and general to transformer fine-tuning: Whisper fine-tuning on
+  low-resource tasks is documented to cause catastrophic forgetting
+  (multiple sources found), and general transformer fine-tuning research
+  finds *intermediate layers* — not the first or last — undergo the most
+  substantial representational drift, as pretrained features are
+  reorganized to emphasize what the fine-tuning objective needs and
+  de-emphasize what it doesn't. This directly supports (as an inference,
+  not a proven mechanism for this specific model) why CrisperWhisper's
+  own fine-tuning — narrowly optimized for verbatim word-level accuracy
+  and timestamp precision — could plausibly have concentrated
+  disfluency-relevant signal into only the last layer, unlike whatever
+  base model arXiv:2311.05203 studied.
+- **WavLM's own paper** (arXiv:2110.13900) states its design directly: two
+  joint pretraining objectives, masked speech *prediction* (phonetic/ASR-
+  relevant content) and masked speech *denoising* (explicitly for noise
+  robustness and **paralinguistic and speaker-identity sensitivity**),
+  deliberately built to serve "full-stack" speech tasks beyond ASR. This
+  is a directly-cited design fact, not an inference. Whisper's own
+  training (weak-supervised transcription accuracy at scale) has no
+  comparable explicit paralinguistic objective — a real, citable
+  architectural difference in what each model was built to represent
+  well, though a specific paper directly quantifying "Whisper
+  under-represents paralinguistic cues relative to WavLM" could not be
+  independently confirmed this session (one candidate source, checked
+  directly, did not contain that specific comparative claim on inspection
+  — flagged honestly rather than cited with unearned confidence, per this
+  project's own standing practice).
+- **A real, verified, directly relevant empirical result**: "A Semi-
+  Supervised Framework for Speech Confidence Detection using Whisper"
+  (arXiv:2605.12387) — a genuinely different paralinguistic task (speaker
+  confidence level, not disfluency), but structurally comparable (a
+  paralinguistic state detected from a mix of semantic and acoustic
+  signal). Found a **hybrid** model (Whisper embeddings + explicit
+  acoustic features) beat both a pure-Whisper baseline (Macro-F1 0.751 vs.
+  0.736) *and* pure self-supervised baselines including WavLM, HuBERT, and
+  wav2vec2 — direct, verified support for the hybrid-architecture
+  direction (c) specifically, not just "try a different model in
+  isolation." **A real tension worth naming, not smoothing over**: this
+  result (explicit acoustic features + Whisper helps) sits in some
+  tension with this track's own Stage C2 (Praat acoustic features +
+  CrisperWhisper's encoder-distance did *not* help). Plausible reconciling
+  factors — different task, much larger sample in the cited paper, a
+  different acoustic feature set — are inferences, not confirmed; the
+  honest reading is that hybrid approaches *can* work, not that they
+  always do, and Stage C2's negative result is real and stands on its own.
+
+### Direction justification: what this phase actually tests, and why
+
+**Not selected for this phase, with reasons**: (e) fine-tuning and (f)
+purpose-built systems remain gated on infrastructure (GPU, paired data at
+volume) this project does not have — attempting either now would not be
+"ambitious," it would be under-resourced. (d) decoder/decoding
+modifications beyond `num_beams` (e.g. RQ-E's entropy idea) are recorded
+as a reasoned proposal but not scoped for implementation this phase —
+worth a dedicated pass once (a)/(b)/(c) have results to build on. (g)
+extending the acoustic-native precedent further remains a real, cheap,
+live option, but its own prerequisite (a healthier candidate population,
+per the earlier superseded fusion-style revision) is exactly what
+(a)/(b) would help establish — sequenced after, not instead of.
+
+**Selected for this phase**: directions (a) and (b), run together, since
+they share nearly all their infrastructure and jointly answer RQ-A
+through RQ-C in one coordinated pre-registration:
+
+1. **Arm 1 (RQ-A, full pipeline)**: run **stock `whisper-large-v3`**
+   (same architecture as CrisperWhisper, *not* fine-tuned for verbatim
+   transcription) through the same Track B alignment pipeline this track
+   already has, on the same audio already downloaded. Answers RQ-A and
+   is the direct execution of item 10.
+2. **Arm 2 (RQ-B(i)/RQ-C, representation-level)**: repeat the exact
+   layer-depth-sweep methodology already built and validated, pointed at
+   **stock `whisper-large-v3`'s** encoder instead of CrisperWhisper's.
+   Isolates whether CrisperWhisper's fine-tuning specifically narrowed
+   the signal to one layer (stock Whisper shows a different, more
+   literature-consistent layer profile) or whether this is a Whisper-
+   architecture-general property (stock Whisper shows the same
+   last-layer-only pattern).
+3. **Arm 3 (RQ-B(ii), representation-level)**: repeat the Stage-B/C
+   methodology (last-layer encoder-distance, Cohen's d, AUC) pointed at
+   **WavLM-Large's** encoder — a genuinely different architecture, never
+   fine-tuned for ASR, explicitly designed for paralinguistic sensitivity.
+   Tests whether a purpose-different pretrained representation
+   out-performs anything in the Whisper family, independent of the
+   fine-tuning question Arm 2 addresses.
+
+Arms 1-2 are the cheaper, more directly diagnostic pair (same model
+class already integrated, only the checkpoint changes for Arm 1; Arm 2
+reuses the layer-sweep script verbatim with a different model_id) and
+should run first as a fast, honest gate. Arm 3 requires new integration
+work (a different model class, a different frame-rate/pooling
+convention — see confounders below) and is scoped as the second,
+slightly more expensive step, justified by Arm 1/2's results rather than
+run blind alongside them.
+
+### Pre-registered protocol
+
+**Population**: the same 31-clip / 36-position (`sound_repetition`/
+`word_repetition`) set this track has used since Stage B, for direct
+comparability across every arm and every prior stage.
+
+**Arm 1 (stock whisper-large-v3, full pipeline)**:
+- Metric: the same Stage-A-style categorization (normalized-away /
+  mis-routed / genuine ASR error / ASR error + coincidental type) applied
+  to stock Whisper's decoded text at the same 36 positions, plus overall
+  WER for a broad side-effect check.
+- Success: a meaningfully lower "normalized-away" rate than CrisperWhisper's
+  measured 45.2%/40.5% (`sound_repetition`/`word_repetition`) — real
+  evidence CrisperWhisper's own choices (not ASR generally) are the
+  driver.
+- Failure: a comparable or higher normalized-away rate — evidence this is
+  a general property of large-scale weakly-supervised ASR, not a
+  CrisperWhisper-specific gap, shifting weight toward representation-
+  level (Arm 2/3) or training-level (Stage D) directions over "just pick
+  a different off-the-shelf ASR."
+
+**Arm 2 (stock whisper-large-v3, layer sweep)**:
+- Metric: AUC per layer, identical to the existing layer-sweep script,
+  new model_id only.
+- Success: a materially different layer profile than CrisperWhisper's
+  (signal present at multiple layers, or concentrated at a different
+  depth) — evidence for the fine-tuning-narrowed-the-signal inference.
+- Failure: the same last-layer-only pattern — evidence this is a
+  Whisper-architecture property, not a CrisperWhisper-specific one,
+  narrowing RQ-C to "not fine-tuning specifically" and shifting weight
+  toward Arm 3 (a genuinely different architecture) as the more
+  informative remaining question.
+
+**Arm 3 (WavLM-Large, representation-level)**:
+- Metric: Cohen's d and AUC at WavLM's own last layer (and, resources
+  permitting, a layer sweep matching Arm 2's), same target/control
+  population, re-pooled to WavLM's own frame rate (see confounders).
+- Success: d/AUC meaningfully above CrisperWhisper's own Stage-B/C result
+  (d=0.894, AUC=0.723) — real evidence a purpose-different representation
+  is worth adopting, at least as a hybrid corroboration signal (RQ-D).
+- Failure: comparable or weaker than CrisperWhisper's own signal —
+  evidence the "different pretraining objective helps" inference,
+  however well-motivated by WavLM's own stated design, does not hold for
+  *this specific task* — a real, valuable negative result either way.
+
+### Confounders and costs, named before running
+
+- **Model size confound (Arm 3 specifically)**: WavLM-Large (~300M
+  params) is smaller than CrisperWhisper/whisper-large-v3's encoder
+  (~600M-1B-parameter range). Any difference found cannot be cleanly
+  attributed to "pretraining objective" alone — size is an uncontrolled
+  variable this design cannot fully separate without a same-size
+  self-supervised alternative, which may not exist. Named explicitly,
+  not resolved.
+- **Frame-rate / pooling confound (Arm 3)**: this track's existing
+  `pool_span`/`FRAME_SECONDS` machinery (`profiling/encoder_embedding.py`)
+  is built around Whisper's fixed 20ms-per-frame, 30s-window convention.
+  WavLM operates on raw waveform at a different internal frame rate —
+  **this is real, non-trivial engineering, not a drop-in checkpoint
+  swap**, corrected here from an earlier looser characterization of this
+  work as cheap. Scoped as its own small module, not a one-line change.
+- **Preprocessing confound (Arm 1)**: stock `whisper-large-v3` may
+  benefit from or be hurt by the same `num_beams=1` constraint
+  CrisperWhisper needs (the timestamp-extraction bug is in `transformers`
+  generally, not CrisperWhisper's fine-tune specifically) — Arm 1 should
+  use the same decoding configuration as the live app's CrisperWhisper
+  calls, for a fair comparison, not the model's own unconstrained default.
+- **Cost, scoped from this session's own measured rates**: Arm 1 needs
+  real, fresh ASR inference (not cached) — at this project's measured
+  ~54-102s/clip range, 31 clips is a real, bounded cost (~30-55 min,
+  single condition, cheaper than the decoding-sensitivity experiment
+  since only one condition is needed here, not two). Arm 2 reuses the
+  layer-sweep's own measured cost profile (~33-40s/clip x 31 clips,
+  roughly 20-25 min, one forward pass per clip regardless of layer
+  count). Arm 3's cost is not yet known — a new model, a new extraction
+  path — and should get its own small timing check (a 2-4 clip dry run,
+  matching every other stage's own established discipline) before a full
+  run is committed to.
+
+### Outcome-to-conclusion mapping
+
+| Arm 1 | Arm 2 | Arm 3 | What this would support |
+|---|---|---|---|
+| Success | Success | — | CrisperWhisper's fine-tuning is the driver; a hybrid using stock Whisper (or an unfine-tuned checkpoint) as the corroboration source is the near-term product move — cheapest real product win this phase could produce. |
+| Failure | Failure | Success | The problem is general to Whisper-family ASR; WavLM (or a similar self-supervised model) is the evidence-motivated representation source for a hybrid architecture — the strongest case yet for direction (c), still no fine-tuning required. |
+| Failure | Failure | Failure | Neither swapping the ASR nor swapping the representation family helps at this sample size — real evidence to formally cost out Stage D (fine-tuning/data acquisition, §9) as the next real step, not another representation-shopping round. |
+| Success | Failure | — | CrisperWhisper's specific behavior differs from general Whisper behavior in the *decoded text*, but not in its *encoder's layer structure* — points toward decoding/fine-tuning-level intervention on CrisperWhisper specifically, not a wholesale model swap. |
+| Mixed / inconclusive | — | — | Reported as exactly that, per this track's standing discipline — not rounded toward whichever reading is more convenient, and treated as grounds for a larger sample before further architectural conclusions, per the same discipline Stage B applied to `word_repetition`. |
+
+### Self-critique — an adversarial review of this plan, before proceeding
+
+**Is this just "test another representation source" again, after three
+of those already failed (duration, Praat, more CrisperWhisper layers)?**
+A fair challenge, answered directly: Praat and duration are low-
+dimensional, hand-engineered features with a low ceiling by construction;
+more CrisperWhisper layers tested the *same* fine-tuned network's
+capacity, already shown to concentrate signal in one place. Arms 1-3 test
+a categorically different class of signal (high-dimensional, learned
+representations from models with a *different* training objective) —
+not the same idea repeated, but this document does not get to declare
+that distinction meaningful by assertion; Arm 2 specifically exists to
+test whether "different training objective" actually produces a
+different result, rather than assuming it will.
+
+**Does this phase quietly ignore the ~45% of Stage A's losses that are
+ordinary ASR transcription error, not normalization?** Yes, and that
+should be stated plainly rather than left implicit: this phase, like
+every stage before it, scopes itself to the normalization-specific
+mechanism (Stage A categories 1/2). General ASR transcription accuracy
+on disfluent speech remains a separate, unaddressed problem — arguably
+this project's original Phase 1 finding, still not directly targeted by
+any experiment in this track. Not a flaw in this specific plan, but a
+real, standing limitation of the track's scope that should not be
+allowed to fade from view.
+
+**Is recommending WavLM specifically just re-adopting an old roadmap item
+under new language, rather than genuinely re-derived?** Checked
+honestly: WavLM was already named as a candidate months ago
+(`PHASE_3_ARCHITECTURE_REVIEW.md`'s original Stage 1b, never triggered).
+What is new this session is the *reasoning path* — this track's own
+layer-sweep anomaly (contradicting arXiv:2311.05203) motivated asking
+*why*, which led to the catastrophic-forgetting/representational-drift
+literature and WavLM's own stated design objective, independently
+arriving at the same candidate via a different, evidence-driven route.
+Worth naming this explicitly so the recommendation reads as re-derived,
+not merely recycled — and worth the honest caveat that arriving at the
+same answer twice by different paths is reassuring, not proof.
+
+**Is the "hybrid architecture" framing (RQ-D) getting ahead of the
+evidence — presenting a conclusion before Arms 1-3 have run?** Checked:
+RQ-D is explicitly marked as "not fully testable until RQ-A/B/C have
+results," and the outcome-mapping table above does not assume a hybrid
+wins in every branch (the all-failure row recommends Stage D, not a
+hybrid). The literature cited for direction (c) supports it as a
+plausible, evidence-backed *candidate*, not a foregone conclusion.
+
+**Cost discipline**: every arm's cost is estimated from this session's
+own measured rates, not guessed fresh — consistent with this track's
+own repeated practice of pricing things out before running them, after
+underestimating cost twice already this session (Stage B/C's original
+38-clip estimate, and the decoding-sensitivity experiment's ~5x
+underestimate). Arm 3's cost is explicitly flagged as unknown and
+requiring its own dry run, not assumed comparable to Arms 1-2.
+
+### What changes as a result
+
+`ROADMAP.md` item 10 is updated to point at this phase's specific,
+pre-registered Arm 1/2 design (not a generic "run a second ASR backend"
+note). A new pointer is added noting Arm 3 (WavLM) as the evidence-
+motivated escalation if Arms 1-2 don't resolve things. This phase does
+not authorize any change to `main` — per this track's own standing
+non-goals (§10), findings here get evidence-gated the same way every
+other decision in this project has been, and land on `main`, if ever,
+only once real evidence supports it.
+
+---
+
 ## 0. The checkpoint that opened this track
 
 `VALIDATION.md` §14/§14.1 (2026-08-05) re-ran the shipped repetition-

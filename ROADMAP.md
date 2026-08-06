@@ -473,6 +473,26 @@ for these three (see item 10's revised framing below).
     justified: committing to a purpose-built ASR or fine-tuning (Stage D)
     — this item's own result is exactly what that decision needs and
     doesn't yet have.**
+    **Formalized into a full pre-registered phase, 2026-08-06 — see
+    `ASR_RESEARCH_TRACK.md`'s "Phase 2 of this research track:
+    comprehensive design-space investigation."** Re-opened the entire
+    design space from first principles (not just this item) before
+    committing to it — compared 7 directions (different ASR, different
+    representation, hybrid, decoding, fine-tuning, purpose-built,
+    further acoustic-native extension), reviewed literature grounding
+    each, and pre-registered a specific 3-arm design: **Arm 1** (stock
+    `whisper-large-v3` through Track B, this item's original ask),
+    **Arm 2** (the same model's encoder through this track's own
+    layer-sweep methodology, isolating whether CrisperWhisper's own
+    fine-tuning — not Whisper generally — narrowed the signal to one
+    layer), **Arm 3** (WavLM-Large's representation, evidence-motivated
+    by its own paper's explicit paralinguistic-sensitivity design
+    objective, arXiv:2110.13900). Exact success/failure criteria per arm,
+    confounders (model size, frame-rate/pooling, decoding-config parity),
+    real costs, and a full outcome-to-conclusion mapping are
+    pre-registered before any of the three has run. Not yet implemented
+    — a complete plan, per the owner's explicit request, before any new
+    code.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every
@@ -866,6 +886,22 @@ whatever comes after it, followed by a formal Stage D cost assessment
 (§9's infrastructure condition) once item 10 has a result. Full
 reasoning: `ASR_RESEARCH_TRACK.md`'s "Integrative first-principles
 reassessment" section.
+
+**Phase 2 of this research track formally opened, 2026-08-06 — see
+`ASR_RESEARCH_TRACK.md`'s "Phase 2 of this research track: comprehensive
+design-space investigation."** Per the project owner's explicit
+instruction, re-opened the entire design space from first principles
+(different ASR, different representation, hybrid, decoding, fine-tuning,
+purpose-built, further acoustic-native extension) before treating item
+10 as automatically correct — it remains the strongest current
+hypothesis, now backed by a complete pre-registered plan: a 3-arm design
+(stock `whisper-large-v3` through Track B and through this track's own
+layer-sweep methodology; WavLM-Large's representation, motivated by its
+own paper's explicit paralinguistic-sensitivity design objective), exact
+success/failure criteria, named confounders, real costs, a full
+outcome-to-conclusion mapping, and an adversarial self-critique of the
+plan itself — all written before any implementation. Nothing has been
+run yet.
 
 ## Near-term
 
