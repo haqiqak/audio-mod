@@ -8,6 +8,23 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-06 (asr-research branch)
 
+- **Integrative reassessment: current architecture's cheap investigation
+  is exhausted; item 10 elevated as the next step.** Full evidence
+  inventory across the entire track (Track B through decoding), evidence/
+  inference/judgment separated. Conclusion: yes, the cheap, representation/
+  decoding-only investigation of CrisperWhisper specifically is
+  essentially exhausted (every lever tried, two positive-but-limited,
+  five negative/inconclusive) — but **not** a recommendation to abandon
+  CrisperWhisper, since `ROADMAP.md` item 10 (a second ASR backend) has
+  never been run and is the one remaining piece of evidence that would
+  actually inform that call. Item 10 elevated to this track's explicit
+  next step. A real, unreconciled discrepancy with the literature (deeper
+  layers help more, per arXiv:2311.05203 — the opposite of this track's
+  own layer-sweep result) named explicitly, not smoothed over. →
+  *PAPER_DECISION_LOG.md, "Integrative reassessment: current
+  architecture's cheap investigation is exhausted..."*; full reasoning
+  `ASR_RESEARCH_TRACK.md`.
+
 - **Decoding-parameter sensitivity (num_beams) done: clean negative.**
   Second of the reassessment's two recommended experiments.
   `num_beams=5` (model's own trained default) recovered 0 of 14 tested

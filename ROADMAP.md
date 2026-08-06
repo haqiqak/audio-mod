@@ -459,6 +459,20 @@ for these three (see item 10's revised framing below).
     question about real ASR behavior. Item 19 (a Track B re-run) is the
     cheaper, more immediate check; this item remains the deeper
     cross-backend generalization question behind it.**
+    **Elevated to the explicit next step, 2026-08-06 — see
+    `ASR_RESEARCH_TRACK.md`'s "Integrative first-principles reassessment"
+    (the culminating reassessment after both in-architecture experiments,
+    layer-depth and decoding-parameter sensitivity, came back negative).
+    Conclusion: the cheap, representation/decoding-only investigation of
+    CrisperWhisper specifically is essentially exhausted — every
+    available lever (which layer, decoding width, duration, Praat
+    fusion, mis-routing) has been tried, leaving only this item's
+    long-open question (option (a) specifically — a second ASR backend
+    through the existing Track B pipeline, no new data acquisition) as
+    the evidence-motivated bridge into whatever comes next. Not yet
+    justified: committing to a purpose-built ASR or fine-tuning (Stage D)
+    — this item's own result is exactly what that decision needs and
+    doesn't yet have.**
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every
@@ -835,6 +849,23 @@ for the full integrative reassessment this triggers. Full reasoning:
 `ASR_RESEARCH_TRACK.md`'s "First-principles reassessment" section, at
 the top of the file.
 Full results, controls, and limitations: `ASR_RESEARCH_TRACK.md` §8.
+
+**Integrative reassessment, 2026-08-06 (after both experiments) — the
+explicit answer to "have we exhausted this architecture": yes, for the
+cheap, representation/decoding-only investigation specifically.** Every
+available lever within CrisperWhisper at the current scope has now been
+tried (layer choice, decoding width, duration, Praat fusion, mis-
+routing) — two genuinely positive-but-limited, five negative or
+inconclusive. This is **not** a recommendation to abandon CrisperWhisper
+or start building a different ASR — that would be exactly as evidence-
+free as the concern this reassessment was asked to check for, since item
+10's own second-ASR-backend question has never been answered. **Item 10
+is elevated to this track's explicit next step** (see item 10's own
+updated entry above) — the cheap bridge between "more of this track" and
+whatever comes after it, followed by a formal Stage D cost assessment
+(§9's infrastructure condition) once item 10 has a result. Full
+reasoning: `ASR_RESEARCH_TRACK.md`'s "Integrative first-principles
+reassessment" section.
 
 ## Near-term
 

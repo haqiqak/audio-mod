@@ -5315,3 +5315,85 @@ position detail, saved). No production code changed. On the
 `asr-research` branch only — `main` untouched. Both of the
 reassessment's recommended experiments are now complete; the full
 integrative reassessment this triggers follows in the next entry.
+
+---
+
+## 2026-08-06 — Integrative reassessment: current architecture's cheap investigation is exhausted; item 10 elevated as the next step
+
+**What was done**
+Per the project owner's explicit instruction to pause after the
+decoding experiment (not continue implementing) and reassess the entire
+track, wrote a full evidence inventory spanning every stage (Track B
+through decoding-parameter sensitivity, 11 numbered evidence points),
+followed by an explicit inference layer and a labeled judgment layer,
+answering the owner's question directly: has this project extracted
+essentially all meaningful evidence from CrisperWhisper's existing
+architecture, or is there still justified reason to continue researching
+within it.
+
+Named, not smoothed over, a real discrepancy surfaced by cross-checking
+this track's own result against the literature it already reviewed:
+arXiv:2311.05203 found deeper Whisper-encoder layers carry *more*
+disfluency signal for a comparable task; this track's own layer sweep
+found the opposite (only the last layer carries signal, for this
+specific task on this specific model). Not reconciled — offered as an
+inference-level consideration (possible causes: task framing,
+CrisperWhisper's own fine-tuning) rather than resolved as fact.
+
+**Conclusion**: yes, the cheap, representation/decoding-only
+investigation of CrisperWhisper specifically is essentially exhausted —
+every lever available without training something (layer choice, decoding
+width, duration, Praat fusion, mis-routing) has been tried, split
+between genuinely positive-but-limited (the core encoder signal) and
+negative/inconclusive (everything else). This is explicitly *not* a
+recommendation to abandon CrisperWhisper or begin building a different
+ASR — `ROADMAP.md` item 10 (a second ASR backend) has never been run, so
+"a different architecture would do better" remains exactly as
+evidence-free now as it was at the start of this reassessment cycle.
+Item 10 is elevated to this track's explicit next step — the one
+remaining cheap, no-training piece of evidence that actually informs
+whether to invest further in CrisperWhisper (fine-tuning, Stage D) or
+look elsewhere, rather than guessing at either.
+
+**Alternatives considered**
+- Recommend moving directly to Stage D (fine-tuning) or a purpose-built
+  representation, given two clean negative experiments in a row.
+  **Rejected**: neither experiment tested whether the finding is
+  CrisperWhisper-specific — recommending a training-level commitment
+  without that evidence would repeat the exact evidence-free pattern
+  this reassessment cycle was opened to guard against, just escalated
+  further than the original concern (attachment to CrisperWhisper)
+  rather than resolved.
+- Recommend continuing to test more cheap levers within CrisperWhisper
+  (different pooling strategies, more Praat/acoustic features, larger
+  samples of the same experiments already run) before considering item
+  10. **Rejected**: the evidence inventory shows every readily-
+  identifiable cheap lever has already been tried, with a coherent,
+  non-contradictory pattern of results (not scattered noise that a
+  slightly different variant might flip) — further variation within the
+  same scope has a low expected information gain relative to item 10,
+  which answers a structurally different, still fully open question.
+- Silently drop the fusion-style Stage C revision floated in an earlier
+  session as the "next step" without acknowledging the change.
+  **Rejected**: explicitly superseded in this entry and in `ROADMAP.md`,
+  with the reasoning stated (more fusion attempts at the current sample
+  size address a symptom — signal scarcity — that only more data or a
+  different representation source can actually fix, which item 10 and
+  Stage D address more directly).
+
+**Why this choice**
+Directly answers the question asked, using the complete evidence record
+built across this entire track rather than the two most recent results
+in isolation, and keeps the evidence/inference/judgment layers legible
+enough that a future reader can check the reasoning independently rather
+than accept the conclusion on authority — the same standard every other
+reassessment and stage in this track has been held to.
+
+**Measured result**
+Not a numeric result — an integrative reassessment. `ASR_RESEARCH_
+TRACK.md` gets a new "Integrative first-principles reassessment" section
+(the culminating one, distinct from the earlier "First-principles
+reassessment" written before the two experiments ran). `ROADMAP.md`
+item 10 elevated with the conclusion; the track's own summary pointer
+updated. No code changed by this entry. Full test suite unaffected
+(documentation only).

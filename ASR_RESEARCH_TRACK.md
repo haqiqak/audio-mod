@@ -446,6 +446,185 @@ full integrative reassessment that follows.
 
 ---
 
+## Integrative first-principles reassessment (2026-08-06, after both in-architecture experiments): have we exhausted this architecture?
+
+**What this section is.** The first reassessment (above) was written
+before the two experiments it recommended had run. This one integrates
+everything this track has produced — Track B, Stages A/B/C, Praat/C2,
+literature, layer-depth, decoding — and answers one explicit question,
+as the project owner asked: *have we now extracted essentially all
+meaningful evidence from the current architecture, or is there still a
+justified reason to continue researching within it?* The rule stated
+alongside the request is the standard this section is held to: **we do
+not abandon an architecture because it disappoints us, and we do not
+preserve an architecture because we have invested in it — we move on
+only when the remaining uncertainty within the current architecture is
+smaller than the uncertainty outside it.**
+
+### Complete evidence inventory (every directly measured fact this track has produced)
+
+1. Phase 1 (pre-track): Track A recall ~99% (perfect transcript), Track B
+   ~6-15% (real ASR). At full speaker diversity: 35.1% detector-
+   attributable, 64.9% ASR-attributable.
+2. Item 19: the shipped repetition classifier's mechanism transfers
+   safely to real ASR, but real-world impact is negligible — real ASR
+   produced **zero** `sound_repetition` candidates across 120 clips,
+   either gate setting.
+3. Stage A: ~53% of `sound_repetition`/`word_repetition` losses occur at
+   positions ASR transcribed *correctly* — two distinct mechanisms
+   (fragment loss; pair-breaking, 22/23 hand-checked cases). ~45% of
+   losses remain ordinary transcription error, unrelated to this track's
+   question.
+4. Stage B: CrisperWhisper's last-layer encoder retains a real signal at
+   exactly those "text says nothing" positions (Cohen's d=0.894 for
+   `sound_repetition`; d=0.428, inconclusive, for `word_repetition`).
+5. Stage C: that signal's duration confound is refuted (duration-only
+   AUC=0.483, chance); the signal itself reaches AUC=0.723 but only 4.7%
+   precision at 52.6% recall — genuine, not sufficient alone.
+6. Stage C2: five Praat voice-quality features (pitch, pitch stability,
+   jitter, shimmer, HNR) all near chance (0.452-0.549) — ruled out as a
+   fusion signal.
+7. Encoder layer-depth sweep: **all 33 layers tested.** Only the last
+   layer carries real signal (AUC 0.721-0.723, verified consistent
+   across two different control populations); every other layer sits at
+   or below chance (0.338-0.383). No untapped depth.
+8. Decoding-parameter sensitivity: `num_beams=5` (the model's own
+   trained default) recovers **0 of 14** tested positions lost under the
+   live app's forced `num_beams=1`; WER identical between conditions
+   (0.187 = 0.187).
+9. Literature (13 verified sources): real field-level ASR bias against
+   disfluent speech is documented independently (arXiv:2405.06150).
+   CrisperWhisper's own verbatim behavior comes from retokenization +
+   attention-based timestamp alignment (arXiv:2408.16589), not
+   necessarily fragment preservation as a design goal. **A real,
+   unresolved discrepancy with this track's own result, stated plainly
+   rather than smoothed over**: arXiv:2311.05203 found *deeper* Whisper-
+   encoder layers carry *more* disfluency signal for a comparable
+   classification task — this track's own layer sweep found the exact
+   opposite for this specific task on this specific model (only the
+   *last* layer carries signal). Not reconciled — plausible explanations
+   (different task framing, different base model/scale, CrisperWhisper's
+   own fine-tuning reorganizing its representations) are inferences
+   below, not established.
+10. RQ3 (a second ASR backend) has **never been run** — zero evidence, in
+    either direction, on whether any of items 2-8 is CrisperWhisper-
+    specific or general to ASR systems.
+11. Implementation experience: every single stage in this track caught
+    at least one real bug via a pre-flight check, dry run, or unit test
+    before trusting its result (Stage A's categorization bug, Stage B's
+    `audio_bytes=None` bug, Stage C's population-mismatch and missing-
+    timestamp bugs, the layer-sweep's population deviation, the decoding
+    experiment's false-positive heuristic bug) — none slipped through
+    to a trusted conclusion. The methodology and infrastructure built
+    (`profiling/encoder_embedding.py`, the alignment-based categorization
+    approach, the AUC/precision-recall tooling) is now mature and,
+    notably, **not CrisperWhisper-specific in its design** — it could be
+    pointed at a different ASR's encoder with modest changes, meaning
+    this investment carries forward regardless of what comes next.
+
+### Inference (reasoned from the evidence above, not directly measured)
+
+- The information-loss mechanism is most consistent with something in
+  CrisperWhisper's **learned behavior** — what the model was trained to
+  predict — rather than in *how* that prediction is searched or *which*
+  layer's representation is consulted. This inference is now
+  meaningfully stronger than in the first reassessment: two independent,
+  cheap, targeted tests (layer depth, beam width) both came back
+  negative for their specific mechanism, while the underlying encoder
+  signal (Stage C) remains real. Two negative results narrowing toward
+  the same conclusion is more informative than either alone, though it
+  remains an inference — no experiment here has intervened on the
+  model's actual training.
+- The unreconciled literature discrepancy (item 9) is itself weak,
+  suggestive evidence that CrisperWhisper's specific fine-tuning may
+  behave differently from the base Whisper models most published
+  disfluency-classification work uses — which argues for treating this
+  track's findings as possibly CrisperWhisper-specific rather than
+  general ASR-encoder behavior, strengthening the case for RQ3
+  specifically (not just as a generic "nice to have" generalization
+  check, but as evidence-motivated by a real, observed anomaly).
+- The "free," inference-time investigation of CrisperWhisper's own
+  representations and decoding behavior is very likely close to its own
+  ceiling — every cheap, non-training lever this track could identify
+  (which layer, which pooling comparison, which decoding width, which
+  second signal to fuse) has been tried. This does not mean the
+  *architecture* is exhausted — it means the *cheap, representation-only
+  investigation of this one architecture* is close to exhausted.
+
+### Judgment (this document's own call, explicitly labeled — not fact, not proven inference)
+
+**Answering the question asked, directly: yes — we have essentially
+extracted the meaningful evidence obtainable from CrisperWhisper's
+existing representations and decoding behavior, at the current sample
+size, without training anything.** Every lever available at that
+scope — encoder layer choice, decoding configuration, duration, Praat
+acoustic features, the mis-routing lead — has been tried. Two came back
+genuinely positive-but-limited (the encoder-distance signal itself);
+five came back negative or inconclusive. That is a coherent, closed
+picture for *this specific slice* of investigation, not a scattered set
+of unrelated null results.
+
+**This is not the same as "abandon CrisperWhisper" or "start building a
+different ASR."** Per the standard stated at the top of this section: the
+remaining uncertainty within the current architecture is genuinely small
+now (the cheap levers are tried; what's left — fine-tuning — is a
+qualitatively different, much larger commitment, not another cheap
+experiment). But the remaining uncertainty *outside* the current
+architecture is not yet small either — RQ3 has produced *zero* evidence
+either way. Recommending a move to a new ASR now would be exactly as
+evidence-free as the concern the project owner opened this reassessment
+with. The honest reading is that this track has reached a genuine
+decision point, not a call to keep digging in the same place *or* a
+license to jump elsewhere on faith.
+
+### Remaining work — the recommended path, in order, none skipped
+
+1. **RQ3 — a second ASR backend, immediately, before anything else.**
+   Not because it is glamorous, but because it is the cheapest possible
+   step that converts the current genuine uncertainty (is this
+   CrisperWhisper-specific, or how ASR systems generally behave?) into
+   evidence. No training required — run a second pretrained ASR (e.g.
+   stock `whisper-large-v3`, already named as an option in `ROADMAP.md`
+   item 10) through the same Track B alignment pipeline this track
+   already has, on the same audio already downloaded, and re-run this
+   track's own Stage A categorization against its output. **This is the
+   literal bridge between "more of this track" and "the next research
+   phase"** — its result directly answers whether continuing to invest in
+   CrisperWhisper specifically (fine-tuning, Stage D) or broadening to a
+   different pretrained model's representation is the evidence-motivated
+   next move, rather than guessing at either.
+2. **Only after RQ3 has a result**: formally cost out Stage D (§9's
+   three-part test) — infrastructure (GPU, a paired transcript+
+   disfluency-labeled dataset at real volume) is the one condition of
+   that test genuinely unaddressed by anything in this track; pricing it
+   out honestly (what exists, what would need acquiring, realistic
+   timeline) is itself real, valuable next work, whether or not
+   fine-tuning is ultimately pursued.
+3. **Not recommended now**: expanding the current sample size for more
+   of the same cheap experiments (layer depth, decoding, fusion) at
+   higher n. The *direction* of every result in this track is already
+   clear enough (not marginal, not contradictory) that more data would
+   sharpen confidence intervals, not change conclusions — a lower-value
+   use of effort than RQ3 or the Stage D cost assessment.
+4. **Not recommended now**: committing to a purpose-built ASR or a
+   specific alternative pretrained model. Nothing measured so far
+   identifies which alternative (if any) would actually do better —
+   that is exactly what RQ3 exists to start answering.
+
+### What changes as a result
+
+`ROADMAP.md`'s pointer to this track is updated with this section's
+conclusion: item 10 (second ASR backend) is elevated from "open
+question" to **the explicit next step for this track**, ahead of
+everything else, including the fusion-style Stage-C revision floated
+earlier (superseded by this more complete picture — that revision's own
+motivation, a starved signal population, would not be resolved by more
+fusion attempts at the current sample size, only by more data or a
+different representation source, which RQ3 and Stage D address more
+directly).
+
+---
+
 ## 0. The checkpoint that opened this track
 
 `VALIDATION.md` §14/§14.1 (2026-08-05) re-ran the shipped repetition-
