@@ -789,8 +789,17 @@ still low (4.7% at 52.6% recall) given realistic class imbalance. Not
 ready to ship as a standalone candidate generator; the evidence-justified
 next step is a fusion-style revision combining this signal with others,
 not Stage D (fine-tuning) — the confound Stage D exists to react to has
-been refuted, not confirmed.** Full results, controls, and limitations:
-`ASR_RESEARCH_TRACK.md` §8.
+been refuted, not confirmed.** **Stage C2 (Praat voice-quality fusion) is
+also done, 2026-08-06: a clean negative — none of five Praat features
+(pitch, pitch stability, jitter, shimmer, HNR) cleared even a low
+AUC>=0.55 screening bar (all near chance), so the fusion combination step
+was correctly not attempted. Rules out Praat features specifically as
+this track's next signal for `sound_repetition`; does not touch Stage
+C's own encoder-distance conclusion. With the mis-routing lead (n=4, too
+small to test) and Praat both explored, low-cost fusion candidates are
+largely exhausted at this sample size — three options recorded, not yet
+chosen, in `ASR_RESEARCH_TRACK.md`'s end-of-session handoff update.**
+Full results, controls, and limitations: `ASR_RESEARCH_TRACK.md` §8.
 
 ## Near-term
 

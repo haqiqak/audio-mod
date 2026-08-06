@@ -993,6 +993,157 @@ following this project's own §6(e) precedent, before concluding richer
 representations "don't work" for `sound_repetition`. Not implemented in
 this session — a scoped next step, not started here.
 
+### Stage C2 — Fusion with acoustic voice-quality evidence: pre-registered protocol (2026-08-05, written before running)
+
+**Re-scoping note, checked before writing any code — the handoff's
+originally-proposed fusion candidate turns out not to be quantitatively
+testable as first framed.** The handoff (and §8's own Stage C write-up)
+named Stage A's "mis-routed" finding — positions where an existing
+`block`/`filler`/`phrase_repetition` detector already fired instead of
+`sound_repetition` — as the clearest first fusion candidate. Checking
+this directly before building anything: Stage A's own categories 1
+("normalized away," Stage C's target population) and 2 ("mis-routed")
+are mutually exclusive by construction — category 1 is defined as
+positions where *no* detector produced any prediction at all. This means
+the mis-routing signal is constant (always "no") across every one of
+Stage C's 19 target positions and cannot add discriminative information
+there; and testing it on its own tiny population (n=4 mis-routed
+`sound_repetition` cases, §8's table) would not be a meaningful
+quantitative test at all — a single case flipping changes any measured
+rate by 25 percentage points. **Re-scoped**: the 4 mis-routed cases stay
+a qualitative observation (already reported in §8's Stage A findings),
+not a quantitative fusion test. The signal actually tested here is a
+different, still-available, still-well-powered one: **Praat-derived
+voice-quality features** (`profiling/acoustic.py`'s existing
+`_praat_features` — pitch stability, jitter, shimmer, HNR), already used
+elsewhere in this codebase as `prolongation` corroboration, applied to
+the exact same n=19/966 population Stage C used, so the comparison stays
+apples-to-apples.
+
+**Hypothesis under test**: does voice-quality irregularity (jitter,
+shimmer, pitch instability, reduced harmonics-to-noise ratio —
+physiologically plausible correlates of a disfluent, effortful, or
+interrupted production, conceptually distinct from both the encoder's
+learned representation and the already-refuted duration signal) carry
+information the encoder-distance signal doesn't, and does combining them
+improve on Stage C's own precision/recall?
+
+**Design**:
+1. For each of Stage C's 19 target + 966 control positions, extract
+   `pitch_hz`, `pitch_std_hz`, `jitter`, `shimmer`, `hnr` via the
+   existing `_praat_features(samples, sr, start, end)`, over the same
+   real-ASR hyp-token span already used for the encoder-distance
+   measurement. No new audio, no encoder pass — CPU-only signal
+   processing, reusing infrastructure this project already ships.
+2. **Screen each feature individually first** (same discipline Stage 1
+   applied to the encoder signal before it was trusted): compute AUC for
+   each of the 5 features alone against the same target/control labels
+   (jitter/shimmer/`pitch_std_hz` scored so *higher* = more anomalous;
+   `hnr` scored so *lower* = more anomalous, i.e. evaluated as `-hnr`).
+   Missing values (Praat failure on short/unvoiced segments — a
+   documented, expected mode of this function) excluded from that
+   feature's own AUC computation, not imputed; missingness rate reported
+   per feature.
+3. **Only features clearing AUC >= 0.55** (a deliberately low screening
+   bar, not the 0.5-vs-chance "positive result" bar Stage C used — this
+   step exists to avoid combining pure-noise features into an ensemble
+   and mistaking the resulting inflation for a real fusion effect) are
+   carried into the combination step.
+4. **Combination rule, fixed before results are seen**: if at least one
+   feature clears the screening bar, combine it with encoder-distance via
+   the **max of both signals' z-scores** (standardized against the
+   control population) — an OR-like, training-free rule, chosen over a
+   trained classifier because n=19 remains below what this project's own
+   precedent (§12.6.2's nested-CV comparison) required before trusting a
+   trained model on a signal like this, and because staying training-free
+   keeps this stage in the same "cheapest version that can still test the
+   hypothesis" register as Stage C itself.
+5. Evaluate the combined score exactly as Stage C evaluated single
+   signals: AUC, precision at recall>=0.5 and recall>=0.7.
+
+**Success criteria, fixed in advance**:
+- **Fusion helps**: combined-score AUC is meaningfully above Stage C's
+  encoder-only AUC (0.723) *and* precision at recall>=0.5 is meaningfully
+  above Stage C's 0.047 — not just numerically higher, given n=19 is
+  small enough that a small gain is within plausible noise.
+- **Fusion doesn't help**: no meaningful improvement over encoder-distance
+  alone — reported as a real finding (H-fusion-insufficient), not a
+  failure of the experiment.
+- **No Praat feature clears the screening bar at all**: reported as its
+  own distinct finding — voice-quality features carry no additional
+  signal for this population, a different conclusion from "combining two
+  informative signals didn't help," and one that would point away from
+  acoustic-feature fusion specifically (not fusion in general) as this
+  track's next lever.
+
+**Named limitations, stated before running**:
+- Still in-sample, same caveat as Stage C's own limitation section —
+  exploratory hypothesis-testing, not a validated deployment estimate.
+- n=19 positives is now being asked to support screening 5 features *and*
+  a combination decision — a real, named risk of overfitting to noise
+  even under the pre-registered screen-then-combine discipline. Any
+  positive result here is evidence for a larger-sample follow-up, not a
+  final answer on its own.
+- Praat's own documented failure mode (short/unvoiced segments return
+  `None`) may hit the 19-position target set harder or softer than the
+  966-position control set by chance — missingness will be reported
+  per-population, not just per-feature, so an uneven failure rate is
+  visible rather than silently absorbed into the AUC computation.
+
+### Stage C2 — Results (2026-08-06): no Praat voice-quality feature clears
+the screening bar — a clean, specific negative result
+
+**Cost, as it actually ran**: 82s to scan all 120 clips (CPU-only, no
+model download) — Praat feature extraction is genuinely cheap, matching
+the pre-registration's expectation.
+
+**Screening results (AUC vs. chance=0.5, n=19 target / n=967 control
+before missingness):**
+
+| Feature | AUC | Target missing | Control missing |
+|---|---|---|---|
+| `pitch_hz` | 0.549 | 0/19 | 24/966 |
+| `pitch_std_hz` | 0.471 | 0/19 | 24/966 |
+| `jitter` | 0.527 | 0/19 | 29/966 |
+| `shimmer` | 0.507 | 0/19 | 48/966 |
+| `hnr` | 0.452 | 0/19 | 1/966 |
+
+**None cleared the pre-registered AUC >= 0.55 screening bar** — every
+feature sits close to chance (0.452-0.549), well below even this
+deliberately low bar, let alone Stage C's own encoder-only AUC of 0.723
+on the identical population. Per the pre-registered protocol, this
+specific outcome — no feature passing screening — is a distinct finding
+from "fusion didn't help": **the fusion combination step was correctly
+not attempted at all**, since combining pure-noise signals with the
+encoder-distance signal would only have added noise, not tested anything.
+
+**Interpretation, labeled as a hypothesis, not a confirmed explanation**:
+one plausible reason Praat voice-quality features work for this
+project's `prolongation` detection (`ARCHITECTURE.md` §4a) but not here —
+`prolongation` involves a sustained, voiced segment long enough for
+reliable pitch/jitter/HNR tracking, while a `sound_repetition`-absorbing
+token is typically an ordinary-length single word, exactly the short-
+segment regime Praat's own pitch-tracking algorithms are known to be
+least reliable in. Consistent with, but not proven by, the missingness
+pattern (`hnr` and `pitch_hz`/`pitch_std_hz` fail on 24-48 of 966 control
+positions, presumably shorter/less-voiced ones) — not independently
+verified this session, stated as a plausible explanation only.
+
+**What this resolves**: Praat-derived voice-quality features are ruled
+out as this track's next fusion signal for `sound_repetition` — a real,
+specific, useful negative result that narrows the search rather than
+leaving it open. It does not touch Stage C's own encoder-distance
+conclusion (H1 refuted, H2 supported, H3 also supported, §8 above), and
+it does not rule out fusion in general — only this particular candidate
+second signal. The mis-routing lead (Stage A category 2, n=4) remains a
+real but small, qualitative-only observation (§8's Stage A findings),
+not something this or any statistical test at this sample size can
+confirm further. With both readily-available fusion candidates now
+tried (mis-routing: too small to test; Praat: tested and ruled out),
+the next-lowest-cost options are largely exhausted for `sound_
+repetition` at this sample size — see the updated end-of-session
+handoff below for what this implies.
+
 **Stage D — If B/C are insufficient**: this is the evidence threshold
 for seriously costing out (a) fine-tuning/continual adaptation or (d)
 multitask training. Not attempted before this point. Requires first
@@ -1072,6 +1223,49 @@ project on cheaper alternatives:
 **Read this section first if you are picking up cold.** It is written so
 a new session can act on it directly — "continue from the end-of-session
 handoff" — without re-deriving anything above.
+
+**Update, 2026-08-06 — the "exact proposed next stage" below was
+executed the following session; read this note before acting on the
+original plan text further down, which is kept as written (append
+discipline) but is now superseded on this one point.** Stage C2 (Praat
+voice-quality fusion, §8) ran exactly as this handoff proposed:
+pre-registered, then run. **Result: a clean negative** — none of five
+Praat features (pitch, pitch stability, jitter, shimmer, HNR) cleared
+even the low AUC>=0.55 screening bar (all near chance, 0.452-0.549), so
+the fusion combination step was correctly not attempted at all. This
+rules out Praat voice-quality features specifically as this track's next
+signal — it does not touch Stage C's own encoder-distance conclusion.
+With the mis-routing lead (n=4, too small to test statistically) and now
+Praat (tested, ruled out) both explored, the readily-available low-cost
+fusion candidates for `sound_repetition` are largely exhausted at this
+sample size. **The evidence-grounded options from here, in order of
+cost, updating this handoff's original "exact proposed next stage"
+section below**:
+1. **Scale up the sample** before trying further fusion candidates —
+   more real-ASR clips would both sharpen Stage C's own encoder-distance
+   estimate (n=19 is small) and make a mis-routing-style recovery
+   statistically testable for the first time (ties to `ROADMAP.md` item
+   10/14-16, real acquisition work, not a quick step).
+2. **Try the mis-routing recovery as a small, separate, rule-based
+   addition** (not a statistical fusion test — a direct rule: relabel an
+   existing `block`/`filler`/`phrase_repetition` prediction as `sound_
+   repetition` when encoder-distance is also high) — cheap, but only
+   ever recoverable-in-principle for ~4 cases in the current sample, so
+   its value is more about correctness than about moving a headline
+   number.
+3. **Formally cost out Stage D** (§9's three-part test) — two of its
+   three conditions now have real evidence behind them (loss is broad,
+   confirmed Stage A; encoder representations alone have been tried more
+   than once and found insufficient alone, Stage C/C2) — the missing
+   third condition (a real, sufficient paired dataset and infrastructure)
+   is the actual open question worth pricing out next, rather than
+   trying more cheap fusion candidates that keep coming back small or
+   negative.
+
+This update does not pick one of these three — it is recorded here as
+the honest state of the decision, for whoever (human or Claude) continues
+next to decide with, not decided unilaterally in the middle of a
+session-close note.
 
 ### What was completed today (full session, not just this track)
 

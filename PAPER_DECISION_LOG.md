@@ -5019,3 +5019,85 @@ further change needed there). No code changes. Full test suite
 unaffected (documentation-only). Repository confirmed ready for the
 owner's own `git push` of both branches, per their explicit request not
 to push in this session.
+
+---
+
+## 2026-08-06 — Stage C2 done: Praat voice-quality fusion — clean negative result
+
+**What was done**
+Continued directly from the prior session's end-of-session handoff, per
+the owner's go-ahead. Executed the "exact proposed next stage" from that
+handoff: a fusion-style revision of Stage C. Before writing any code,
+checked the handoff's own first-named fusion candidate (Stage A's
+"mis-routed" finding, n=4 `sound_repetition` cases caught as a different
+type) directly against Stage A's own category definitions — found it
+degenerate for Stage C's target population (category 1, Stage C's n=19,
+is defined as having *zero* other-detector predictions, by construction
+mutually exclusive with category 2's "mis-routed") and too small (n=4)
+to test quantitatively on its own regardless. Re-scoped, documented as a
+dated addendum in `ASR_RESEARCH_TRACK.md` before proceeding, to a
+different, well-powered, already-available signal: Praat-derived voice-
+quality features (`profiling/acoustic.py`'s existing `_praat_features` —
+pitch, pitch stability, jitter, shimmer, HNR), already used elsewhere in
+this codebase for `prolongation` corroboration.
+
+Pre-registered the full protocol (screen each feature individually at a
+low AUC>=0.55 bar before combining any with encoder-distance, to avoid
+combining noise features and mistaking the resulting inflation for a
+real effect; combination rule fixed in advance as max-of-z-scores, no
+trained model, consistent with this track's "cheapest version that can
+test the hypothesis" discipline) before writing `profiling/evaluation/
+stage_c2_praat_fusion.py`. Sanity-checked on a small clip subset first
+(a scope-limited dry run correctly tripped the count-check assertion,
+confirming the safety check itself works) before the real 120-clip run.
+
+**Result**: none of the five Praat features cleared the screening bar —
+`pitch_hz` 0.549, `pitch_std_hz` 0.471, `jitter` 0.527, `shimmer` 0.507,
+`hnr` 0.452, all within noise distance of chance (0.5), well below
+Stage C's own encoder-only AUC of 0.723 on the identical population. Per
+the pre-registered protocol, the fusion combination step was correctly
+never attempted — combining these with encoder-distance would only add
+noise. A real, clean, specific negative result: Praat voice-quality
+features are ruled out as this track's next signal for `sound_
+repetition`, distinct from "fusion doesn't help" in general.
+
+**Alternatives considered**
+- Force a fusion combination anyway, using the best-scoring feature
+  (`pitch_hz`, AUC=0.549) even though it didn't clear the bar, since
+  "some signal is better than none." **Rejected**: this is exactly what
+  the pre-registered screening step exists to prevent — a feature at
+  0.549 is statistically indistinguishable from chance at n=19/966, and
+  combining it would very likely just inflate apparent performance
+  through noise, not add real information.
+- Treat the mis-routing lead (n=4) as still worth a formal statistical
+  test, given it was the handoff's originally-named first candidate.
+  **Rejected**: checked directly and found it degenerate on Stage C's
+  own population (constant, not discriminative, by construction) and
+  too small to test on its own regardless — recorded as a dated
+  re-scoping addendum rather than silently swapped for the Praat test.
+- Try additional feature engineering (e.g. delta/derivative features,
+  or a shorter/longer analysis window) to salvage a Praat-based signal
+  before concluding it doesn't work. **Rejected for this session**: the
+  pre-registered protocol's success criteria were fixed in advance
+  specifically to prevent this kind of post-hoc searching for a result;
+  a genuinely different windowing strategy would be its own new,
+  separately pre-registered experiment, not a silent extension of this
+  one.
+
+**Why this choice**
+Directly executes the prior session's own handoff plan, applies the same
+pre-register-before-code and screen-before-combine discipline as every
+other stage in this track, and reports a negative result with the same
+weight and rigor a positive one would have gotten — consistent with the
+owner's explicit standing instruction that positive, negative, and
+inconclusive results are all acceptable outcomes.
+
+**Measured result**
+`profiling/evaluation/stage_c2_praat_fusion.py` (new, research code
+only). `ASR_RESEARCH_TRACK.md` §8 (Stage C2 pre-registered protocol +
+results, including the mis-routing re-scoping addendum) and an updated
+end-of-session handoff section (dated 2026-08-06 update note, three
+remaining options recorded, none chosen unilaterally). `ROADMAP.md`
+updated with the outcome. `eval_results/20260806T135433_stage_c2_praat_
+fusion.json` (raw screening/combination data, saved). No production
+code changed. On the `asr-research` branch only — `main` untouched.

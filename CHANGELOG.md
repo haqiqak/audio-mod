@@ -6,6 +6,22 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-06 (asr-research branch)
+
+- **Stage C2 done: Praat voice-quality fusion — clean negative result.**
+  Continued from the prior session's handoff. Re-scoped the originally-
+  proposed mis-routing fusion candidate (found degenerate/too small,
+  n=4) to Praat-derived voice-quality features (pitch, jitter, shimmer,
+  HNR), pre-registered, then tested on the same n=19/966 population
+  Stage C used. None of five features cleared the AUC>=0.55 screening
+  bar (all near chance) — fusion combination correctly not attempted.
+  Rules out Praat features specifically for `sound_repetition`; Stage
+  C's own encoder-distance conclusion unaffected. Three remaining
+  options (scale up the sample / try the mis-routing rule directly /
+  cost out Stage D) recorded in the handoff, none chosen yet. →
+  *PAPER_DECISION_LOG.md, "Stage C2 done: Praat voice-quality fusion —
+  clean negative result"*; full results `ASR_RESEARCH_TRACK.md` §8.
+
 ## 2026-08-05 (asr-research branch)
 
 - **End-of-session documentation, consistency, and handoff pass.**
