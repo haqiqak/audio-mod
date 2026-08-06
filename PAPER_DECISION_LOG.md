@@ -5501,3 +5501,252 @@ research track: comprehensive design-space investigation." `ROADMAP.md`
 item 10 updated with the specific 3-arm design; the track's summary
 pointer updated. No code written, no experiment run — per the request,
 this entry is the plan, not its execution.
+
+## 2026-08-06 — Arm 1 done: stock whisper-large-v3, full pipeline — clean negative
+
+**What was done**
+Built `profiling/evaluation/stage_arm1_stock_whisper.py` and ran it
+against the exact pre-registered 31-clip/36-position population
+(re-derived from the existing Track B cache and confirmed to match
+exactly, not re-scanned fresh). Re-transcribed the same 31 clips with
+stock `openai/whisper-large-v3` (`num_beams=1`, matching the live app's
+decoding configuration — a fair comparison, not the model's
+unconstrained default), then re-applied Stage A's own 4-category
+classification scheme to the same 36 known-loss ref positions under the
+new transcript.
+
+**Deviation from the letter of the pre-registration, recorded rather
+than silently absorbed**: the pre-registered success criterion cited
+CrisperWhisper's full-audit 45.2%/40.5% normalized-away rates (computed
+over Stage A's original 42-position audit) as the comparison baseline.
+Re-running that full hand-traced audit for stock Whisper was out of
+proportion to this arm's own 30-55 min cost estimate. Reported instead
+what fraction of the 36 *specific, already-known* losses got recovered
+under the new transcript — a more targeted version of the same question,
+stated as a substitution rather than left implicit.
+
+**Alternatives considered**
+- Use `profiling/asr.py`'s `CrisperWhisperASR` class directly with a
+  different `model_id`. **Rejected**: that class deliberately raises on
+  any vanilla-Whisper model ID to protect the live app from silently
+  losing disfluencies — correct for production, wrong tool for a script
+  whose entire purpose is measuring that exact behavior. Called
+  `transformers.pipeline()` directly instead, mirroring the class's own
+  proven decoding configuration.
+
+**Why this choice**
+Directly executes RQ-A / item 10's original ask with the cheapest
+available design: no new data, no new engineering beyond a second
+transcription pass, direct reuse of Stage A's own categorization logic.
+
+**Measured result**
+0/36 positions recovered (0% `recovered_tp`, both types). Normalized-away
+rate: `sound_repetition` 89.5% (17/19, vs. CrisperWhisper's 45.2%
+full-audit baseline), `word_repetition` 88.2% (15/17, vs. 40.5%) — higher,
+not lower. 4 positions (2 per type) moved to genuine ASR error instead of
+staying normalized-away — the bigger model introduced new transcription
+errors at positions CrisperWhisper got right, without recovering the
+disfluency either way. Mean WER 0.177, comparable to CrisperWhisper's own
+range (not a general degradation). Cost: 2533s (42 min) for 31 clips plus
+an 873s one-time download/load. **Failure**, exactly as pre-registered —
+real evidence this is a general property of large-scale weakly-supervised
+ASR, not something specific to CrisperWhisper's own choices.
+
+## 2026-08-06 — Arm 2 done: stock whisper-large-v3 encoder, layer sweep — clean negative
+
+**What was done**
+Extended `profiling/evaluation/stage_layer_sweep.py` with a `--model-id`
+argument (defaulting to `None` = CrisperWhisper, so existing behavior is
+unchanged) and re-ran the identical, already-validated layer-sweep
+methodology pointed at stock `whisper-large-v3`'s encoder. Position
+selection (which ref/hyp indices to pool from) was held fixed to
+CrisperWhisper's own cached hyp_tokens, exactly as the pre-registration
+specified — only the encoder processing the audio changed.
+
+**Alternatives considered**
+- Recompute target/control positions fresh under stock Whisper's own
+  transcript for this arm too. **Rejected**: the pre-registration is
+  explicit that Arm 2 isolates the *encoder* variable specifically by
+  holding position selection fixed — recomputing positions would
+  conflate two different questions (does a different transcript surface
+  different positions vs. does a different encoder represent the same
+  positions differently).
+
+**Why this choice**
+Cheapest arm in the design (reuses existing, already-cost-measured
+infrastructure with a one-line change), and the most direct test of
+RQ-C: is the last-layer-only concentration CrisperWhisper's fine-tuning,
+or Whisper's architecture generally.
+
+**Measured result**
+Same last-layer-only pattern: layer 32 (last) AUC=0.680, every other
+layer 0.336-0.378 (near/below chance) — structurally identical shape to
+CrisperWhisper's own sweep. Same-population comparison (both on the
+identical 18-clip/19-target subset): CrisperWhisper's last layer scored
+0.721 here vs. stock Whisper's 0.680 — slightly *lower*, not higher or
+more distributed. Cost: 555s (9 min) for 18 clips, matching the
+layer-sweep's established rate. **Failure**, exactly as pre-registered —
+the concentration pattern is a Whisper-architecture property, not
+something CrisperWhisper's fine-tuning introduced. Narrows RQ-C's answer
+to "not fine-tuning specifically" and shifts the open question fully
+onto Arm 3 (a genuinely different architecture).
+
+## 2026-08-06 — Arm 3 done: WavLM-Large representation — negative on the primary metric, one genuine nuance
+
+**What was done**
+Built `profiling/evaluation/stage_arm3_wavlm.py`, loading WavLM-Large
+via `transformers`' `WavLMModel`/`Wav2Vec2FeatureExtractor` and
+extracting encoder states at the same target/control positions Arm 2
+used (CrisperWhisper's own cached hyp_tokens as the position source).
+Computed last-layer Cohen's d/AUC (the pre-registered primary metric,
+directly comparable to Stage B/C's own number) plus a full layer sweep
+(`sound_repetition` only, matching Arm 2's scope) since the dry run
+showed it was cheap enough to include.
+
+**Confounder resolved rather than left as assumed friction**: the
+pre-registration flagged WavLM's frame-rate/pooling as "real, non-trivial
+engineering, not a drop-in checkpoint swap." Checked directly before
+writing any extraction code: WavLM-Large's conv feature encoder has
+total stride 320 at 16kHz, giving exactly 20ms/frame — identical to
+`profiling/encoder_embedding.py`'s `FRAME_SECONDS` convention — and
+LibriStutter's audio files are natively 16kHz (verified directly, not
+assumed). `pool_span`/`cosine_distance` needed zero modification. Recorded
+as a correction to the earlier, more cautious characterization, not a
+silent scope change.
+
+**Alternatives considered**
+- Skip the layer sweep, last-layer stats only (the strict minimum the
+  pre-registration required). **Rejected once the dry run landed**: at
+  ~10s/clip the full sweep cost almost nothing extra (302s total for 31
+  clips, including the sweep), and the pre-registration explicitly said
+  "resources permitting" — worth the additional RQ-C evidence at
+  near-zero marginal cost.
+
+**Why this choice**
+Directly executes RQ-B(ii): does a representation from a model with a
+genuinely different (not ASR) pretraining objective, explicitly designed
+for paralinguistic sensitivity, carry a stronger signal than anything in
+the Whisper family. Sequenced last, after Arms 1-2 both failed — exactly
+the pre-registered trigger for running it.
+
+**Measured result**
+`sound_repetition` (the primary, directly comparable metric): d=-0.061,
+AUC=0.474 — indistinguishable from chance, weaker than both CrisperWhisper
+(d=0.894, AUC=0.723) and Arm 2's stock Whisper (AUC=0.680). **Failure**,
+exactly as pre-registered. Two things recorded honestly alongside that
+verdict, neither reversing it: (1) the layer-depth *profile* is genuinely
+different from either Whisper variant — WavLM peaks mid-network (layer
+10, AUC=0.617) rather than only at the last layer, consistent with
+masked-prediction pretraining distributing signal differently across
+depth than a narrowly-supervised decoder objective, though its peak still
+underperforms both Whisper arms; (2) `word_repetition` showed a small
+positive signal (d=0.259, AUC=0.576, n=17) that CrisperWhisper's own
+Stage B never found at all — flagged explicitly as too small to trust
+standalone (rule 3: small effect, small sample, the only positive cell
+among five arms x two types this phase tested), not elevated into a
+claim this evidence doesn't support. Cost: 302s (5 min) for 31 clips plus
+a 357s one-time download — cheapest of the three arms.
+
+## 2026-08-06 — Phase 2 integrative conclusion: Failure/Failure/Failure — Stage D costing is the evidence-motivated next step
+
+**What was done**
+Applied the pre-registered outcome-to-conclusion mapping table to the
+three arms' real results (all Failure) rather than re-litigating or
+re-scoping after seeing them. Updated `ASR_RESEARCH_TRACK.md` with a
+full "Phase 2 results" write-up (per-arm numbers, the integrative
+conclusion, and what it does/doesn't rule out) and `ROADMAP.md` item 10
+with the same conclusion and pointer.
+
+**Alternatives considered**
+- Treat Arm 3's `word_repetition` signal or its layer-depth-profile
+  nuance as a partial success, softening the overall verdict.
+  **Rejected**: the pre-registered primary metric for Arm 3 was
+  `sound_repetition` (the one type with a directly comparable prior
+  number), and it came back at chance. Recording the nuances honestly
+  is not the same as letting them dilute a clean negative result on the
+  metric that was actually pre-registered.
+- Treat this as grounds to immediately begin fine-tuning or a
+  purpose-built representation. **Rejected**: both remain genuinely
+  gated on infrastructure (GPU, paired data at volume) this project does
+  not have — the evidence-motivated action is to formally *cost out*
+  that direction (what data, what compute, what a pre-registered success
+  criterion would look like), not to attempt it uninstrumented.
+
+**Why this choice**
+This is exactly the branch the pre-registration named before any arm
+ran (§ "Outcome-to-conclusion mapping," row 3) — following it here is
+the entire point of pre-registering it in the first place: the
+conclusion was fixed before the data that would produce it existed.
+
+**Measured result**
+Five independent, real, pre-registered probes across this track (Stage
+C's duration baseline, Stage C2's Praat fusion, the CrisperWhisper layer
+sweep, the `num_beams` decoding experiment, and now these three
+model-swap arms) have each independently found the same thing: nothing
+cheap, off-the-shelf, and representation-only closes the
+`sound_repetition`/`word_repetition` normalization gap. Directions (a)
+and (b) (a different pretrained ASR; a different pretrained
+representation, in-family or architecture-diverse) are now
+evidence-closed for this specific problem, not merely untested. Two live
+next steps remain, named but not yet executed: formally costing out
+Stage D (fine-tuning/data acquisition, §9), and giving direction (g)
+(extending the acoustic-native precedent further) a real look first,
+since it remains cheap and was deliberately sequenced after, not
+instead of, (a)/(b). No change to `main`.
+
+## 2026-08-06 — Direction (g) pre-registered: an acoustic-native `sound_repetition` candidate generator
+
+**What was done**
+Given the choice between costing out Stage D and pursuing direction (g)
+next, the project owner chose (g) (cheaper, no new infrastructure,
+already sequenced first). Wrote a full pre-registered protocol in
+`ASR_RESEARCH_TRACK.md` before any implementation, per rule 1: a new
+acoustic candidate-generation mechanism for `sound_repetition` — 2+
+short, spectrally self-similar voiced bursts in immediate succession,
+detected directly from the waveform via `profiling/acoustic.py`'s
+existing `segment_voiced()` segmentation, evaluated against
+LibriStutter's own ground-truth timestamps (Track-A-style, no ASR
+involved at all).
+
+**Why this is not the same idea as the earlier superseded fusion
+proposal, checked explicitly rather than assumed**: the fusion idea
+(encoder-distance + Stage A's mis-routing signal) was starved at n=19/
+n=4 because both signals only exist at ASR-correct or ASR-mis-routed
+positions — a population ceiling Phase 2 (Arms 1-3) has now confirmed
+will not be enlarged by a different ASR or representation. This
+proposal depends on no ASR output whatsoever, so it can evaluate against
+the *full* ground-truth `sound_repetition` population (up to 42
+instances, Stage A's original count) rather than the 19-position
+ASR-correct subset — a genuinely different, larger, non-starved
+population, not the same starvation problem under new branding.
+
+**Alternatives considered**
+- Implement the detector immediately rather than pre-register first.
+  **Rejected**: this is new engineering (a candidate-generation
+  mechanism this codebase doesn't have yet, plus a new timestamp-based
+  scorer), not a parameter change to existing, already-validated
+  infrastructure — exactly the case rule 1 exists for, and the project
+  owner's own choice this session was explicitly "scope a concrete
+  pre-registered next experiment," not "build it."
+- Anchor evaluation to ASR hypothesis positions (matching every prior
+  stage in this track). **Rejected**: doing so would silently reimport
+  the same starved-population ceiling this proposal exists to escape —
+  the entire point of an ASR-independent detector is an ASR-independent
+  evaluation.
+
+**Why this choice**
+Cheapest live option left in the original 7-direction design space
+(no model download, no GPU, no new data acquisition), directly extends
+a pattern this codebase already ships and validates (`block`/
+`prolongation`), and was named as the nearer-term option ahead of Stage
+D in Phase 2's own "Direction justification" before today's results
+existed — not a direction invented after the fact to have something
+positive to try next.
+
+**Measured result**
+Not a numeric result — a complete, pre-registered protocol (hypothesis,
+design, population, metric, success/failure criteria, confounders,
+cost). No code written yet. `ASR_RESEARCH_TRACK.md` gets a new section,
+"Direction (g): an acoustic-native `sound_repetition` candidate
+generator." Implementation requires a separate go-ahead, per this
+track's standing two-step cadence.

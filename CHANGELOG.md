@@ -8,6 +8,62 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-06 (asr-research branch)
 
+- **Direction (g) pre-registered: an acoustic-native `sound_repetition`
+  candidate generator.** Chosen over costing out Stage D as the next
+  step (cheaper, no new infrastructure). A new waveform-only detection
+  mechanism (short, spectrally self-similar voiced bursts in
+  succession), evaluated against LibriStutter's own ground-truth
+  timestamps rather than ASR output — deliberately escapes the earlier
+  superseded fusion idea's starved-population problem by not depending
+  on ASR alignment at all. Full protocol pre-registered before any
+  code, per rule 1; implementation needs a separate go-ahead. →
+  *PAPER_DECISION_LOG.md, "Direction (g) pre-registered..."*
+
+- **Phase 2 integrative conclusion: Failure/Failure/Failure — Stage D
+  costing is the evidence-motivated next step.** All three pre-registered
+  arms ran and each independently failed its own success criterion —
+  directions (a) (different pretrained ASR) and (b) (different pretrained
+  representation, in-family or architecture-diverse) are now
+  evidence-closed for `sound_repetition`/`word_repetition` normalization
+  loss, not merely untested. Two live next steps named: formally cost
+  out Stage D (fine-tuning/data acquisition, still gated on
+  infrastructure this project doesn't have), and give direction (g)
+  (extending the acoustic-native precedent) a real look first, since it's
+  cheaper and was sequenced after (a)/(b), not instead of them. No
+  change to `main`. → *PAPER_DECISION_LOG.md, "Phase 2 integrative
+  conclusion..."*; full write-up `ASR_RESEARCH_TRACK.md` "Phase 2
+  results."
+
+- **Arm 3 done: WavLM-Large representation — negative on the primary
+  metric, one genuine nuance.** `sound_repetition` at chance
+  (d=-0.061, AUC=0.474) — weaker than both CrisperWhisper (d=0.894,
+  AUC=0.723) and Arm 2's stock Whisper (AUC=0.680). Layer-depth profile
+  genuinely differs (mid-network peak, not last-layer) but never exceeds
+  either Whisper variant's peak. A small, small-sample `word_repetition`
+  signal (d=0.259) appeared that CrisperWhisper's own Stage B never
+  found — flagged as too small to trust standalone. Frame-rate/pooling
+  confound resolved by direct verification (WavLM-Large: exactly
+  20ms/frame at 16kHz, matching `FRAME_SECONDS`; LibriStutter audio
+  natively 16kHz) rather than left as assumed engineering friction. →
+  *PAPER_DECISION_LOG.md, "Arm 3 done..."*
+
+- **Arm 2 done: stock whisper-large-v3 encoder, layer sweep — clean
+  negative.** Same last-layer-only pattern as CrisperWhisper's own sweep
+  (layer 32 AUC=0.680, all others 0.336-0.378, near/below chance).
+  Same-population comparison: CrisperWhisper 0.721 vs. stock Whisper
+  0.680 — slightly lower, not higher or more distributed. The
+  concentration pattern is a Whisper-architecture property, not
+  something CrisperWhisper's fine-tuning introduced. → *PAPER_DECISION_
+  LOG.md, "Arm 2 done..."*
+
+- **Arm 1 done: stock whisper-large-v3, full pipeline — clean negative.**
+  0/36 known-loss positions recovered; normalized-away rate *higher* than
+  CrisperWhisper's own baseline (89.5%/88.2% vs. 45.2%/40.5%). A
+  materially bigger, more capable model from the same architecture
+  family still normalizes these disfluencies away — real evidence
+  against "just swap the ASR" as a fix. → *PAPER_DECISION_LOG.md, "Arm 1
+  done..."*
+
 - **Phase 2 of the ASR research track formally opened: full design-space
   plan, pre-registered.** Re-opened the complete design space from first
   principles (7 directions: different ASR, different representation,

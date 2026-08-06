@@ -64,7 +64,7 @@ def _extract_all_layers(processor, encoder, samples: np.ndarray, sr: int) -> lis
     return [EncoderStates(hidden_states=h[0].to(torch.float32).numpy()) for h in out.hidden_states]
 
 
-def run(data_dir: Path, audio_dir: Path, n_clips: int = 120) -> dict:
+def run(data_dir: Path, audio_dir: Path, n_clips: int = 120, model_id: str | None = None) -> dict:
     from profiling.evaluation.loaders import load_libristutter_dir_with_audio
 
     print(f"Loading clips + real audio from {data_dir} / {audio_dir} ...")
@@ -86,7 +86,8 @@ def run(data_dir: Path, audio_dir: Path, n_clips: int = 120) -> dict:
     n_targets = sum(len(v["targets"]) for v in per_clip.values())
     print(f"{len(per_clip)} clips, {n_targets} target positions ({TARGET_TYPE}).\n")
 
-    processor, encoder = load_encoder()
+    print(f"Encoder: {model_id or 'nyrahealth/CrisperWhisper (default)'}\n")
+    processor, encoder = load_encoder(model_id)
     n_layers = None
     target_distances_by_layer: dict[int, list[float]] = defaultdict(list)
     control_distances_by_layer: dict[int, list[float]] = defaultdict(list)
@@ -152,8 +153,10 @@ def run(data_dir: Path, audio_dir: Path, n_clips: int = 120) -> dict:
     print(f"\nBest layer: {best_layer} (AUC={results[best_layer]['auc']:.3f}) "
           f"vs. last layer {n_layers-1} (AUC={last_layer_auc:.3f})")
 
-    out_path = _ROOT / "eval_results" / f"{time.strftime('%Y%m%dT%H%M%S')}_stage_layer_sweep.json"
+    tag = "_arm2_" + model_id.replace("/", "_") if model_id else ""
+    out_path = _ROOT / "eval_results" / f"{time.strftime('%Y%m%dT%H%M%S')}_stage_layer_sweep{tag}.json"
     out_path.write_text(json.dumps({
+        "model_id": model_id or "nyrahealth/CrisperWhisper",
         "target_type": TARGET_TYPE, "n_layers": n_layers,
         "results_by_layer": results, "best_layer": best_layer,
         "last_layer_index": n_layers - 1,
@@ -167,8 +170,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--audio-dir", required=True)
     parser.add_argument("--n", type=int, default=120)
+    parser.add_argument("--model-id", default=None,
+                         help="Encoder checkpoint to sweep (default: CrisperWhisper). "
+                              "Phase 2 Arm 2 uses 'openai/whisper-large-v3'.")
     args = parser.parse_args(argv)
-    run(Path(args.data_dir), Path(args.audio_dir), args.n)
+    run(Path(args.data_dir), Path(args.audio_dir), args.n, model_id=args.model_id)
     return 0
 
 

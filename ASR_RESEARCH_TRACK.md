@@ -960,6 +960,290 @@ non-goals (§10), findings here get evidence-gated the same way every
 other decision in this project has been, and land on `main`, if ever,
 only once real evidence supports it.
 
+### Phase 2 results (2026-08-06) — all three arms run, exactly as pre-registered
+
+Implementation: `profiling/evaluation/stage_arm1_stock_whisper.py` (new),
+`profiling/evaluation/stage_layer_sweep.py` (extended with `--model-id`,
+Arm 2 reuses it unmodified otherwise), `profiling/evaluation/
+stage_arm3_wavlm.py` (new). All three ran against the identical 31-clip/
+36-position population (or its 18-clip/19-target `sound_repetition`-only
+subset, for the two layer sweeps — same subset Arm 2's own pre-registration
+already established as population-verified-benign).
+
+**Arm 1 (stock `whisper-large-v3`, full pipeline) — Failure.** 0/36
+positions recovered (`recovered_tp` = 0% for both types). The "still
+normalized away" rate came back *higher* than CrisperWhisper's own
+full-audit baseline, not lower: 89.5% vs. 45.2% (`sound_repetition`,
+17/19 still lost) and 88.2% vs. 40.5% (`word_repetition`, 15/17 still
+lost). Two positions per type (4 total) didn't stay in category 1 — they
+moved to category 3 (genuine ASR error), meaning the bigger model
+introduced a *new* transcription error at a position CrisperWhisper had
+transcribed correctly (even while losing the disfluency itself). Overall
+mean WER (0.177) was comparable to CrisperWhisper's own range on this
+sample, so this is not a "the second model is just worse at everything"
+artifact — a materially larger, more capable model from the *same*
+architecture family still normalizes these exact disfluencies away.
+Real cost: 2533s (42 min) for 31 fresh transcriptions, plus an 873s
+one-time download/load — within the pre-registered 30-55 min band once
+the one-time load is excluded. This is the pre-registered **Failure**
+outcome: evidence this is a general property of large-scale weakly-
+supervised ASR, not a CrisperWhisper-specific choice.
+
+**Arm 2 (stock `whisper-large-v3`, layer sweep) — Failure.** Same
+last-layer-only pattern CrisperWhisper's own sweep found: layer 32 (last)
+AUC=0.680, every other layer 0.336-0.378 (near or below chance) — no
+signal distributed across depth the way arXiv:2311.05203's different task
+found. Same-population comparison (both on the identical 18-clip/19-target
+subset): CrisperWhisper's last layer scored 0.721 here; stock Whisper's
+scored *lower*, 0.680 — a materially different, non-fine-tuned checkpoint
+does not show a better or more depth-distributed signal, it shows a
+slightly *weaker* one with the identical shape. Cost: 555s (9 min) for 18
+clips, in line with the layer-sweep's established rate. This is the
+pre-registered **Failure** outcome: the "last layer only" pattern is a
+Whisper-*architecture* property, not something CrisperWhisper's
+fine-tuning introduced — narrows RQ-C's answer to "not fine-tuning
+specifically" and, per the pre-registration, shifts the open question
+entirely onto Arm 3.
+
+**Arm 3 (WavLM-Large, representation-level) — Failure on the primary
+metric, with one genuinely new nuance worth recording honestly.**
+`sound_repetition` (the type with a directly comparable CrisperWhisper
+number): last-layer Cohen's d=-0.061, AUC=0.474 — indistinguishable from
+chance, clearly *weaker* than both CrisperWhisper's own result (d=0.894,
+AUC=0.723) and Arm 2's stock-Whisper result (AUC=0.680). This is a clean,
+unambiguous **Failure**: WavLM's explicit paralinguistic-sensitivity
+training objective (arXiv:2110.13900), however well-motivated in the
+literature, does not produce a usable `sound_repetition` signal on this
+task at this sample size. Cost was low and matched the dry run: 302s (5
+min) for 31 clips plus a 357s one-time download — cheaper than either
+Whisper arm, confirming the earlier "non-trivial engineering" concern
+about frame-rate/pooling was more caution than the situation warranted
+once checked directly (WavLM-Large's conv stride gives exactly 20ms/frame
+at 16kHz, identical to `FRAME_SECONDS`, and LibriStutter's audio is
+natively 16kHz — `pool_span`/`cosine_distance` needed zero modification).
+
+Two things worth recording precisely, neither of which changes the
+Failure verdict on the pre-registered metric, both flagged per this
+track's own honesty discipline rather than smoothed over:
+- **The layer-depth *profile* is genuinely different**, not just weaker.
+  WavLM's per-layer AUC rises smoothly from the embedding layer (0.422)
+  to a mid-network peak at layer 10 (AUC=0.617, layers 9-13 all in the
+  0.58-0.62 range) before declining again toward the last layer
+  (AUC=0.474) — the opposite shape from both Whisper variants, whose
+  signal is concentrated *only* in the final layer with everything else
+  near or below chance. This is a real, literature-consistent
+  observation (masked-prediction pretraining is known to distribute
+  task-relevant information differently across depth than a
+  narrowly-supervised decoder objective) — but WavLM's *best* layer
+  (0.617) still underperforms both Whisper variants' peak (0.723 / 0.680),
+  so "differently distributed" does not mean "better" here. RQ-C is now
+  answered as fully as this track's evidence allows: the concentration-
+  in-the-last-layer pattern is Whisper-architecture-general (Arm 2), and
+  a genuinely different pretraining objective does redistribute the
+  signal across depth (Arm 3) without increasing its peak strength.
+- **`word_repetition` showed a small positive signal WavLM alone found**:
+  d=0.259, AUC=0.576 (n=17 target, n=966 control). CrisperWhisper's own
+  Stage B never produced a usable `word_repetition` number at all (too
+  few informative positions at the time). This is the first non-null
+  `word_repetition` representation-level signal this track has measured
+  — genuinely new, not previously known. **Explicitly flagged as
+  too small to trust as a standalone finding** (rule 3): d=0.259 is a
+  small effect by conventional standards, n=17 is the same small
+  population every stage in this track has used, and this is the single
+  positive cell among five arms x two types this phase tested — exactly
+  the kind of result that needs replication at a larger sample before
+  being treated as real, not a green light to act on. Recorded so it
+  isn't lost, not elevated into a claim this evidence doesn't support.
+
+### Integrative conclusion: Failure / Failure / Failure
+
+Per the pre-registered outcome-to-conclusion mapping table, this is the
+third row: **"Neither swapping the ASR nor swapping the representation
+family helps at this sample size — real evidence to formally cost out
+Stage D (fine-tuning/data acquisition, §9) as the next real step, not
+another representation-shopping round."** This is not a hedge or a
+partial result — all three pre-registered success criteria were checked
+against real, freshly-run evidence and all three came back negative,
+including the two (Arm 1, Arm 2) whose costs landed within the
+pre-registered estimate and the one (Arm 3) whose cost came in
+comfortably under it. No cherry-picking, no re-scoping after seeing
+results, no "just one more arm" — the plan named this exact branch before
+any of the three ran, and the evidence landed there.
+
+**What this rules out, stated plainly**: "just pick a different
+pretrained ASR" (direction a) and "just pick a different pretrained
+representation, off the shelf" (direction b, in both its
+fine-tuning-isolating and architecture-diversifying forms) are now both
+evidence-closed for this specific problem (`sound_repetition`/
+`word_repetition` evidence lost even at ASR-correct positions), not just
+untested. Five real, pre-registered probes across this track (duration
+baseline, Praat fusion, CrisperWhisper's own layer depth, `num_beams`,
+and now three more model-swap arms) have each independently found the
+same thing: nothing cheap, off-the-shelf, and representation-only closes
+this gap.
+
+**What remains, per the pre-registration's own "Remaining work" list**:
+direction (e)/(f) — fine-tuning or a purpose-built representation — is
+the only direction in the original 7-item design space this track has
+not yet evidence-tested, precisely because it was gated on infrastructure
+(GPU, paired disfluent-speech training data at volume) this project does
+not currently have (`ASR_RESEARCH_TRACK.md` §9). The evidence-motivated
+next step is **not** to attempt fine-tuning today — that would repeat
+this track's own standing discipline violation (acting past what
+resources support) — but to formally *cost it out*: what data would be
+needed, what it would take to acquire or construct it, what compute a
+minimal fine-tuning experiment would require, and what a pre-registered
+success criterion for that experiment would look like, before deciding
+whether to pursue it. Direction (g) (extending the acoustic-native
+precedent further, matching what `block`/`prolongation` already do)
+remains the one still-live, still-cheap option this phase deliberately
+sequenced *after* (a)/(b) rather than instead of them (§ "Direction
+justification" above) — with (a)/(b) now closed, (g) is the nearer-term,
+lower-cost option worth a real look before committing to Stage D's much
+larger investment.
+
+### What changes as a result (Phase 2 results)
+
+`ROADMAP.md` item 10 is updated to record all three arms as run and
+Failed, with the integrative conclusion above, and to name Stage D
+costing (not execution) and direction (g) as the two live next steps.
+No change to `main` — consistent with this entire track's standing
+non-goal, this phase's real, negative, well-evidenced result is exactly
+the kind of finding this track exists to produce and record, not a
+result that itself ships anything.
+
+## Direction (g): an acoustic-native `sound_repetition` candidate generator — pre-registered protocol (2026-08-06, written before any code)
+
+Chosen over Stage D costing as the immediate next step (project owner,
+2026-08-06): cheaper, needs no new infrastructure, and was always
+sequenced ahead of Stage D in Phase 2's own "Direction justification."
+Pre-registered here before any implementation, per rule 1 and this
+track's own two-step cadence (plan, then a separate go-ahead to build).
+
+**This is not the earlier "fusion-style Stage C revision" idea, and the
+difference matters.** That idea (§ "The exact proposed next stage,"
+above, superseded 2026-08-06) combined the encoder-distance signal with
+Stage A's mis-routing predictions — both of which only exist at
+ASR-correct, ASR-mis-routed positions, a genuinely starved population
+(n=19 targets, n=4 mis-routed cases). Phase 2 (Arms 1-3) has now closed
+off the hope that a different ASR/representation would enlarge that
+population. **This proposal sidesteps the starvation problem entirely
+by not depending on ASR output at all.** `LibriStutter`'s ground-truth
+labels carry each disfluent token's own acoustic timestamp
+(`LabeledClip.tokens[ref_idx]["start"/"end"]`, from the dataset's own
+CSV, independent of any ASR run) — so evaluation can use the *full*
+ground-truth `sound_repetition` population in the sample (up to all 42
+instances Stage A originally traced, not just the 19 that happen to
+align correctly under one specific ASR), and could scale further via
+`ROADMAP.md` item 14 (expanding the LibriStutter sample) at zero
+additional ASR cost, since no ASR is involved in this detector at all.
+
+**Hypothesis.** `sound_repetition` has a recoverable acoustic signature
+independent of any transcript: 2+ short, spectrally self-similar voiced
+bursts in immediate succession (the repeated fragment, e.g. "c-c-cat"),
+each shorter than a typical syllable, followed shortly by a longer
+voiced segment (the completed word) — detectable directly from the
+waveform the same way `block` (silence duration) and `prolongation`
+(sustained single-segment duration) already are, per `profiling/
+acoustic.py`'s existing, shipped pattern.
+
+**Design.**
+1. Reuse `segment_voiced()` (`profiling/acoustic.py`) unmodified to get
+   each clip's voiced/silent segment sequence — the same RMS/ZCR
+   segmentation `block`/`prolongation` already build on.
+2. New candidate-generation logic (new function, not touching
+   `detect_prolongations`/`detect_blocks`): for each run of 2+
+   consecutive voiced segments each under a duration threshold (start at
+   350ms — a syllable-scale upper bound, tunable, not tuned against
+   results per rule 4), compute pairwise spectral similarity between
+   consecutive short segments. Start with the cheapest signal already in
+   this codebase's dependency set — RMS/ZCR envelope cross-correlation —
+   and escalate to MFCC cosine similarity (via `librosa` or a
+   hand-rolled DCT-of-log-mel, checking what's already a dependency
+   first) only if the cheap version is inconclusive, per this project's
+   own repeated "cheapest first" discipline (Stage C's own duration
+   baseline before the richer encoder-distance signal). If similarity
+   clears a threshold AND a longer voiced segment follows within a short
+   gap, emit a `sound_repetition` acoustic candidate anchored at the
+   short-burst run's start.
+3. **Evaluation is Track-A-style (ASR bypassed entirely)**, reusing the
+   distinction the project's own (separately proposed, not yet built)
+   dataset-evaluation methodology already names: score candidates
+   directly against `LabeledClip.tokens[ref_idx]`'s ground-truth
+   start/end, at a fixed time-tolerance window (start at ±200ms,
+   consistent with the general convention in the localization
+   literature this project has already reviewed), not against any ASR
+   hypothesis index.
+
+**Population.** All ground-truth `sound_repetition` instances in the
+existing 120-clip Track B sample (up to 42, per Stage A's own original
+audit — not gated by ASR-alignment correctness) as targets; every other
+short-voiced-segment run in the same clips (i.e., positions this
+mechanism *could* fire on but shouldn't) as the control/false-positive
+population — explicitly including ordinary short function words ("the",
+"a", "is", "it"), which are the most likely source of false positives
+and must be represented in the control set, not just "everything else."
+
+**Metric.** Precision/recall/F1 for candidate generation only (does a
+candidate get proposed at the right time and place — not yet
+type-classification or full pipeline integration, mirroring how `block`/
+`prolongation` themselves started as pure candidate generators before
+`detect.py`'s fusion layer touched them).
+
+**Success criterion.** Recall and precision both meaningfully above a
+naive duration-only baseline (flag every short-voiced-segment run,
+regardless of similarity) — demonstrating the *similarity* check
+specifically carries information, not just segment duration (the same
+confound Stage C's duration baseline already ruled out for the
+encoder-distance signal, checked again here because this is a genuinely
+different signal source, not assumed to inherit that earlier result).
+A concrete bar: precision at >=50% recall clears whatever `block`/
+`prolongation`'s own candidate-generation stage achieves before their
+own fusion/corroboration layers refine it (measure that number from
+existing code/tests first, so the bar is calibrated to this project's
+own shipped precedent, not an arbitrary target).
+
+**Failure criterion.** Precision/recall indistinguishable from the
+duration-only baseline — evidence the short-burst-similarity idea
+doesn't separate `sound_repetition` from ordinary short-word speech
+rhythm, which would itself be a genuine, reportable negative result
+(and would suggest `sound_repetition`'s acoustic signature is less
+distinctive at the waveform level than `block`/`prolongation`'s,
+consistent with — though not proof of — why encoder-level
+representations were worth trying in the first place).
+
+**Confounders, named before running.**
+- **LibriStutter's synthetic splicing may have its own acoustic
+  signature** (a splice artifact at the repeated-fragment boundary)
+  that could make this detector look better than it would on real
+  stuttered speech — a structural risk of this dataset this track has
+  flagged before (Track A/B's own split exists partly because of it).
+  Any positive result here should be treated as "worth testing on real
+  speech" (SEP-28k/FluencyBank, `ROADMAP.md` items 15/16), not as
+  final, for exactly this reason.
+- **No natural word-boundary anchor**: unlike Track B's hyp-index-based
+  scoring, this evaluates against raw timestamps — a new, small
+  alignment module (time-window match, not word-index match) is needed
+  and should get its own hand-verification pass before trusting its
+  output, matching every prior stage's discipline.
+- **Threshold choices (350ms, similarity cutoff, 200ms tolerance) are
+  starting points, not tuned values** — per rule 4, they may not be
+  adjusted in response to how results look without a separate,
+  explicit go-ahead; if the first pass is close but not clearly
+  Success/Failure, that itself gets reported as inconclusive, not
+  quietly re-thresholded until it clears the bar.
+
+**Cost.** Cheapest experiment this track has run: no ASR inference, no
+model download, pure signal processing on audio already downloaded.
+Expect implementation + a first pass over the existing sample to be
+well under an hour of compute, dominated by engineering time (the new
+candidate-generation function and the timestamp-based scorer), not
+runtime.
+
+**Not yet started** — this is the pre-registration only, per the
+project owner's explicit choice to scope before building. Implementation
+requires a separate go-ahead.
+
 ---
 
 ## 0. The checkpoint that opened this track

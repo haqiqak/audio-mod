@@ -493,6 +493,40 @@ for these three (see item 10's revised framing below).
     pre-registered before any of the three has run. Not yet implemented
     — a complete plan, per the owner's explicit request, before any new
     code.
+    **All three arms run, 2026-08-06 — see `ASR_RESEARCH_TRACK.md`'s
+    "Phase 2 results" for full numbers.** Arm 1 (stock `whisper-large-v3`
+    full pipeline): Failure — 0/36 known-loss positions recovered,
+    normalized-away rate *higher* than CrisperWhisper's (89.5%/88.2% vs.
+    45.2%/40.5%). Arm 2 (same checkpoint's encoder, layer sweep): Failure
+    — identical last-layer-only pattern, same-population AUC slightly
+    *lower* than CrisperWhisper's (0.680 vs. 0.721) — the concentration
+    pattern is Whisper-architecture-general, not a CrisperWhisper
+    fine-tuning artifact. Arm 3 (WavLM-Large): Failure on the primary
+    metric (`sound_repetition` AUC=0.474, chance level) but with a real,
+    literature-consistent nuance — WavLM's signal is distributed across
+    depth differently (peaks mid-network, not last-layer) though never
+    stronger than either Whisper variant, and a small, small-sample
+    `word_repetition` signal (d=0.259) appeared that CrisperWhisper's own
+    Stage B never found — flagged explicitly as too small to trust
+    standalone, not a finding to act on. **Integrative conclusion:
+    Failure/Failure/Failure, exactly the pre-registered branch that
+    recommends formally costing out Stage D (fine-tuning/data
+    acquisition, gated on infrastructure this project doesn't have —
+    §9) as the next real step, not another representation-shopping
+    round, alongside direction (g) (extending the acoustic-native
+    precedent further) as the nearer-term, still-cheap option to look at
+    first.** No change to `main`.
+    **Direction (g) chosen and pre-registered, 2026-08-06 — see
+    `ASR_RESEARCH_TRACK.md`'s "Direction (g): an acoustic-native
+    `sound_repetition` candidate generator."** A waveform-only detection
+    mechanism (short, spectrally self-similar voiced bursts, matching
+    `block`/`prolongation`'s own shipped pattern), evaluated against
+    LibriStutter's ground-truth timestamps directly — no ASR dependency
+    at all, deliberately escaping the earlier superseded fusion idea's
+    starved-population ceiling. Full protocol (hypothesis, population,
+    metric, success/failure criteria, confounders, cost) pre-registered;
+    not yet implemented, per the owner's explicit choice to scope before
+    building.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every
