@@ -5242,3 +5242,76 @@ weight toward RQ3/Stage D). `ROADMAP.md` updated with the outcome.
 `eval_results/20260806T144057_stage_layer_sweep.json` (full per-layer
 AUC table, saved). No production code changed. On the `asr-research`
 branch only — `main` untouched.
+
+---
+
+## 2026-08-06 — Decoding-parameter sensitivity (num_beams) done: clean negative
+
+**What was done**
+Executed the second and final of the reassessment's two recommended
+experiments. Checked the live app's actual constraint first:
+`profiling/asr.py` forces `num_beams=1` as a confirmed workaround for a
+real `transformers` bug (word-level timestamp extraction crashes under
+beam search — huggingface/transformers #28007/#36093), and the model's
+own `generation_config.json` default is `num_beams=5` — so the live app
+already runs the *least* beam-search-influenced decoding available.
+Recognized that testing `num_beams=5` would hit the same crash if word
+timestamps were requested, but that this experiment only needs decoded
+*text* (the same alignment methodology Stage A used operates on word
+sequences alone) — so the crash was sidestepped by design, not
+encountered.
+
+A 4-clip dry run (required to catch bugs before the real run, and it
+did: a hand-constructed unit test caught a real false-positive class in
+the "recovered" heuristic — single-letter words like "a" trivially
+prefix-match many following words by coincidence — fixed with a minimum
+fragment length before any real audio was processed) also surfaced a
+real cost-escalation finding: ~316s/clip for both conditions combined,
+far above the pre-registered ~55-105 minute estimate for the full
+31-clip population (num_beams=5 is ~5x the compute of num_beams=1, not
+simply additive). Per the same discipline §12.6.1 established for
+exactly this situation, scoped down to 40 raw clips scanned (not the
+full 120), committed to *before* seeing further results, not adjusted
+afterward.
+
+**Result**: 0 of 14 tested `sound_repetition`/`word_repetition`
+positions were recovered under `num_beams=5`; mean WER identical between
+conditions (0.187 vs. 0.187). A clean, decisive negative — not a weak or
+ambiguous null.
+
+**Alternatives considered**
+- Abandon the experiment once the cost overrun was discovered, given the
+  emerging early signal already looked negative. **Rejected**: the
+  scope-down decision (40 raw clips) was committed to based on cost
+  alone, before the dry run's own 0/5 result could bias that choice —
+  stopping early *because the result looked confirmed* would have been
+  exactly the kind of premature-stopping bias this project's own
+  discipline exists to prevent.
+- Test additional decoding parameters (`repetition_penalty`,
+  temperature) in the same run, now that the model was already loaded.
+  **Rejected**: the pre-registered protocol scoped this experiment to
+  `num_beams` specifically, with `repetition_penalty`/`no_repeat_ngram_
+  size` already checked and ruled out as *current* contributing factors
+  (both neutral in the default config) before this experiment was
+  designed — adding untested knobs mid-run would be exactly the kind of
+  post-hoc scope creep pre-registration exists to prevent.
+
+**Why this choice**
+Directly executes the reassessment's second recommended experiment with
+the same rigor as the first (pre-flight API/bug checks, a dry run that
+caught a real logic bug, an honest cost-escalation response matching
+established precedent), and reports a clean negative exactly as found —
+the owner's own standing instruction that positive, negative, and
+inconclusive results are all acceptable applies here as much as
+anywhere else this session.
+
+**Measured result**
+`profiling/evaluation/stage_decoding_sensitivity.py` (new, research code
+only). `ASR_RESEARCH_TRACK.md` (results section: cost/bug findings,
+0/14 recovery table, WER identity, what this resolves for the decoder-
+stage inference). `ROADMAP.md` updated with the outcome.
+`eval_results/20260806T161513_stage_decoding_sensitivity.json` (per-
+position detail, saved). No production code changed. On the
+`asr-research` branch only — `main` untouched. Both of the
+reassessment's recommended experiments are now complete; the full
+integrative reassessment this triggers follows in the next entry.

@@ -286,6 +286,164 @@ is now the last untested lever within the current architecture before
 RQ3 (a second ASR backend) or Stage D become the honest next move on
 richer-representation grounds specifically.
 
+### Decoding-parameter sensitivity (`num_beams`) — pre-registered protocol (2026-08-06, written before running)
+
+**A scoping fact, checked before designing anything**: `profiling/
+asr.py` forces `num_beams=1` in the live app — not a free architectural
+choice, but a confirmed workaround for a real `transformers` bug
+(`WhisperGenerationMixin._extract_token_timestamps()` mis-shapes
+`beam_indices` when word-level timestamps are requested together with
+beam search; huggingface/transformers #28007/#36093). CrisperWhisper's
+own `generation_config.json` default is `num_beams=5`; the live app
+overrides it to 1 purely to avoid this crash. This means the live app is
+already running the *least* beam-search-influenced decoding the model
+supports — informative in itself (§ below), and it means testing
+`num_beams=5` **cannot use the same word-timestamp extraction path**
+without hitting the same confirmed crash.
+
+**Design consequence**: this experiment does not need word-level
+timestamps at all — only the decoded *text*, to test whether it contains
+the literal fragment (`sound_repetition`) or the intact repeated pair
+(`word_repetition`) at each of the 36 positions Stage A already
+identified as lost under the live app's current `num_beams=1` decoding.
+`align()` (used throughout this track, including Stage A itself)
+operates on word sequences alone — no timestamps required. So: call
+`model.generate()` directly (bypassing `pipeline()` and `return_
+timestamps="word"` entirely, sidestepping the crash rather than hitting
+it), decode to plain text, split to words, and run the identical
+alignment-based check Stage A used.
+
+**Hypothesis under test**: does `num_beams=5` (the model's own trained
+default) recover any of the 36 positions lost under the live app's
+`num_beams=1`? Directly tests this track's own inference (§ above) that
+beam search's cross-hypothesis fluency bias is a plausible contributor
+to the normalization loss Stage A found — the app currently runs the
+setting that inference would predict is *least* affected by that
+specific mechanism, so a null result here would be informative too (it
+would mean the loss survives even at the most literal decoding setting
+available, pointing away from beam search specifically as the
+mechanism).
+
+**Population**: the same 31 clips / 36 target positions (19 `sound_
+repetition` + 17 `word_repetition`) every stage since Stage B has used.
+
+**Metric**: count of the 36 positions "recovered" (fragment present /
+pair intact) under `num_beams=5` vs. the known 0/36 baseline (`num_
+beams=1`, already established — these positions are in the target set
+*because* they were lost at baseline). Also: whole-clip word error rate
+under each condition, as a broad side-effect check — a decoding change
+that recovers disfluency evidence at the cost of meaningfully worse
+general transcription accuracy would be a real, reportable trade-off,
+not a clean win.
+
+**Success criteria, fixed in advance**:
+- **Beam width matters**: a non-trivial fraction of the 36 positions
+  (not just 1-2, which could be noise at this n) are recovered under
+  `num_beams=5` — real evidence the current forced setting is costing
+  disfluency evidence, motivating the separately-scoped timestamp-bug
+  fix (`ARCHITECTURE.md`'s known-limitations section already names this
+  as unresolved) as newly higher-value than previously assessed.
+- **Beam width doesn't matter**: recovery count stays near 0/36 —
+  real evidence the loss survives even the most literal decoding
+  setting available, meaning no simple decoding-parameter change is
+  going to fix this, and localizes the mechanism more specifically to
+  the model's learned behavior rather than the search strategy.
+
+**Named limitations, stated before running**:
+- `num_beams=5` is **not deployable as-is** in the live app (the
+  timestamp-extraction crash is real and unrelated to this experiment) —
+  a positive result here identifies a real trade-off worth investigating
+  further, not an immediately shippable fix.
+- Real, new ASR cost: unlike every other experiment in this track since
+  Stage B, this one cannot reuse cached transcription — decoding
+  parameters only take effect during generation itself. 31 clips at this
+  project's measured ~54-102s/clip range (possibly slower with 5 beams
+  than the cached 1-beam runs — timed and reported, not assumed) is the
+  real, scoped cost.
+- Tests only `num_beams`, not other decoding knobs (`repetition_penalty`,
+  suppression settings) — checked directly against the model's actual
+  `generation_config` before scoping this experiment: `no_repeat_ngram_
+  size=0` and `repetition_penalty=1.0` are already neutral (not actively
+  suppressing anything) in the current default, so they are not
+  candidate explanations for the *current* observed loss the way beam
+  width plausibly is; not tested further here.
+
+**Scoping addendum (2026-08-06, before the full run, once real per-clip
+cost was known) — the pre-registered 31-clip cost estimate was
+undersold, same pattern as §12.6.1's own precedent.** A 4-clip dry run
+(needed anyway, to catch bugs before the real run — and it did: see
+below) measured **~316s/clip for both conditions combined** (num_beams=5
+is inherently ~5x the compute of num_beams=1, not simply additive with
+it) — far above the ~54-102s/clip single-condition range this project's
+other benchmarks measured. At that rate, the full 31-clip population
+would cost **~2.7 hours**, not the ~55-105 minutes estimated before any
+real timing existed. Per the same discipline §12.6.1 applied when this
+happened before (scope down, state the reason, commit to a bound *before*
+seeing more results, not after): **scoped to the first 40 raw clips
+scanned** (not 31) — expected, not guaranteed, to yield a comparable
+target-position count to Stage B/C's original population, at a bounded,
+known cost (~65-85 min) decided before running, not adjusted afterward
+based on how the results looked.
+
+**A real bug caught by the dry run itself, before any full-scale
+result was trusted**: the first version of the `sound_repetition`
+"recovered" check flagged `"a"` as a recovered fragment before
+`"apple"` purely because `"apple".startswith("a")` — a real false-
+positive class (any single-letter word trivially prefix-matches many
+following words by coincidence, unrelated to genuine fragment
+preservation). Caught by a hand-constructed unit test run before any
+real audio was processed, not by inspecting a real result after the
+fact. Fixed with a minimum fragment length of 2 characters.
+
+### Decoding-parameter sensitivity — Results (2026-08-06): a clean, decisive negative — `num_beams` is not the mechanism
+
+**Cost, as it actually ran**: 40 raw clips scanned yielded 12 clips
+containing a `sound_repetition`/`word_repetition` target (14 positions:
+6 `sound_repetition`, 8 `word_repetition`) — smaller than Stage B/C's
+31-clip/36-position population (expected, since this run scanned fewer
+raw clips, per the scoping addendum above), but real, freshly-generated
+data under both conditions. 2926s (~49 min) total for 12 clips x 2
+conditions (~244s/clip combined) — close to the dry run's own ~316s/clip
+estimate, confirming that number wasn't a fluke.
+
+**Result**: **0 of 14 target positions recovered** under `num_beams=5` —
+not one of the 6 `sound_repetition` fragments or 8 `word_repetition`
+pairs that were lost under the live app's `num_beams=1` reappeared under
+the model's own trained-default beam width. Mean word error rate was
+**identical** between conditions (0.187 vs. 0.187) — beam width didn't
+even measurably change general transcription accuracy on this sample,
+let alone recover disfluency-specific evidence.
+
+**Against the pre-registered success criteria**: **beam width does not
+matter** — the "doesn't matter" branch, cleanly. This is not a weak or
+ambiguous null (0/14, not e.g. 2/14 with wide uncertainty) — combined
+with the WER identity, it reads as a genuine, decisive absence of effect
+at this sample size, not a small effect this experiment was too
+underpowered to see.
+
+**What this resolves**: this directly sharpens the track's own
+decoder-stage inference (§ above, "First-principles reassessment"). The
+live app already runs `num_beams=1` — the beam-search-influenced
+mechanism this experiment tested for — and yet the loss is identical
+whether beam search is even in play or not. This is real evidence
+*against* "beam search's cross-hypothesis fluency bias" as the
+mechanism, specifically, not just an untested gap closing. The loss
+survives at the most literal decoding setting the model supports,
+pointing more specifically toward the model's own learned token-level
+preferences (independent of search strategy) as the likely mechanism —
+consistent with, and now more evidence-backed than, the original
+"decoder-stage, not encoder-stage" inference, but narrower: it is
+apparently not *decoding strategy* specifically, it is something in what
+the model was trained to predict, regardless of how thoroughly that
+prediction is searched.
+
+**With this result, both of the reassessment's recommended in-
+architecture experiments are now done, both negative for their specific
+mechanism**: encoder layer depth (no layer beats the last one) and
+decoding-parameter sensitivity (beam width doesn't matter). Per the
+reassessment's own stated logic, this is the trigger condition for the
+full integrative reassessment that follows.
+
 ---
 
 ## 0. The checkpoint that opened this track

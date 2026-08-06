@@ -824,8 +824,16 @@ verified consistent across two different control populations). Closes
 that specific question — layer depth was never the missing lever. The
 decoding-parameter experiment is now the sole remaining untested
 in-architecture lever before this track's own stated logic would shift
-weight toward RQ3/Stage D. Full reasoning: `ASR_RESEARCH_TRACK.md`'s new
-"First-principles reassessment" section, at the top of the file.
+weight toward RQ3/Stage D. **Update, 2026-08-06 (same day): decoding-
+parameter sensitivity is also done — also a clean, decisive negative.**
+`num_beams=5` (the model's own trained default) recovered 0 of 14 tested
+`sound_repetition`/`word_repetition` positions lost under the live app's
+`num_beams=1`; mean WER identical between conditions. Both of the
+reassessment's recommended in-architecture experiments are now done,
+both negative for their specific mechanism — see `ASR_RESEARCH_TRACK.md`
+for the full integrative reassessment this triggers. Full reasoning:
+`ASR_RESEARCH_TRACK.md`'s "First-principles reassessment" section, at
+the top of the file.
 Full results, controls, and limitations: `ASR_RESEARCH_TRACK.md` §8.
 
 ## Near-term

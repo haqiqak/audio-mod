@@ -8,6 +8,21 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-06 (asr-research branch)
 
+- **Decoding-parameter sensitivity (num_beams) done: clean negative.**
+  Second of the reassessment's two recommended experiments.
+  `num_beams=5` (model's own trained default) recovered 0 of 14 tested
+  `sound_repetition`/`word_repetition` positions lost under the live
+  app's forced `num_beams=1`; mean WER identical between conditions
+  (0.187 vs 0.187). A real cost overrun found via dry run (~5x compute
+  for beam=5, not additive) handled by scoping down to 40 raw clips,
+  committed before seeing further results. A false-positive bug in the
+  recovery heuristic (single-letter words trivially prefix-matching) was
+  caught and fixed by a unit test before any real audio ran. Both of the
+  reassessment's recommended in-architecture experiments are now done,
+  both negative — triggering the full integrative reassessment. →
+  *PAPER_DECISION_LOG.md, "Decoding-parameter sensitivity (num_beams)
+  done: clean negative"*; full results `ASR_RESEARCH_TRACK.md`.
+
 - **Encoder layer-depth sweep done: the last layer is uniquely
   informative.** First of the reassessment's two recommended
   experiments. One forward pass per clip with `output_hidden_states=True`
