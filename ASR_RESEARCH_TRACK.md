@@ -1244,6 +1244,119 @@ runtime.
 project owner's explicit choice to scope before building. Implementation
 requires a separate go-ahead.
 
+### Direction (g) results (2026-08-06) — Failure, with an honest mechanistic diagnosis
+
+Implementation: `profiling/evaluation/stage_g_acoustic_sound_repetition.py`
+(new). Built with the same hand-verified-before-real-audio discipline
+every prior stage in this track used: 7 self-test cases (candidate
+grouping across short/long gaps, similarity scoring, scoring math)
+written and passing before any real clip was processed.
+
+**A real bug caught before the result could be trusted (rule 3
+applied to the process, not just the outcome).** The first real run
+returned an implausible recall=1.000/precision=0.966 — a number this
+track's own standing discipline treats as a reason to check harder, not
+report faster. Traced directly: the scoring function pooled every
+clip's ground-truth target and candidate timestamps into two flat lists
+before matching, so a candidate in one clip could "match" a target in a
+*different* clip purely because both clips' independent, zero-based
+timelines happened to pass through overlapping second-offsets (every
+clip is ~10-15s; with 120 clips in the sample, this collision is
+frequent, not rare). Fixed by scoring strictly within each clip; a new
+self-test (`"a candidate in one clip never matches a target in a
+different clip, even with identical raw timestamps"`) now guards this
+specifically, matching this track's established pattern (the decoding-
+sensitivity experiment's single-letter-word false-positive fix followed
+the identical discipline: catch it with a hand-built case before
+trusting real audio, not after).
+
+**The real, corrected result**: baseline (every qualifying 2+-short-
+burst run counts, no similarity gate) — recall=0.824 (42/51 ground-truth
+`sound_repetition` instances matched), precision=0.081 (62/766
+candidates were real hits). Similarity gating across the full
+pre-registered threshold sweep (0.30-0.90) never meaningfully separates
+signal from noise: precision stays pinned between 0.081 and 0.094 at
+every threshold, while recall only *drops* as the threshold tightens
+(0.824 -> 0.569 at threshold=0.90, since some genuine repetitions score
+lower pairwise similarity than the noise floor). Best-F1 operating point
+(threshold=0.90, F1=0.161) is not meaningfully above the ungated
+baseline (F1=0.147) — a ~1.4-point F1 difference on a 0-1 scale, well
+inside what the threshold sweep's own noise would produce by chance.
+**This is the pre-registered Failure outcome, exactly as defined in
+advance**: "precision/recall indistinguishable from the duration-only
+baseline."
+
+**Mechanistic diagnosis, checked directly rather than left as a bare
+number** (matching this track's standing preference for explaining
+*why*, not just reporting *what*): inspected the burst-count and
+duration distribution of both true-positive and false-positive
+candidates directly. Two findings, together explaining the low
+precision:
+- Candidate *duration* is not the problem — median candidate span is
+  0.81s (mean 1.01s), and no candidate exceeds even 50% of the median
+  clip's own duration (15.14s). This rules out the initial concern
+  (raised on first inspecting one clip's output, where a single
+  32-burst, 4.6s-wide candidate looked like a degenerate "the whole
+  clip is one giant run" artifact) as the dominant explanation — that
+  case exists but is a tail (only 80/766 candidates exceed 2s), not the
+  typical one.
+- The real cause is a **base-rate / feature-specificity problem**: the
+  true-positive candidates' own `n_bursts` values (2 to 32, median in
+  the low single digits) overlap almost entirely with the false-positive
+  candidates' `n_bursts` values (2 to 31, median 4) — there is no clean
+  count-based separator between "a genuine repeated fragment" and "an
+  ordinary short-word sequence," and capping burst count post-hoc would
+  cost real recall roughly as fast as it would cost false positives
+  (checked directly, not assumed — a large fraction of true hits have
+  `n_bursts` well above any plausible "genuine stutter repeat count"
+  cutoff). Ordinary fluent speech is simply rich in short, similarly-
+  shaped voiced segments (function words, fast syllables spoken by the
+  same voice in the same prosodic context) — the RMS/ZCR envelope-shape
+  similarity feature this arm tried cannot tell "a word deliberately
+  repeated" from "two different short words spoken in the same voice,"
+  because both look alike on this specific feature. The base rate makes
+  this expensive: ~751 plausible-looking short-burst-run positions exist
+  across the sample against only 51 real instances, so even a feature
+  with real but modest discriminative power would struggle to reach
+  useful precision at this class imbalance.
+
+**Per rule 4, no threshold was retuned in response to this result** —
+the reported numbers are the pre-registered threshold sweep's own
+output, not a search for a flattering operating point.
+
+**What this does and does not establish**: it does **not** show
+`sound_repetition` has no acoustic signature — recall of 0.824 with a
+completely naive, ungated mechanism is itself evidence that a run of
+short, energetic voiced segments reliably co-occurs with real
+`sound_repetition` instances (consistent with the underlying hypothesis).
+What it shows is that **this specific, cheap feature (RMS/ZCR envelope
+shape) cannot discriminate that co-occurrence from the ordinary
+background rate of short-word speech rhythm** — a narrower, more precise
+negative result than "acoustic detection doesn't work," and one that
+directly points at what a next attempt would need to fix: either a
+richer per-burst feature (e.g. MFCC/spectral-shape similarity, the
+escalation this arm's own pre-registration named but did not yet need,
+since a decision was reachable without it) or a different discriminating
+signal entirely (e.g. pitch/formant continuity across the repeated
+bursts, which plain RMS/ZCR energy envelope does not capture).
+
+### What changes as a result (direction (g))
+
+`ROADMAP.md` item 10 is updated to record this result: candidate-
+generation recall is real but precision is not usable at this feature's
+current specificity — Failure per the pre-registered criterion, with a
+named, evidence-grounded reason (feature specificity, not an absence of
+acoustic signal) rather than a bare negative number. No change to
+`main`, no change to `profiling/acoustic.py` or `profiling/detect.py` —
+this result lives entirely in `profiling/evaluation/`, exactly as
+pre-registered. The two live options this leaves: (1) a richer acoustic
+feature (MFCC-based similarity) as a cheap, bounded next iteration on
+the *same* mechanism, explicitly not yet tried; (2) treat this as the
+track's second and third independently-converging pieces of evidence
+(after Phase 2's Arms 1-3) that the remaining paths cheap enough to try
+without new infrastructure are increasingly narrow, strengthening the
+case for formally costing out Stage D.
+
 ---
 
 ## 0. The checkpoint that opened this track

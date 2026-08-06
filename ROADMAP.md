@@ -527,6 +527,26 @@ for these three (see item 10's revised framing below).
     metric, success/failure criteria, confounders, cost) pre-registered;
     not yet implemented, per the owner's explicit choice to scope before
     building.
+    **Direction (g) implemented and run, 2026-08-06 — Failure, with an
+    honest mechanistic diagnosis, see `ASR_RESEARCH_TRACK.md`'s
+    "Direction (g) results."** Recall=0.824 (42/51 real instances
+    matched by the naive, ungated mechanism) but precision=0.081, and
+    similarity gating across the full pre-registered threshold sweep
+    never separated signal from noise (best F1=0.161 vs. baseline
+    F1=0.147 — not meaningful). A real cross-clip scoring bug was caught
+    and fixed before trusting the first (implausibly perfect) result,
+    per rule 3. Root cause, checked directly rather than assumed:
+    ordinary fluent speech contains abundant short, similarly-shaped
+    voiced segments (function words, fast syllables), and the RMS/ZCR
+    envelope-shape similarity feature this arm tried cannot tell those
+    apart from a genuine repeated fragment — a feature-specificity
+    problem, not evidence `sound_repetition` lacks an acoustic
+    signature (recall alone is real, positive evidence for that). Two
+    live options remain: a richer per-burst feature (MFCC-based
+    similarity) as a bounded next iteration, or treat this alongside
+    Phase 2's Arms 1-3 as further convergent evidence that formally
+    costing out Stage D is now the better-justified use of further
+    effort. No change to `main`.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every

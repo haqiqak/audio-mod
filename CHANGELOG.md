@@ -8,6 +8,22 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-06 (asr-research branch)
 
+- **Direction (g) implemented and run: Failure, with an honest
+  mechanistic diagnosis.** Baseline (ungated) recall=0.824 (42/51),
+  precision=0.081; the pre-registered similarity-threshold sweep never
+  meaningfully beat the duration-only baseline (best F1=0.161 vs.
+  0.147). A real cross-clip scoring bug (pooling timestamps across
+  clips' independent timelines) was caught, per rule 3, when the first
+  run returned an implausibly perfect recall=1.000/precision=0.966, and
+  fixed before the result was trusted. Root cause of the real result:
+  ordinary fluent speech contains abundant short, similarly-shaped
+  voiced segments that this arm's RMS/ZCR envelope-shape feature cannot
+  distinguish from a genuine repeated fragment — recall alone remains
+  real, positive evidence `sound_repetition` has a detectable acoustic
+  footprint; the specific cheap feature tried just isn't precise enough.
+  No change to `main`, no change to `profiling/acoustic.py`/`detect.py`.
+  → *PAPER_DECISION_LOG.md, "Direction (g) implemented and run..."*
+
 - **Direction (g) pre-registered: an acoustic-native `sound_repetition`
   candidate generator.** Chosen over costing out Stage D as the next
   step (cheaper, no new infrastructure). A new waveform-only detection

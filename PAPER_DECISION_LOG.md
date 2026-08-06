@@ -5750,3 +5750,89 @@ cost). No code written yet. `ASR_RESEARCH_TRACK.md` gets a new section,
 "Direction (g): an acoustic-native `sound_repetition` candidate
 generator." Implementation requires a separate go-ahead, per this
 track's standing two-step cadence.
+
+## 2026-08-06 — Direction (g) implemented and run: Failure, with an honest mechanistic diagnosis
+
+**What was done**
+Given explicit go-ahead to implement (not just plan) direction (g), with
+instructions to keep the same research discipline regardless of outcome,
+built `profiling/evaluation/stage_g_acoustic_sound_repetition.py`: a new
+candidate-generation function (short, spectrally self-similar voiced
+bursts, via `profiling/acoustic.py`'s existing `segment_voiced()`/
+`frame_features()`, unmodified) and a Track-A-style scorer against
+LibriStutter's own ground-truth timestamps. 7 self-test cases written and
+passing (candidate grouping across short/long gaps, similarity math,
+scoring math) before any real clip was processed — one real bug caught
+this way (a `dataclass` constructor call missing a required argument,
+fixed before the first real run).
+
+**A second, more serious bug caught after the first real run, not
+before** — worth recording honestly rather than only crediting the
+self-test process: the first real run against 120 clips returned
+recall=1.000/precision=0.966, an implausibly perfect result for a
+first-pass, untuned mechanism. Per rule 3 ("a dramatic-looking number is
+a reason to check harder, not report faster"), did not report this
+number. Traced directly: `score()` pooled every clip's targets and
+candidates into flat lists before matching, so a candidate in one clip
+could spuriously match a target in a different clip whenever their
+independent, zero-based clip timelines happened to overlap in raw
+seconds (routine at 120 clips x ~10-15s each). Fixed by scoring strictly
+within each clip; added a dedicated self-test
+(`"a candidate in one clip never matches a target in a different clip,
+even with identical raw timestamps"`) so this class of bug cannot
+silently recur. This is the same category of catch as the decoding-
+sensitivity experiment's single-letter-word false-positive fix earlier
+in this track — a bug that inflates a result into looking better than
+it is, caught by treating an unexpectedly good number with the same
+suspicion this project applies to unexpectedly bad ones.
+
+**Alternatives considered**
+- Cap candidate `n_bursts` (the count of short segments merged into one
+  candidate) at a small value, on the theory that a real stutter rarely
+  repeats more than 3-4 times, to filter out very broad multi-burst
+  candidates. **Rejected, checked directly rather than assumed safe**:
+  compared the `n_bursts` distribution of true-positive candidates
+  against false-positive candidates directly — they overlap almost
+  completely (both range 2-32, similar medians), so a count-based cap
+  would cost real recall at roughly the same rate it would remove false
+  positives. Applying it anyway, after already seeing the result, would
+  have been exactly the kind of post-hoc retuning rule 4 prohibits
+  without an explicit go-ahead — not attempted.
+
+**Why this choice**
+Directly executes the pre-registered protocol without deviation: same
+population (the 120-clip sample's full ground-truth `sound_repetition`
+set, 51 instances), same metric (candidate-generation precision/recall
+against ground-truth timestamps), same pre-registered threshold sweep,
+same success/failure criterion (meaningfully above the duration-only
+baseline or not).
+
+**Measured result**
+Baseline (ungated): recall=0.824 (42/51), precision=0.081 (62/766).
+Similarity-gated sweep (thresholds 0.30-0.90): precision never exceeds
+0.094 at any threshold; recall only drops as the threshold tightens
+(0.569 at threshold=0.90). Best-F1 operating point (threshold=0.90,
+F1=0.161) is not meaningfully above the baseline (F1=0.147) — the
+pre-registered **Failure** outcome, exactly as defined in advance.
+Mechanistic diagnosis (checked directly, not left as a bare number):
+candidate duration is not the problem (median 0.81s, no candidate
+exceeds 50% of median clip duration) — the real cause is that ordinary
+fluent speech contains abundant short, similarly-shaped voiced segments
+(function words, fast syllables), and the RMS/ZCR envelope-shape
+similarity feature this arm tried cannot distinguish those from a
+genuine repeated fragment; true-positive and false-positive candidates'
+`n_bursts` distributions overlap almost completely. **What this does
+and does not establish**: recall=0.824 from a completely naive
+mechanism is itself real, positive evidence that `sound_repetition`
+co-occurs reliably with a detectable run of short voiced segments — this
+is not a "no acoustic signature" result. What failed specifically is
+this one cheap feature's ability to discriminate that co-occurrence from
+background speech rhythm at usable precision, given a real class
+imbalance (51 true instances against ~751 plausible-looking candidate
+positions in the sample). Two live next options, neither pursued this
+session: a richer per-burst feature (MFCC-based similarity, the
+escalation this arm's pre-registration named but didn't yet need to
+reach a Failure/Success decision), or treating this as a third
+independently-converging piece of evidence (alongside Phase 2's Arms 1-3)
+that the cheap, no-new-infrastructure options are narrowing, and Stage D
+costing is the better-justified next use of effort.
