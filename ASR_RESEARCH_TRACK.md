@@ -151,6 +151,141 @@ genuinely tried, but not yet tried *enough* to call it insufficient. The
 two new experiments above are added as the immediate next steps, ahead
 of RQ3 and Stage D, in the plan below.
 
+**Update, 2026-08-06, later the same day — the first of the two
+experiments is done.** The encoder layer-depth sweep (below) found the
+last layer is uniquely informative — no other layer comes close, and
+several sit mildly below chance. This closes that specific question
+rather than leaving it open, and per this section's own stated logic
+("if that also comes back flat, toward RQ3/Stage D" — referring to
+*both* experiments, not either alone), **the honest next step is still
+the decoding-parameter experiment, not yet RQ3 or Stage D**: one of the
+two recommended in-architecture levers has now been tried and found not
+to help; the other has not been tried at all. Only after both return
+results should this document's weight shift toward RQ3/Stage D.
+
+### Encoder layer-depth sweep — pre-registered protocol (2026-08-06, written before running)
+
+**Hypothesis under test**: does a layer other than CrisperWhisper's
+default last encoder layer carry a stronger `sound_repetition` signal at
+Stage A's category-1 ("normalized away") positions — matching arXiv:
+2311.05203's finding that deeper layers carry more disfluency-relevant
+information for a comparable Whisper-encoder classification task?
+
+**Design**: re-run the encoder pass on the identical 31 clips / 19
+target / 966 control positions Stage B and C already established, but
+with `output_hidden_states=True` — **one forward pass per clip, not one
+per layer**, since `output_hidden_states=True` returns every
+intermediate layer's activations from a single call. For each layer
+(CrisperWhisper's encoder has the same depth as whisper-large-v3's: 32
+transformer layers, so 33 hidden-state tensors including the embedding
+output), compute the exact same metric Stage B/C already validated:
+mean-pooled span embedding, cosine distance to a per-clip leave-one-out
+fluent centroid, then AUC against the target/control labels (matching
+Stage C's metric directly, so every layer is comparable to the
+already-known last-layer result of 0.723 on the same population).
+
+**Cost, scoped before running**: the same 31 clips already used for
+Stage B/C, at approximately the same per-clip cost Stage B measured
+(~33s/clip, ~17 minutes total) — `output_hidden_states=True` returns
+already-computed intermediate activations from the same forward pass,
+not additional passes, so this does not multiply Stage B's original cost
+by the number of layers.
+
+**Success criteria, fixed in advance**:
+- **A deeper (or other) layer meaningfully beats the last layer**: AUC
+  notably above 0.723 (not a difference plausibly explained by noise at
+  n=19) — a real, actionable finding: that layer becomes the new signal
+  source for any future stage in this track, and this itself is evidence
+  the representation direction had more headroom than Stage C alone
+  showed.
+- **No layer meaningfully beats the last layer**: the last layer was
+  already close to the best available in this network — narrows this
+  specific lever further, and shifts weight toward the decoding-
+  parameter experiment (also proposed above) and, if that also comes
+  back flat, toward RQ3/Stage D.
+- **Some layers are notably worse**: expected and informative on its own
+  — helps map where in the network this signal emerges, useful context
+  even if it doesn't change which layer to use going forward.
+
+**Named limitations, stated before running**:
+- Same in-sample, small-n (19 target positions) caveat every stage in
+  this track has carried since Stage B — screening 33 layers at this
+  sample size raises the same overfitting-to-noise risk Stage C2's
+  multi-feature screening named, mitigated the same way: report every
+  layer's AUC, not just the best one, so a single outlier layer doesn't
+  get treated as a confirmed finding without acknowledging how many
+  comparisons were made.
+- `sound_repetition` only (matching Stage C's scope) — `word_repetition`
+  remains a separate, still-open question per Stage B's own result.
+- Does not test decoding-parameter sensitivity (the second recommended
+  experiment) — a separate, later step.
+
+### Encoder layer-depth sweep — Results (2026-08-06): the last layer is uniquely informative — no other layer comes close
+
+**A real deviation from the pre-registered population, caught and
+verified before trusting the comparison, recorded here rather than
+silently absorbed.** The pre-registration said "the identical 31 clips /
+966 control positions Stage B and C used." The implementation instead
+filtered to clips containing a `sound_repetition` target specifically
+(18 clips, 551 control positions) — Stage B/C's 31-clip, 966-control
+pool was built from clips with *either* `sound_repetition` or `word_
+repetition` targets, pooled together; this run only drew from the
+`sound_repetition`-relevant subset. **Verified this doesn't change the
+answer before trusting anything further**: the last layer's AUC on this
+smaller, different population (0.721, n=551 control) came out almost
+identical to Stage C's own last-layer AUC on the larger population
+(0.723, n=966 control) — an unplanned but genuine partial-replication
+check, not just a coincidence to wave away, and it passed.
+
+**Cost, as it actually ran**: 689s (~11.5 min) for 18 clips x 33 layers
+each — one forward pass per clip, all layers extracted simultaneously,
+confirming the pre-registration's cost estimate (extracting every layer
+does not multiply the per-clip cost by the number of layers).
+
+**Results — AUC at every layer, `sound_repetition`, n=19 target / n=551
+control:**
+
+| Layer range | AUC range | Pattern |
+|---|---|---|
+| 0 (embedding output) | 0.544 | Near chance |
+| 1-23 | 0.338-0.365 | Consistently *below* chance |
+| 24-31 | 0.360-0.383 | Still below chance, mild upward drift |
+| **32 (last, = Stage B/C's layer)** | **0.721** | The only layer with real signal |
+
+Full per-layer table in the saved run
+(`eval_results/20260806T144057_stage_layer_sweep.json`).
+
+**Against the pre-registered success criteria**: **no layer meaningfully
+beats the last layer — the last layer *is* the best layer**, and by a
+wide margin (the runner-up, layer 26, reaches only 0.383). This answers
+the pre-registered question decisively: Stage B/C's choice to use the
+default last-hidden-state was already the right one; there was no
+untapped signal sitting in an earlier layer.
+
+**A secondary, unplanned observation, stated as exactly that — an
+observation, not a tested hypothesis**: layers 1-31 don't merely fail to
+show a positive-direction signal, most sit *below* 0.5 (as low as 0.338),
+meaning `sound_repetition` target positions are, at those layers,
+mildly *closer* to the fluent centroid than control positions are — the
+opposite direction from "anomalous." Layer 0 sits near chance (0.544),
+and there's a gradual drift upward through layers 24-31 before the sharp
+jump at layer 32. This is consistent with a coherent story — early/mid
+encoder layers represent lower-level acoustic detail without much
+task-specific structure yet, and the disfluency-relevant signal
+crystallizes sharply only in the final layer, immediately upstream of
+the decoder — but this project has not independently verified that
+explanation (no attention analysis, no probing beyond this single
+AUC sweep); it is offered as a plausible reading, not a finding.
+
+**What this resolves**: encoder layer depth is **not** an untapped
+lever — the reassessment's first recommended experiment came back with
+a clean, decisive answer, closing that specific question rather than
+leaving it open. This narrows, not widens, the remaining options: the
+decoding-parameter experiment (the reassessment's second recommendation)
+is now the last untested lever within the current architecture before
+RQ3 (a second ASR backend) or Stage D become the honest next move on
+richer-representation grounds specifically.
+
 ---
 
 ## 0. The checkpoint that opened this track

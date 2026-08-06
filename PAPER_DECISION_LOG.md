@@ -5167,3 +5167,78 @@ file (mirroring `ROADMAP.md`'s own established pattern for this kind of
 content). `ROADMAP.md`'s pointer to this track updated with the
 conclusion. No code changed by this entry itself; the two recommended
 experiments are pre-registered and executed in the entry that follows.
+
+---
+
+## 2026-08-06 — Encoder layer-depth sweep done: the last layer is uniquely informative
+
+**What was done**
+Executed the first of the two experiments the same-day reassessment
+recommended. Verified the required API directly before writing the full
+script (a quick, isolated check that `output_hidden_states=True` on the
+cached `WhisperEncoder` object returns all 33 layers' activations from a
+single forward pass, and that the last one matches `extract_last_layer_
+states`'s existing output exactly) — cheap, and avoided discovering an
+API mismatch mid-way through an 11-minute run. Pre-registered the full
+protocol in `ASR_RESEARCH_TRACK.md` before writing `profiling/
+evaluation/stage_layer_sweep.py`, which extracts every layer from one
+forward pass per clip (not one pass per layer) and reuses Stage B/C's
+exact pool_span/cosine_distance/leave-one-out-centroid methodology at
+each layer, so every layer's AUC is directly comparable to Stage C's
+already-known last-layer result of 0.723.
+
+**A real deviation from the pre-registered population, caught and
+verified before trusting the result**: the implementation filtered to
+clips containing a `sound_repetition` target specifically (18 clips, 551
+control positions), not Stage B/C's full 31-clip/966-control pool (built
+from clips with *either* `sound_repetition` or `word_repetition`
+targets). Rather than treat this as invalidating, checked it directly:
+the last layer's AUC on this smaller population (0.721) came out almost
+identical to Stage C's own (0.723) — an unplanned internal-consistency
+check that passed, giving more confidence in both numbers, not less.
+
+**Result**: the last layer (32) is decisively the best — AUC 0.721,
+against a runner-up of 0.383 (layer 26) and most other layers sitting
+*below* chance (0.338-0.365, meaning target positions are mildly
+*closer* to the fluent centroid at those layers, the opposite direction
+from anomalous). No layer beats the last layer; Stage B/C's original
+choice (the default last-hidden-state) was already the right one. A
+secondary observation — the gradual below-chance-to-above-chance
+trajectory through depth — is reported as a plausible, unverified
+reading (early layers encode lower-level acoustic detail, the signal
+crystallizes only at the final layer), not an independently confirmed
+finding.
+
+**Alternatives considered**
+- Treat the population deviation as disqualifying and re-run on the
+  exact pre-registered 31-clip/966-control population before trusting
+  anything. **Not done**: the near-identical last-layer AUC across both
+  populations (0.721 vs 0.723) is itself strong evidence the deviation
+  doesn't matter for this question — re-running would cost ~11 more
+  minutes to confirm something already effectively confirmed by the
+  overlap; documented as a deviation instead, per standing rule 1, rather
+  than silently treated as identical to the pre-registered plan.
+- Investigate *why* early/mid layers show a mild below-chance pattern
+  before reporting the main result. **Rejected for this session**: a
+  real, interesting observation, but investigating it (attention
+  analysis, probing) is a separate, unscoped piece of work — reported
+  honestly as an unverified observation rather than either ignored or
+  chased down without a plan.
+
+**Why this choice**
+Directly executes the reassessment's own first recommended step, applies
+the same pre-flight-check and population-verification discipline every
+prior stage in this track has used, and reports a clean, decisive result
+(no layer beats the last one) rather than either overclaiming the
+secondary observation or hiding the population deviation that was found.
+
+**Measured result**
+`profiling/evaluation/stage_layer_sweep.py` (new, research code only).
+`ASR_RESEARCH_TRACK.md` (layer-sweep results section, plus a dated
+update to the reassessment's own "what changes as a result" note:
+decoding-parameter sensitivity is now the sole remaining untested
+in-architecture lever before this track's stated logic would shift
+weight toward RQ3/Stage D). `ROADMAP.md` updated with the outcome.
+`eval_results/20260806T144057_stage_layer_sweep.json` (full per-layer
+AUC table, saved). No production code changed. On the `asr-research`
+branch only — `main` untouched.

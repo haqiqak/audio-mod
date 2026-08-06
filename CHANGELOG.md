@@ -8,6 +8,20 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-06 (asr-research branch)
 
+- **Encoder layer-depth sweep done: the last layer is uniquely
+  informative.** First of the reassessment's two recommended
+  experiments. One forward pass per clip with `output_hidden_states=True`
+  (not one pass per layer) over all 33 CrisperWhisper encoder layers.
+  Last layer (32): AUC=0.721, decisively the best — runner-up 0.383,
+  most other layers below chance. Verified against a real population
+  deviation (18 clips/551 controls vs. Stage B/C's 31/966) via a
+  near-identical last-layer AUC on both (0.721 vs 0.723) before
+  trusting the result. Closes the layer-depth question: no untapped
+  signal in an earlier layer. Decoding-parameter sensitivity is now the
+  sole remaining untested in-architecture lever before RQ3/Stage D. →
+  *PAPER_DECISION_LOG.md, "Encoder layer-depth sweep done: the last
+  layer is uniquely informative"*; full results `ASR_RESEARCH_TRACK.md`.
+
 - **First-principles reassessment: still the right trajectory, not yet
   time to leave CrisperWhisper.** Evidence/inference/judgment kept
   separate. Conclusion: moving to a different/purpose-built ASR now

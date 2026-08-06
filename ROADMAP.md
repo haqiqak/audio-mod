@@ -816,8 +816,16 @@ been used; literature found deeper layers carry more signal for a
 comparable task) and **decoding-parameter sensitivity** (never varied;
 the most direct available test of whether the loss is decoder-side, as
 inferred, or something deeper). Both come before RQ3 and Stage D in the
-plan now. Full reasoning: `ASR_RESEARCH_TRACK.md`'s new "First-principles
-reassessment" section, at the top of the file.
+plan now. **Update, 2026-08-06: the layer-depth sweep is done — a
+decisive, clean negative.** The last encoder layer (Stage B/C's own
+choice) is uniquely informative; no other of the 32 remaining layers
+comes close (best runner-up AUC 0.383 vs. the last layer's 0.721-0.723,
+verified consistent across two different control populations). Closes
+that specific question — layer depth was never the missing lever. The
+decoding-parameter experiment is now the sole remaining untested
+in-architecture lever before this track's own stated logic would shift
+weight toward RQ3/Stage D. Full reasoning: `ASR_RESEARCH_TRACK.md`'s new
+"First-principles reassessment" section, at the top of the file.
 Full results, controls, and limitations: `ASR_RESEARCH_TRACK.md` §8.
 
 ## Near-term
