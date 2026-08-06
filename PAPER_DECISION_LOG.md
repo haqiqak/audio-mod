@@ -5836,3 +5836,67 @@ reach a Failure/Success decision), or treating this as a third
 independently-converging piece of evidence (alongside Phase 2's Arms 1-3)
 that the cheap, no-new-infrastructure options are narrowing, and Stage D
 costing is the better-justified next use of effort.
+
+## 2026-08-06 — MFCC escalation run: Failure, closer to the bar, second real bug caught first
+
+**What was done**
+Per the project owner's choice to run the MFCC escalation the original
+pre-registration already named, pre-registered its exact parameters
+(26-mel filterbank, 13 coefficients, standard windowed-FFT/DCT pipeline,
+no new dependency) before implementing, then refactored
+`generate_candidates()` to accept a pluggable `similarity_fn` so the
+run-detection logic stays byte-identical between the RMS/ZCR and MFCC
+passes — any result difference is attributable to the feature alone.
+Validated the MFCC extractor on synthetic pure tones (same tone -> high
+similarity, different frequency -> meaningfully lower) before touching
+real audio.
+
+**A second real bug, caught the same way as the first — this time on a
+suspiciously flat result, not a suspiciously perfect one**: the first
+real MFCC run returned a nearly unchanged precision/recall curve across
+the entire threshold sweep (766 of 766 candidates survived even a 0.80
+threshold). Rule 3 treats an unexpectedly *uninformative* result with
+the same suspicion as an unexpectedly good one — a feature that fails to
+discriminate anything at all is as diagnostic of a bug as one that
+discriminates everything perfectly. Measured the actual similarity
+distribution directly (3,708 real burst pairs): mean 0.961, 90% of ALL
+pairs (not just true repeats) scoring >=0.9. Root cause: MFCC
+coefficient 0 is overall log-energy, not spectral shape, and dominates
+cosine similarity between any two voiced (energetic) segments regardless
+of whether they actually sound alike — standard, well-documented MFCC
+practice excludes it for exactly this reason. Excluding it dropped mean
+similarity to 0.433 with real spread (min -0.955), confirming the fix.
+
+**Alternatives considered**
+- Trust the first (flat) result and report "MFCC provides no benefit."
+  **Rejected**: a curve with zero discriminative movement across a full
+  threshold sweep, on a feature specifically chosen for richer spectral
+  information, was itself the anomaly rule 3 exists to catch — reporting
+  it without investigating would have been exactly the "report faster"
+  failure mode the rule is written against.
+
+**Why this choice**
+Directly executes the escalation named in the original pre-registration
+as the fallback once the RMS/ZCR feature proved insufficient (it did),
+completing direction (g)'s cheap-feature search exactly as scoped in
+advance — one escalation step, not an open-ended search.
+
+**Measured result**
+Corrected MFCC result: a genuine precision/recall trade-off curve
+(recall falls from 0.824 to 0.157 as the threshold tightens from
+ungated to 0.90; precision rises from 0.081 to a peak of ~0.10 around
+threshold 0.60-0.80) — real discriminative structure, unlike the
+RMS/ZCR pass's nearly flat curve. Best-F1 operating point:
+threshold=0.40, F1=0.170 (recall=0.686, precision=0.097), better than
+the RMS/ZCR pass's F1=0.161. **Still a Failure per the pre-registered
+criterion** (precision meaningfully, >=20% relative F1, above the
+RMS/ZCR baseline): 0.170 falls short of the 0.176 bar by a small but
+real margin, not adjusted or reclassified after seeing how close it
+came. Direction (g)'s cheap-feature search is now complete per its own
+pre-registration. Both failures in this arm are mechanistically
+explained (feature specificity, not absence of acoustic signal) and
+each was reached only after a real implementation bug was caught and
+fixed first (cross-clip scoring pollution; MFCC coefficient-0 energy
+masking) — this is the most carefully verified negative result this
+track has produced for any single mechanism. No change to `main`,
+`profiling/acoustic.py`, or `profiling/detect.py`.

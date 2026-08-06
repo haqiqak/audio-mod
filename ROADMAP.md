@@ -547,6 +547,24 @@ for these three (see item 10's revised framing below).
     Phase 2's Arms 1-3 as further convergent evidence that formally
     costing out Stage D is now the better-justified use of further
     effort. No change to `main`.
+    **MFCC escalation run, 2026-08-06 — Failure, closer to the bar, see
+    `ASR_RESEARCH_TRACK.md`'s "MFCC escalation results."** A second
+    real bug caught before trusting the result (rule 3, this time on a
+    *suspiciously flat* curve rather than a suspiciously perfect one):
+    MFCC coefficient 0 (overall energy, not spectral shape) was
+    dominating similarity scores, masking any real signal (90% of ALL
+    burst pairs scored >=0.9 including it). Fixed (standard practice:
+    exclude coefficient 0) and re-run. Real result: genuine precision/
+    recall trade-off curve (unlike RMS/ZCR's flat one), best F1=0.170
+    (recall=0.686, precision=0.097) vs. RMS/ZCR's 0.161 — better, but
+    still short of the pre-registered >=20%-relative-improvement bar
+    (0.176) by a small, real margin. Direction (g)'s cheap-feature
+    search is now complete per its own pre-registration (one escalation
+    step, as named in advance) — both failures are mechanistically
+    explained, and each was reached only after a real implementation
+    bug was caught and fixed first, making this the most carefully
+    verified negative result this track has produced for any single
+    mechanism. No change to `main`.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every

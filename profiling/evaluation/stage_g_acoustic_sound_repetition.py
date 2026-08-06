@@ -2,12 +2,24 @@
 
 Implements the protocol pre-registered in ASR_RESEARCH_TRACK.md's
 "Direction (g): an acoustic-native sound_repetition candidate generator"
-section EXACTLY - read that section before changing any logic here.
-Tests whether sound_repetition has a recoverable acoustic signature -
-2+ short, spectrally self-similar voiced bursts in immediate succession -
-detectable directly from the waveform, with NO ASR involved anywhere in
-this script (Track-A-style: ground truth timestamps come straight from
-LibriStutter's own labels, not from any hypothesis alignment).
+section (and its "MFCC escalation" addendum) EXACTLY - read those
+sections before changing any logic here. Tests whether sound_repetition
+has a recoverable acoustic signature - 2+ short, spectrally self-similar
+voiced bursts in immediate succession - detectable directly from the
+waveform, with NO ASR involved anywhere in this script (Track-A-style:
+ground truth timestamps come straight from LibriStutter's own labels,
+not from any hypothesis alignment).
+
+Two per-burst similarity features are implemented, selected via
+--feature: "rmszcr" (default, the cheap first pass - RMS/ZCR envelope
+shape) and "mfcc" (the pre-registered escalation - spectral shape via a
+hand-rolled MFCC extractor, coefficient 0 excluded, see
+_burst_similarity_mfcc()'s docstring for why). Candidate run-detection
+(generate_candidates()) is identical between both - only the similarity
+feature passed to it differs - so any result difference between the two
+is attributable to the feature alone. Both were run against the same
+120-clip sample; both came back Failure - see ASR_RESEARCH_TRACK.md's
+"Direction (g) results" and "MFCC escalation results" for the numbers.
 
 Reuses profiling.acoustic's existing segment_voiced() (the same RMS/ZCR
 segmentation block/prolongation already build on) and frame_features()
@@ -20,7 +32,10 @@ Usage
 -----
     python -m profiling.evaluation.stage_g_acoustic_sound_repetition \\
         --data-dir eval_datasets/libristutter_sample \\
-        --audio-dir eval_datasets/libristutter_sample_audio
+        --audio-dir eval_datasets/libristutter_sample_audio \\
+        --feature rmszcr  # or --feature mfcc
+
+    python -m profiling.evaluation.stage_g_acoustic_sound_repetition --self-test
 """
 
 from __future__ import annotations
@@ -129,15 +144,142 @@ def _burst_similarity(
     return float(np.dot(va, vb) / (na * nb))
 
 
+# ── MFCC escalation (ASR_RESEARCH_TRACK.md "Direction (g), MFCC
+# escalation" addendum) - hand-rolled, no new dependency (librosa is not
+# installed in this project's environment; scipy is already a transitive
+# dependency and provides the DCT primitive). Standard pipeline: windowed
+# FFT -> power spectrum -> mel filterbank -> log -> DCT-II. ──
+
+MFCC_N_MELS = 26
+MFCC_N_COEFF = 13
+MFCC_FMIN_HZ = 20.0
+
+
+def _hz_to_mel(hz: np.ndarray | float) -> np.ndarray | float:
+    return 2595.0 * np.log10(1.0 + np.asarray(hz) / 700.0)
+
+
+def _mel_to_hz(mel: np.ndarray | float) -> np.ndarray | float:
+    return 700.0 * (10.0 ** (np.asarray(mel) / 2595.0) - 1.0)
+
+
+def _mel_filterbank(n_fft: int, sr: int, n_mels: int, fmin: float, fmax: float) -> np.ndarray:
+    """Standard triangular mel filterbank, shape [n_mels, n_fft//2 + 1]."""
+    mel_min, mel_max = _hz_to_mel(fmin), _hz_to_mel(fmax)
+    mel_points = np.linspace(mel_min, mel_max, n_mels + 2)
+    hz_points = _mel_to_hz(mel_points)
+    bin_points = np.floor((n_fft + 1) * hz_points / sr).astype(int)
+    bin_points = np.clip(bin_points, 0, n_fft // 2)
+
+    fb = np.zeros((n_mels, n_fft // 2 + 1), dtype=np.float64)
+    for m in range(1, n_mels + 1):
+        left, center, right = bin_points[m - 1], bin_points[m], bin_points[m + 1]
+        if center == left:
+            center += 1
+        if right == center:
+            right += 1
+        for k in range(left, min(center, fb.shape[1])):
+            fb[m - 1, k] = (k - left) / (center - left)
+        for k in range(center, min(right, fb.shape[1])):
+            fb[m - 1, k] = (right - k) / (right - center)
+    return fb
+
+
+def compute_mfcc(
+    samples: np.ndarray, sr: int, frame_s: float, hop_s: float,
+    n_mels: int = MFCC_N_MELS, n_mfcc: int = MFCC_N_COEFF,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Returns (frame_start_times, mfcc[n_frames, n_mfcc]). Frame/hop match
+    AcousticConfig's own frame_seconds/hop_seconds so this lines up with
+    the same frame grid frame_features() already uses."""
+    from scipy.fftpack import dct
+
+    frame_len = max(1, int(sr * frame_s))
+    hop_len = max(1, int(sr * hop_s))
+    n_fft = 1
+    while n_fft < frame_len:
+        n_fft *= 2
+    n = len(samples)
+    if n < frame_len:
+        return np.array([]), np.zeros((0, n_mfcc))
+
+    starts = np.arange(0, max(1, n - frame_len + 1), hop_len)
+    window = np.hanning(frame_len)
+    fb = _mel_filterbank(n_fft, sr, n_mels, MFCC_FMIN_HZ, sr / 2.0)
+
+    mfcc = np.empty((len(starts), n_mfcc), dtype=np.float64)
+    for k, s0 in enumerate(starts):
+        chunk = samples[s0:s0 + frame_len] * window
+        spectrum = np.fft.rfft(chunk, n=n_fft)
+        power = (np.abs(spectrum) ** 2) / n_fft
+        mel_energies = fb @ power
+        log_mel = np.log(mel_energies + 1e-10)
+        coeffs = dct(log_mel, type=2, norm="ortho")
+        mfcc[k] = coeffs[:n_mfcc]
+
+    times = starts / sr
+    return times, mfcc
+
+
+def _resampled_mfcc_vector(times: np.ndarray, mfcc: np.ndarray, start: float, end: float) -> np.ndarray | None:
+    """Mean MFCC vector across the frames overlapping [start, end) - a
+    single spectral-shape summary per burst, replacing the RMS/ZCR
+    resampled-envelope vector."""
+    mask = (times >= start) & (times < end)
+    if not np.any(mask):
+        return None
+    return mfcc[mask].mean(axis=0)
+
+
+def _burst_similarity_mfcc(seg_a: Segment, seg_b: Segment, times: np.ndarray, mfcc: np.ndarray) -> float | None:
+    """Cosine similarity between two bursts' mean MFCC vectors, EXCLUDING
+    coefficient 0 (overall log-energy) - standard MFCC practice, and a real
+    bug caught here before trusting the first real run: coefficient 0
+    dominates the vector's norm, so any two voiced (energetic) segments
+    score >=0.9 similarity regardless of spectral shape (measured directly:
+    90% of all burst pairs in the sample scored >=0.9 including c0, vs.
+    22% excluding it, with a real spread - mean 0.961 -> 0.433). Including
+    it made this feature measure 'is this voiced speech' rather than 'does
+    this burst sound like that burst', silently defeating the point of
+    escalating past the RMS/ZCR envelope feature."""
+    va = _resampled_mfcc_vector(times, mfcc, seg_a.start, seg_a.end)
+    vb = _resampled_mfcc_vector(times, mfcc, seg_b.start, seg_b.end)
+    if va is None or vb is None:
+        return None
+    va, vb = va[1:], vb[1:]
+    na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+    if na == 0 or nb == 0:
+        return None
+    return float(np.dot(va, vb) / (na * nb))
+
+
+def _mfcc_similarity_fn(times: np.ndarray, mfcc: np.ndarray):
+    return lambda a, b: _burst_similarity_mfcc(a, b, times, mfcc)
+
+
+def _rmszcr_similarity_fn(frame_times: np.ndarray, frame_rms: np.ndarray, frame_zcr: np.ndarray):
+    return lambda a, b: _burst_similarity(a, b, frame_times, frame_rms, frame_zcr)
+
+
 def generate_candidates(
     segments: list[Segment], frame_times: np.ndarray, frame_rms: np.ndarray, frame_zcr: np.ndarray,
     short_max_s: float = SHORT_BURST_MAX_SECONDS, max_gap_s: float = MAX_GAP_SECONDS,
+    similarity_fn=None,
 ) -> list[AcousticCandidate]:
     """Every maximal run of >=2 consecutive short voiced bursts (short-gap
     tolerant). Similarity is NOT gated here - every qualifying run becomes
     a candidate, carrying its own similarity scores, so scoring can compare
     the similarity-gated mechanism against the duration-only baseline
-    (every candidate here, ungated) without regenerating candidates twice."""
+    (every candidate here, ungated) without regenerating candidates twice.
+
+    `similarity_fn(seg_a, seg_b) -> float | None` is pluggable so the MFCC
+    escalation (ASR_RESEARCH_TRACK.md "Direction (g), MFCC escalation")
+    can reuse this exact run-detection logic unmodified, swapping only the
+    per-burst feature - any difference in result is then attributable to
+    the feature, not a confounded re-design. Defaults to the original
+    RMS/ZCR envelope-shape similarity."""
+    if similarity_fn is None:
+        similarity_fn = _rmszcr_similarity_fn(frame_times, frame_rms, frame_zcr)
     runs = _voiced_runs_with_short_gaps(segments, max_gap_s)
     candidates: list[AcousticCandidate] = []
     for run in runs:
@@ -149,7 +291,7 @@ def generate_candidates(
             j = i
             sims: list[float] = []
             while j + 1 < len(run) and run[j + 1].duration < short_max_s:
-                sim = _burst_similarity(run[j], run[j + 1], frame_times, frame_rms, frame_zcr)
+                sim = similarity_fn(run[j], run[j + 1])
                 sims.append(sim if sim is not None else 0.0)
                 j += 1
             n_bursts = j - i + 1
@@ -206,8 +348,9 @@ def score(
     }
 
 
-def run(data_dir: Path, audio_dir: Path, n_clips: int = 120) -> dict:
+def run(data_dir: Path, audio_dir: Path, n_clips: int = 120, feature: str = "rmszcr") -> dict:
     print(f"Loading clips + real audio from {data_dir} / {audio_dir} ...")
+    print(f"Feature: {feature}\n")
     clips = load_libristutter_dir_with_audio(data_dir, audio_dir)
     clips = [c for c in clips if c.audio_bytes is not None][:n_clips]
     print(f"{len(clips)} clips.\n")
@@ -235,8 +378,14 @@ def run(data_dir: Path, audio_dir: Path, n_clips: int = 120) -> dict:
             per_clip.append((targets, []))
             continue
         segments = segment_voiced(samples, sr, cfg)
-        frame_times, frame_rms, frame_zcr = frame_features(samples, sr, cfg.frame_seconds, cfg.hop_seconds)
-        cands = generate_candidates(segments, frame_times, frame_rms, frame_zcr)
+        if feature == "mfcc":
+            mfcc_times, mfcc = compute_mfcc(samples, sr, cfg.frame_seconds, cfg.hop_seconds)
+            sim_fn = _mfcc_similarity_fn(mfcc_times, mfcc)
+            frame_times, frame_rms, frame_zcr = frame_features(samples, sr, cfg.frame_seconds, cfg.hop_seconds)
+            cands = generate_candidates(segments, frame_times, frame_rms, frame_zcr, similarity_fn=sim_fn)
+        else:
+            frame_times, frame_rms, frame_zcr = frame_features(samples, sr, cfg.frame_seconds, cfg.hop_seconds)
+            cands = generate_candidates(segments, frame_times, frame_rms, frame_zcr)
         n_candidates_total += len(cands)
         per_clip.append((targets, cands))
 
@@ -269,8 +418,10 @@ def run(data_dir: Path, audio_dir: Path, n_clips: int = 120) -> dict:
     )
     print(f"Verdict (pre-registered success criterion: similarity check meaningfully beats duration-only baseline): {verdict}")
 
-    out_path = _ROOT / "eval_results" / f"{time.strftime('%Y%m%dT%H%M%S')}_stage_g_acoustic_sound_repetition.json"
+    tag = "_mfcc" if feature == "mfcc" else ""
+    out_path = _ROOT / "eval_results" / f"{time.strftime('%Y%m%dT%H%M%S')}_stage_g_acoustic_sound_repetition{tag}.json"
     out_path.write_text(json.dumps({
+        "feature": feature,
         "n_clips": len(clips), "n_targets": n_targets_total, "n_clips_with_target": n_clips_with_target,
         "baseline": baseline,
         "gated_by_threshold": {str(k): v for k, v in gated_by_threshold.items()},
@@ -368,6 +519,34 @@ def run_self_test() -> int:
           cross_clip_result["recall"] == 0.0 and cross_clip_result["precision"] == 0.0,
           str(cross_clip_result))
 
+    # 6. MFCC extractor validation on synthetic tones (pre-registered
+    #    requirement, ASR_RESEARCH_TRACK.md "Direction (g), MFCC escalation":
+    #    two instances of an identical tone must score high similarity; two
+    #    clearly different frequencies must score low - checked before this
+    #    feature is trusted on real audio).
+    sr = 16000
+    dur = 0.3
+    t = np.arange(0, dur, 1.0 / sr)
+    tone_a1 = 0.5 * np.sin(2 * np.pi * 300.0 * t)
+    tone_a2 = 0.5 * np.sin(2 * np.pi * 300.0 * (t + 0.001))  # same freq, phase-shifted
+    tone_b = 0.5 * np.sin(2 * np.pi * 2000.0 * t)  # a clearly different frequency
+
+    def _mfcc_mean(sig: np.ndarray) -> np.ndarray:
+        times, mfcc = compute_mfcc(sig, sr, 0.025, 0.010)
+        return mfcc.mean(axis=0)
+
+    v_a1, v_a2, v_b = _mfcc_mean(tone_a1), _mfcc_mean(tone_a2), _mfcc_mean(tone_b)
+
+    def _cos(a: np.ndarray, b: np.ndarray) -> float:
+        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+    sim_same = _cos(v_a1, v_a2)
+    sim_diff = _cos(v_a1, v_b)
+    check("MFCC: two instances of the same tone score high similarity",
+          sim_same > 0.95, f"sim_same={sim_same:.3f}")
+    check("MFCC: two clearly different frequencies score meaningfully lower",
+          sim_diff < sim_same - 0.1, f"sim_same={sim_same:.3f} sim_diff={sim_diff:.3f}")
+
     print(f"\n{'ALL PASS' if not failures else str(failures) + ' FAILURE(S)'}")
     return 1 if failures else 0
 
@@ -377,6 +556,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", default=None)
     parser.add_argument("--audio-dir", default=None)
     parser.add_argument("--n", type=int, default=120)
+    parser.add_argument("--feature", choices=["rmszcr", "mfcc"], default="rmszcr",
+                         help="Per-burst similarity feature (default rmszcr; mfcc is the pre-registered escalation).")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args(argv)
 
@@ -386,7 +567,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.data_dir or not args.audio_dir:
         print("--data-dir and --audio-dir are required (unless --self-test).")
         return 2
-    run(Path(args.data_dir), Path(args.audio_dir), args.n)
+    run(Path(args.data_dir), Path(args.audio_dir), args.n, feature=args.feature)
     return 0
 
 

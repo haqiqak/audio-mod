@@ -1286,6 +1286,20 @@ inside what the threshold sweep's own noise would produce by chance.
 advance**: "precision/recall indistinguishable from the duration-only
 baseline."
 
+**A pre-registered check that was not performed, named honestly rather
+than silently dropped**: the original success criterion also named a
+"concrete bar" — precision at >=50% recall clearing whatever `block`/
+`prolongation`'s own candidate-generation stage achieves before their
+fusion layer refines it. That comparison number was never computed this
+session. It doesn't change the verdict here (the mechanism failed the
+primary duration-only-baseline criterion outright, so the secondary bar
+was never reached regardless), but it is a real, acknowledged gap in
+what was pre-registered versus what was actually measured — worth
+computing directly (via `detect_prolongations`/`detect_blocks` scored
+against their own ground-truth labels in this same sample) before this
+arm is cited as fully closed out, rather than left as an implicit,
+unstated omission.
+
 **Mechanistic diagnosis, checked directly rather than left as a bare
 number** (matching this track's standing preference for explaining
 *why*, not just reporting *what*): inspected the burst-count and
@@ -1356,6 +1370,157 @@ track's second and third independently-converging pieces of evidence
 (after Phase 2's Arms 1-3) that the remaining paths cheap enough to try
 without new infrastructure are increasingly narrow, strengthening the
 case for formally costing out Stage D.
+
+### Direction (g), MFCC escalation — pre-registered addendum (2026-08-06, written before implementing)
+
+Per the project owner's explicit choice, executing the escalation the
+original pre-registration already named as the fallback if the cheap
+RMS/ZCR-envelope feature proved insufficient — which it did. This is
+not a new arm; it is the same candidate-generation mechanism
+(`generate_candidates()`'s run-detection logic is unchanged) with only
+the per-burst similarity feature replaced. The original pre-registration
+named "MFCC cosine similarity" without specifying parameters — specified
+here, before implementation, per rule 1.
+
+**Design.** Hand-rolled MFCC extraction (no new dependency — `librosa`
+is not installed in this project's environment, and this project's own
+evaluation-script convention already favors minimal dependencies, see
+`stage_c_duration_baseline.py`'s pure-Python `_auc()`; `scipy` is
+already a transitive dependency and provides the DCT primitive needed).
+Standard pipeline: windowed FFT (reusing `AcousticConfig`'s existing
+`frame_seconds=0.025`/`hop_seconds=0.010`, the same frame/hop this
+project's segmentation already uses) -> power spectrum -> a 26-filter
+mel filterbank (20Hz-8000Hz, standard triangular-filter construction) ->
+log energies -> DCT-II, keeping the first 13 coefficients (the standard
+MFCC configuration in the speech-processing literature). Per-burst
+feature: the mean MFCC vector across that burst's own frames (replacing
+the RMS/ZCR resampled-envelope vector the first pass used). Similarity:
+cosine similarity between two bursts' mean MFCC vectors, replacing
+`_burst_similarity()`'s RMS/ZCR-based computation — everything else
+(run detection, gap tolerance, scoring, the pre-registered threshold
+sweep, the Track-A-style timestamp-based evaluation) stays exactly as
+in the first pass, so any difference in result is attributable to the
+feature change alone, not a confounded re-design.
+
+**Population and metric**: identical to the first pass (same 120-clip
+sample, same 51 ground-truth `sound_repetition` instances, same
+duration-only baseline for comparison, same precision/recall/F1 at the
+same threshold sweep) — a direct, controlled comparison against the
+RMS/ZCR result already measured.
+
+**Success criterion**: precision meaningfully above the RMS/ZCR pass's
+best result (F1=0.161) at comparable or better recall — real evidence
+spectral shape (not just energy envelope) is what this candidate class
+needs to be separable from background speech rhythm.
+
+**Failure criterion**: no meaningful improvement over the RMS/ZCR
+pass — evidence the limiting factor is not *which* cheap acoustic
+feature is used, but the deeper class-imbalance/genuine-ambiguity
+problem this arm's first-pass diagnosis already named (ordinary short
+words and genuine repeated fragments may simply not be separable by
+any single-frame-level spectral-shape feature at this population size),
+strengthening the case for Stage D costing rather than a further
+feature search.
+
+**Implementation self-check before trusting real output**: the MFCC
+extractor itself will be validated on a synthetic pure-tone pair
+(two instances of the identical synthetic tone must score high MFCC
+similarity; two clearly different frequencies must score low) before
+being trusted on real audio — the same discipline this project's own
+`tests/test_acoustic.py` already applies to `segment_voiced()`.
+
+### MFCC escalation results (2026-08-06) — Failure, closer to the bar, with a second real bug caught first
+
+Implementation: `generate_candidates()` in `stage_g_acoustic_sound_
+repetition.py` was refactored to accept a pluggable `similarity_fn`
+(run-detection logic byte-identical to the first pass — only the
+per-burst feature changes, so any result difference is attributable to
+the feature alone, per the addendum's own design requirement). A
+hand-rolled MFCC extractor (26-mel filterbank, 13 coefficients,
+`scipy`'s DCT, no new dependency) was added and validated on synthetic
+pure tones before touching real audio — both synthetic self-tests
+passed (same tone -> high similarity; different frequency -> meaningfully
+lower).
+
+**A second real bug, caught the same way as the first (rule 3, "a
+dramatic-looking number is a reason to check harder, not report
+faster")**: the first real MFCC run returned a suspiciously *flat*
+result — precision/recall barely moved across the entire 0.30-0.90
+threshold sweep (766 candidates survived even the strictest gate,
+nearly unchanged from the ungated baseline). This was as much a red
+flag as the earlier implausibly-perfect result, just in the opposite
+direction: a similarity feature that fails to gate out *anything* is as
+suspicious as one that gates out everything correctly by chance.
+Diagnosed directly rather than accepted: measured the actual similarity
+distribution across all 3,708 burst pairs in the sample and found mean
+similarity 0.961, with 90% of ALL pairs (not just true repeats) scoring
+>=0.9. Root cause: MFCC coefficient 0 is overall log-energy, not
+spectral shape, and it dominates the vector's norm — any two voiced
+(energetic) segments score high cosine similarity on this feature
+regardless of whether they sound alike, which is standard, well-known
+MFCC practice to exclude (not a novel discovery, a known pitfall this
+implementation fell into and then caught). Excluding coefficient 0
+dropped the mean similarity to 0.433 with a real spread (min -0.955) —
+confirmed the feature now measures spectral shape, not just "is this
+voiced." Fixed in `_burst_similarity_mfcc()`; the synthetic-tone
+self-tests still pass unchanged (spectral shape discrimination was
+never the issue - only real speech's high, dominant overall energy
+happened to expose the c0 masking problem).
+
+**The real, corrected MFCC result**: unlike the RMS/ZCR pass's nearly
+flat curve, this shows genuine precision/recall trade-off structure
+across the threshold sweep — recall falls smoothly from 0.824
+(ungated) to 0.157 (threshold=0.90) as precision rises from 0.081 to a
+peak around 0.095-0.100 (thresholds 0.60-0.80) before collapsing at the
+strictest setting. Best-F1 operating point: threshold=0.40, F1=0.170
+(recall=0.686, precision=0.097).
+
+**Two related but distinct comparisons were made against this number,
+worth stating precisely rather than conflating, since the addendum's
+pre-registered wording and the evaluation script's automated verdict
+use different reference points**:
+1. **The script's own automated verdict** (the same mechanism used to
+   judge the RMS/ZCR pass, applied identically here for methodological
+   consistency across both feature passes) compares the gated best
+   against *this run's own ungated baseline* (F1=0.147, identical to
+   the RMS/ZCR run's baseline, since candidate generation is
+   feature-independent — see "Design" above) times 1.2: F1=0.170 falls
+   short of that 0.176 bar by a small, real margin.
+2. **The addendum's literally-worded success criterion** ("precision
+   meaningfully above the RMS/ZCR pass's *best result*... at comparable
+   or better recall") is a different, more direct comparison: MFCC's
+   best-F1 point (precision=0.097, recall=0.686) against RMS/ZCR's own
+   best-F1 point (precision=0.094, recall=0.569, threshold=0.90).
+   Precision is only marginally higher (+0.003, ~3% relative) despite
+   meaningfully better recall — not "meaningfully above" by any
+   reasonable reading of that criterion either.
+
+**Both comparisons agree: Failure.** Neither is reclassified as a
+Success by picking the more favorable framing after seeing the result —
+stated together here specifically so a future reader can see both
+numbers were checked, not just the one that was easiest to compute, per
+rule 4's discipline against post-hoc criterion selection.
+
+**What this changes about the overall picture**: direction (g) has now
+had a real, honest two-step escalation, exactly as pre-registered —
+cheap feature (Failure), richer feature (closer, still Failure). Both
+failures are explained mechanistically, not just reported as numbers,
+and each failure was reached only after a real implementation bug was
+caught and fixed first (cross-clip scoring pollution; MFCC coefficient-0
+energy masking) — the negative results are trustworthy specifically
+*because* the process that produced them survived two independent,
+serious "this number is suspiciously good/flat, check it" audits. This
+is the strongest, most carefully verified negative evidence this track
+has produced for any single mechanism.
+
+### What changes as a result (MFCC escalation)
+
+`ROADMAP.md` item 10 is updated with this result. Direction (g)'s cheap-
+feature search is now complete per its own pre-registration (one
+escalation step, as named in advance) — no further feature variants are
+recommended without a new, separately-justified reason, per this
+track's standing discipline against open-ended tuning. No change to
+`main`, `profiling/acoustic.py`, or `profiling/detect.py`.
 
 ---
 
@@ -2564,6 +2729,21 @@ project on cheaper alternatives:
 
 ## End-of-session handoff — 2026-08-05 close
 
+**Superseded — read "End of Today's Session (2026-08-06)" at the very
+end of this document instead, if you are picking up cold.** This entire
+section (including its own "Update, 2026-08-06" note immediately below)
+describes the state as of 2026-08-05's close, before the first-principles
+reassessment, Phase 2 (Arms 1-3), and direction (g) (RMS/ZCR + MFCC) all
+ran. None of the three numbered options this section's own update note
+proposes ("Scale up the sample" / "Try the mis-routing recovery" /
+"Formally cost out Stage D") is what actually happened next — a broader
+first-principles reassessment of the whole track ran instead, leading to
+Phase 2's 3-arm design and then direction (g)'s two-step escalation, both
+now complete. Kept here unedited, per this document's own append
+discipline (never rewrite past sections, only mark what supersedes them)
+— useful as a historical record of what was known and proposed at that
+point in time, not as current guidance.
+
 **Read this section first if you are picking up cold.** It is written so
 a new session can act on it directly — "continue from the end-of-session
 handoff" — without re-deriving anything above.
@@ -2824,3 +3004,260 @@ today.
   unrelated to this track — a reasonable thing to fix in a spare moment
   on `main` without waiting for this track to reach any particular
   milestone first.
+
+---
+
+## End of Today's Session (2026-08-06)
+
+**Read this section first if you are picking up cold.** This supersedes
+the 2026-08-05 handoff above (see the redirect note at its start) as the
+current entry point. Written for a reader who was not in today's session
+at all — every claim below should be checkable against this document's
+own numbered sections and `PAPER_DECISION_LOG.md`'s dated entries, not
+taken on faith.
+
+### What we attempted
+
+Two independent lines of work, both fully pre-registered before
+implementation, both fully executed and reported today:
+
+1. **Phase 2**: a full re-opening of the 7-direction design space (not
+   just "run a second ASR"), narrowing to a 3-arm design — stock
+   `whisper-large-v3` through the full pipeline (Arm 1) and through the
+   layer-sweep methodology (Arm 2), plus WavLM-Large's representation
+   (Arm 3) — each testing whether a different off-the-shelf ASR or
+   representation preserves `sound_repetition`/`word_repetition`
+   evidence better than CrisperWhisper does.
+2. **Direction (g)**: a purpose-built, ASR-independent acoustic
+   candidate generator for `sound_repetition` — first with an RMS/ZCR
+   envelope-shape similarity feature, then (the pre-registered
+   escalation) with MFCC spectral-shape similarity — testing whether the
+   disfluency is directly detectable from the waveform the way `block`/
+   `prolongation` already are, bypassing ASR text entirely.
+
+### What succeeded
+
+No individual hypothesis was confirmed — every one of the five
+sub-experiments (3 arms + 2 feature passes) came back Failure against
+its own pre-registered criterion. What *did* succeed, and is worth
+stating as a real outcome, not just a preamble to the negative results:
+
+- **The research process itself worked as designed.** Every experiment
+  was pre-registered before code existed; every result was reported
+  exactly as measured, including two results (Direction (g)'s
+  implausibly-perfect first RMS/ZCR run, and its implausibly-flat first
+  MFCC run) that would have been easy to accept or discard without
+  investigating. Both were investigated, both turned out to hide real
+  bugs, both were fixed before being trusted, and both fixes are now
+  guarded by dedicated self-tests. Rule 3 ("audit surprising results")
+  was applied symmetrically — to results that looked *too good* and to
+  ones that looked *too uninformative* — which is a stronger, more
+  complete application of that rule than this track had explicitly
+  demonstrated before today.
+- **Direction (g)'s recall result (0.824, both feature passes) is a
+  genuine positive finding**, even though the overall arm is scored
+  Failure. It confirms `sound_repetition` reliably co-occurs with a
+  detectable run of short voiced bursts in the waveform — the underlying
+  acoustic hypothesis behind `block`/`prolongation`'s own detectors
+  extends to this type too. What isn't yet solved is discriminating that
+  signal from the ordinary background rate of short-word speech rhythm
+  at usable precision.
+- **WavLM's layer-depth profile genuinely differs from Whisper's** (peaks
+  mid-network, not concentrated in the last layer) — a real,
+  literature-consistent structural finding, even though its peak
+  strength never exceeded either Whisper variant's.
+
+### What failed
+
+- **Arm 1** (stock `whisper-large-v3`, full pipeline): 0/36 known losses
+  recovered; normalized-away rate *higher* than CrisperWhisper's own
+  baseline (89.5%/88.2% vs. 45.2%/40.5%).
+- **Arm 2** (same checkpoint's encoder, layer sweep): same last-layer-
+  only concentration pattern, same-population AUC slightly *lower* than
+  CrisperWhisper's (0.680 vs. 0.721).
+- **Arm 3** (WavLM-Large): `sound_repetition` signal at chance level
+  (AUC=0.474) on the one metric with a directly comparable prior number.
+- **Direction (g), RMS/ZCR pass**: precision (0.081) indistinguishable
+  from a naive duration-only baseline (F1=0.147) across the full
+  similarity-threshold sweep.
+- **Direction (g), MFCC escalation**: a real, measurably better result
+  (F1=0.170, a genuine precision/recall trade-off curve) but still short
+  of the pre-registered bar by both ways of measuring "meaningfully
+  better" (see "MFCC escalation results" above for both comparisons).
+
+### What we learned
+
+- **CrisperWhisper's own fine-tuning is not the driver of either failure
+  mode tested.** Both the text-normalization loss (Arm 1) and the
+  last-layer-only signal concentration (Arm 2) are properties of
+  large-scale weakly-supervised Whisper-family ASR generally, not
+  something CrisperWhisper's specific training introduced. This
+  meaningfully narrows where a future fix could live — not "retrain
+  CrisperWhisper differently," but either a genuinely different model
+  family or a genuinely different detection strategy.
+- **A different pretraining objective (WavLM's masked-prediction +
+  denoising) does redistribute signal across encoder depth, but does not
+  increase its peak strength** for this specific task at this sample
+  size — a real, if modest, piece of evidence that "just use a
+  self-supervised model instead" is not a free win either.
+- **`sound_repetition` has a real acoustic footprint, but no cheap,
+  single-frame-level feature tried so far can isolate it from ordinary
+  speech rhythm.** Two specific features (RMS/ZCR envelope shape, MFCC
+  spectral shape) were tried and both failed on precision, for a
+  mechanistically understood reason (ordinary short words look similar
+  to genuine repeats on these features) rather than an unexplained one.
+- **Two independent implementation bugs were caught this session by the
+  same discipline, applied in both directions** — a result that looks
+  too good and a result that looks too flat are both grounds to stop and
+  check, not just the former. Both bugs (cross-clip timestamp pooling;
+  MFCC coefficient-0 energy masking) are exactly the kind of subtle,
+  otherwise-invisible errors that would have quietly inflated or
+  flattened a reported number if this discipline hadn't been applied.
+
+### What evidence became stronger
+
+The case against "a cheap, off-the-shelf swap closes this gap" is now
+built on **seven independent, pre-registered probes** across this
+track's full history — Stage C's duration baseline, Stage C2's Praat
+fusion, the CrisperWhisper layer-depth sweep, the `num_beams` decoding
+experiment, and today's five (3 Phase 2 arms + 2 direction-(g) passes) —
+all converging on the same conclusion from different angles (decoding
+width, encoder depth, model family, acoustic features). No single result
+here is decisive on its own; the *convergence* across genuinely different
+mechanisms is what makes the case strong.
+
+### What remains unknown
+
+- **Whether a *combination* of weak signals (not yet tried) would work
+  where individual hand-picked features didn't** — e.g., a trained
+  classifier over RMS/ZCR + MFCC + duration + pitch/formant continuity
+  together, rather than any single feature gated by a hand-set threshold.
+  This is meaningfully different from "just try another feature" (rule
+  4's concern about open-ended tuning) — it's a different *class* of
+  approach (learned combination vs. hand-set threshold), not a fourth
+  feature search.
+- **The unmeasured "concrete bar"** from direction (g)'s original
+  pre-registration (candidate-generation precision compared against
+  `block`/`prolongation`'s own) — named honestly as a gap above, not yet
+  closed.
+- **Whether any of today's findings generalize beyond LibriStutter's
+  synthetic splicing** — untested this session, and a real, named
+  confound for direction (g) specifically (a splice artifact could make
+  synthetic repeats look more or less acoustically distinctive than a
+  genuine stutter).
+- **The actual cost and feasibility of Stage D** (fine-tuning or a
+  purpose-built model) — named as the remaining direction in the
+  original 7-item space, but never priced out: what data exists or would
+  need to be acquired, what compute/GPU access this project has or
+  doesn't, what a realistic timeline looks like. This is explicitly the
+  first thing next session should address — see "Next Session Plan"
+  below.
+
+### Why we are stopping here
+
+Every experiment named in advance for today's scope is complete: Phase 2
+was pre-registered as a 3-arm design and all 3 ran; direction (g) was
+pre-registered as a single cheap-feature escalation (RMS/ZCR, then MFCC
+if needed) and both steps ran. Continuing to search for a third or
+fourth acoustic feature without a new, separately-justified reason would
+be exactly the open-ended tuning rule 4 exists to prevent. The project
+owner's own explicit instruction was to consolidate before deciding what
+comes next, rather than let momentum carry the session directly into
+Stage D — consistent with this track's standing pattern of pausing at
+decision points rather than auto-continuing.
+
+---
+
+## Next Session Plan
+
+**This section describes how the next session should *begin* — it is
+explicitly not a Stage D pre-registration, and Stage D work should not
+start from reading this section alone.** Tomorrow's first task is
+thinking, not building.
+
+### Step 1 — Re-review the accumulated evidence with fresh eyes
+
+Before deciding anything, read (in order): this document's "End of
+Today's Session" section above, then the full Phase 2 and direction-(g)
+sections it summarizes (§"Phase 2 results" through §"MFCC escalation
+results"), then `ROADMAP.md` item 10's full dated history for the
+product-facing framing. The goal of this pass is not to re-verify the
+numbers (already done today) but to sit with the *shape* of the evidence
+— seven converging negative probes — and check whether it still reads as
+convincing after a night's distance, not just in the moment it was
+produced.
+
+### Step 2 — Decide, explicitly, whether Stage D is actually justified
+
+This is a real decision, not a formality. Arguments worth weighing
+honestly, on both sides, before concluding:
+
+- **For**: seven independent probes across four different mechanisms
+  (decoding, encoder depth, model family, acoustic features) all failed;
+  the original `ASR_RESEARCH_TRACK.md` §9 three-part gate for Stage D
+  named "richer representations tried and found insufficient" as one of
+  its three conditions, and that condition now has real, repeated
+  evidence behind it — not from one experiment, but from the accumulated
+  pattern.
+- **Against, or at least worth pausing on**: the "combination of weak
+  signals" idea (named above as unknown, not yet tried) is a cheaper,
+  faster thing to check first, and skipping it to jump to Stage D would
+  repeat the exact "escalate past unexploited cheap options" mistake
+  this track's own rule 4 discipline exists to prevent. Similarly, the
+  unmeasured `block`/`prolongation` concrete-bar comparison and the
+  LibriStutter-generalization question are both real, cheap gaps that
+  could change how today's results should be read.
+- **The actual question to answer**: is the marginal cost of one more
+  cheap experiment (a combined-feature classifier, or closing the two
+  named gaps) still lower than the cost of formally pricing out Stage D,
+  or has that cost/value calculus flipped? Decide this explicitly and
+  record the reasoning — do not default to Stage D just because it's
+  "next on the list," and do not default to "one more cheap try" just
+  because it's cheaper, without weighing both.
+
+### Step 3 — If Stage D is judged justified: analyze designs before touching code
+
+Should the decision in Step 2 favor moving toward Stage D, the next
+session's job is still analysis, not implementation. Questions to work
+through and document, in order, before any pre-registration is written:
+
+1. **What would actually be fine-tuned or built?** Options include (a)
+   further fine-tuning CrisperWhisper itself specifically toward
+   fragment/repeat preservation, (b) fine-tuning a *different* base
+   model (e.g. stock `whisper-large-v3`, now that Arm 1/2 show it
+   behaves comparably to CrisperWhisper untuned) with the same goal, (c)
+   multi-task training that predicts disfluency labels alongside
+   transcription rather than modifying transcription itself, or (d) a
+   purpose-built model trained from scratch. These are meaningfully
+   different projects with different costs and risks — do not conflate
+   them under one "Stage D" label without picking one (or explicitly
+   comparing a short list).
+2. **What data would be required, and does it exist?** A paired
+   audio + disfluency-preserving-transcript dataset at real training
+   volume. LibriStutter's synthetic splicing may or may not be adequate
+   for this (its labels are synthetic insertions, not necessarily
+   representative of real disfluent speech acoustically or textually —
+   the same confound direction (g) already named). Real datasets
+   (SEP-28k, FluencyBank — `ROADMAP.md` items 15/16) would need real
+   acquisition work, not just download-and-parse.
+3. **What compute/infrastructure does this project actually have access
+   to, and what would training realistically cost** (time, money, GPU
+   access) — priced from real numbers, not assumed.
+4. **What would a pre-registered success criterion for a minimal Stage D
+   experiment look like** — matching this track's own standing practice,
+   written and reviewed before any training run, with named confounders
+   and a stated failure criterion, exactly as every experiment in this
+   document has been.
+
+### Step 4 — Document the rationale before implementation, and pre-register exactly as this track always has
+
+Whatever the Step 2 decision is — pursue Stage D, run the combined-
+feature idea first, close the named gaps first, or something else not
+yet considered — the next session's actual deliverable should be a
+**decision recorded with its reasoning**, written into this document
+the same way every other decision in this track has been (evidence
+separated from inference separated from judgment), followed by a full
+pre-registration of whatever experiment comes next, before any code is
+written. This mirrors exactly how Phase 2 and direction (g) were both
+handled today: plan first, in writing, with a separate go-ahead before
+implementation begins.

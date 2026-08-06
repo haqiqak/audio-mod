@@ -8,6 +8,20 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-06 (asr-research branch)
 
+- **MFCC escalation run: Failure, closer to the bar, second real bug
+  caught first.** Executed the escalation the original pre-registration
+  named as the fallback once RMS/ZCR proved insufficient. A second real
+  bug (this time a suspiciously *flat* result, not perfect) was caught
+  per rule 3: MFCC coefficient 0 (overall energy) was masking spectral
+  shape, making 90% of ALL burst pairs score >=0.9 similarity regardless
+  of whether they matched. Fixed (standard practice: exclude
+  coefficient 0) and re-run. Real result: a genuine precision/recall
+  trade-off curve, best F1=0.170 (recall=0.686, precision=0.097) — better
+  than RMS/ZCR's 0.161, but still short of the pre-registered
+  >=20%-relative-improvement bar (0.176). Direction (g)'s cheap-feature
+  search is now complete per its own pre-registration. No change to
+  `main`. → *PAPER_DECISION_LOG.md, "MFCC escalation run..."*
+
 - **Direction (g) implemented and run: Failure, with an honest
   mechanistic diagnosis.** Baseline (ungated) recall=0.824 (42/51),
   precision=0.081; the pre-registered similarity-threshold sweep never
