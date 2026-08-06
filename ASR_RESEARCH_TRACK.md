@@ -15,6 +15,144 @@ experiment is next.
 
 ---
 
+## First-principles reassessment (2026-08-06): are we still on the right trajectory, or attached to CrisperWhisper?
+
+**What this section is.** After Stage C2, the project owner asked a
+direct question this track had not yet asked of itself explicitly: are
+we still pursuing the objective (the best possible speech-analysis
+system for disfluency-aware rewriting, regardless of what architecture
+that requires), or have we quietly become attached to CrisperWhisper as
+the answer rather than one hypothesis among several? This section
+answers that, structured the way it was asked: evidence, then inference,
+then judgment, kept separate and labeled, ending in a recommendation —
+not a survey of options.
+
+### The evidence (directly measured, not interpreted)
+
+- Phase 1: detector recall given a perfect transcript is ~99%; given real
+  ASR, ~6-15%. At full speaker diversity, 35.1% of that gap is
+  detector-attributable, 64.9% ASR-attributable.
+- Item 19 (this session): the shipped repetition classifier's real-world
+  impact on real ASR is negligible, because real ASR produces almost no
+  candidates for it to act on — `sound_repetition`: zero, in the 120-clip
+  sample, either gate setting.
+- Stage A: ~53% of `sound_repetition`/`word_repetition` losses happen at
+  positions ASR transcribed *correctly* (not a transcription-accuracy
+  problem) — two distinct mechanisms, fragment loss and pair-breaking.
+  The remaining ~45% of losses are ordinary transcription error.
+- Stage B: CrisperWhisper's own last-layer encoder retains a real signal
+  at those same "text says nothing" positions (Cohen's d=0.894), and that
+  signal is not explained by token duration (the named confound was
+  tested directly and refuted, Stage C: duration-arm AUC=0.483, chance).
+- Stage C: that same signal's absolute precision at a useful recall is
+  low (4.7% at 52.6% recall, realistic ~19:966 class imbalance) — real,
+  but not sufficient alone.
+- Stage C2: two independent additional signals tried on the same
+  population — token duration (Stage C) and five Praat voice-quality
+  features (jitter, shimmer, pitch stability, HNR) — both returned
+  results indistinguishable from chance. Neither adds anything beyond
+  what the encoder-distance signal alone already provides.
+- **Not yet measured, anywhere in this project**: whether a different
+  encoder layer (only the last layer has ever been used), a different
+  decoding configuration (no decoding parameter has ever been varied),
+  or a different ASR backend (item 10/RQ3) changes any of the above.
+
+### Inference (reasoned from the evidence, not directly measured)
+
+- The information loss for `sound_repetition`/`word_repetition` is most
+  consistent with a **decoding-stage** phenomenon, not an encoder-stage
+  one: the encoder (Stage B/C) still carries the signal at exactly the
+  positions where the decoded text does not. This is an inference, not a
+  direct observation — no experiment here has directly opened the decoder
+  and shown fluency-bias in action; it is the most consistent explanation
+  of two measured facts (text loses it, encoder doesn't) taken together.
+- CrisperWhisper's own documented design (retokenization + attention-based
+  timestamp alignment, aimed at word-level verbatim accuracy and
+  timestamp precision) plausibly was never optimized to preserve
+  sub-word fragments as literal output tokens specifically — consistent
+  with, not proven by, Stage A's finding. Nothing in this project has
+  read CrisperWhisper's training objective in enough depth to state this
+  as fact rather than a reasonable inference from its documented behavior.
+- Two failed cheap-fusion attempts (Stage C2) suggest, but do not prove,
+  that the "bolt an existing, already-available signal onto the current
+  encoder-distance measurement, at this sample size, with no training"
+  space is running dry. n=2 attempts is a real but modest basis for this
+  inference — it says more about *this specific kind* of cheap addition
+  than about the encoder-representation direction as a whole.
+
+### Engineering judgment (my own call, explicitly labeled as such — not fact, not proven inference)
+
+**We are not yet at the point where evidence justifies moving to a
+different or purpose-built ASR, and doing so now would repeat the exact
+mistake this reassessment is being asked to guard against — just in the
+opposite direction.** The evidence above supports "CrisperWhisper's
+*decoded text* is an insufficient representation for two disfluency
+types" — a real, well-supported conclusion. It does **not** support "a
+different ASR would do better," because that has never been tested
+(RQ3, item 10 — still fully open). Jumping to a new architecture on the
+strength of two negative fusion results and zero cross-backend evidence
+would be exploration driven by frustration with diminishing returns, not
+by evidence — precisely what standing rule 8 and this track's own charter
+exist to prevent, symmetrically in both directions (not preserving
+CrisperWhisper by default, and not abandoning it by default either).
+
+**Is the heuristic space "sufficiently explored"? Partially, and it
+matters which part.** The narrow slice actually tested so far —
+*existing infrastructure, one encoder layer, threshold-based (not
+trained) combination, current small sample* — has returned diminishing
+and now negative results (Stage C2) and is reasonably considered explored
+at this scope. But that is a much narrower claim than "the richer-
+representation direction is exhausted." Three concrete, cheap,
+well-motivated experiments **within the current architecture** have never
+been run:
+
+1. **Encoder layer depth** — every measurement in this track (Stage 1,
+   B, C) used only CrisperWhisper's default last-hidden-state. Literature
+   already reviewed in this document (arXiv:2311.05203) found *deeper*
+   layers carry *more* disfluency-relevant signal for a comparable task —
+   a directly applicable, never-tested hypothesis, using infrastructure
+   already built (`profiling/encoder_embedding.py` + Stage B/C's own
+   pipeline, extended to sweep layers instead of hardcoding one).
+2. **Decoding-parameter sensitivity** — no decoding setting (beam width,
+   suppression tokens, the implicit LM/fluency bias) has ever been
+   varied. This is the most direct available test of the inference above
+   (that the loss is decoder-side, not encoder-side) — if adjusting
+   decoding parameters measurably changes whether fragments survive to
+   text, that's a real, actionable lever within the current ASR choice;
+   if it doesn't, that's evidence *for* needing a training-level change
+   (Stage D) rather than a configuration-level one.
+3. **RQ3, a second ASR backend** — the one experiment that would actually
+   tell us whether any of this is CrisperWhisper-specific or general to
+   ASR encoders, which is the direct evidence a "should we consider a
+   different ASR" conclusion would need and does not yet have.
+
+**Recommendation, stated plainly**: stay within the current architecture
+for the next concrete step — extending, not abandoning it — because real,
+cheap, well-motivated headroom remains untested there, and the evidence
+for leaving it is not yet evidence, only a plausible inference from two
+negative side-experiments. Do (1) and (2) next, in that order (both
+touch the actual ASR/encoder mechanism directly, both reuse proven
+infrastructure, neither needs new data or training); treat their results
+as the evidence that would finally justify — or further rule out — (3)
+and, eventually, Stage D. This is not a defense of CrisperWhisper for its
+own sake — if (1) and (2) also come back flat, that combined with Stage
+C2's negatives would be a real, mounting case for RQ3 and Stage D, and
+this document should say so plainly when that evidence exists. It
+doesn't yet.
+
+### What changes as a result
+
+`ROADMAP.md`'s pointer to this track is updated to reflect this
+conclusion. §8's original Stage D framing (evidence threshold: "the loss
+is not recoverable from existing representations... direction (b/f) has
+been tried and genuinely isn't enough, not merely untried") is now sharper: as of Stage C2, direction (b) has been tried at exactly one
+layer, one pooling method, no decoding variation, and one modest sample —
+genuinely tried, but not yet tried *enough* to call it insufficient. The
+two new experiments above are added as the immediate next steps, ahead
+of RQ3 and Stage D, in the plan below.
+
+---
+
 ## 0. The checkpoint that opened this track
 
 `VALIDATION.md` §14/§14.1 (2026-08-05) re-ran the shipped repetition-

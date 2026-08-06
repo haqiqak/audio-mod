@@ -8,6 +8,18 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-06 (asr-research branch)
 
+- **First-principles reassessment: still the right trajectory, not yet
+  time to leave CrisperWhisper.** Evidence/inference/judgment kept
+  separate. Conclusion: moving to a different/purpose-built ASR now
+  would be evidence-free (RQ3 never tested); only one encoder layer,
+  threshold-only combination, and a modest sample have actually been
+  tried within the current architecture. Two untested, cheap, in-
+  architecture experiments identified as the immediate next steps ahead
+  of RQ3/Stage D: encoder layer depth and decoding-parameter
+  sensitivity. → *PAPER_DECISION_LOG.md, "First-principles reassessment:
+  still the right trajectory, not yet time to leave CrisperWhisper"*;
+  full reasoning `ASR_RESEARCH_TRACK.md` (new section, top of file).
+
 - **Stage C2 done: Praat voice-quality fusion — clean negative result.**
   Continued from the prior session's handoff. Re-scoped the originally-
   proposed mis-routing fusion candidate (found degenerate/too small,

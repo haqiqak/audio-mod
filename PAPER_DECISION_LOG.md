@@ -5101,3 +5101,69 @@ remaining options recorded, none chosen unilaterally). `ROADMAP.md`
 updated with the outcome. `eval_results/20260806T135433_stage_c2_praat_
 fusion.json` (raw screening/combination data, saved). No production
 code changed. On the `asr-research` branch only — `main` untouched.
+
+---
+
+## 2026-08-06 — First-principles reassessment: still the right trajectory, not yet time to leave CrisperWhisper
+
+**What was done**
+Per the project owner's explicit request after Stage C2, conducted a
+first-principles reassessment of this track's whole trajectory —
+specifically whether continued investment in CrisperWhisper's own
+representation is evidence-driven or has become attachment to the
+existing architecture. Structured as requested: evidence (directly
+measured facts, listed exhaustively across Phase 1 through Stage C2),
+inference (reasoned conclusions not directly measured — the loss is
+most consistent with a decoder-stage, not encoder-stage, phenomenon),
+and engineering judgment (labeled as such, not fact).
+
+**Conclusion**: not yet time to move to a different or purpose-built
+ASR — that would be exploration with zero supporting evidence (RQ3,
+whether any finding is CrisperWhisper-specific, has never been tested),
+symmetrically as ungrounded as clinging to CrisperWhisper by default
+would be in the other direction. What the evidence actually supports is
+narrower and still-actionable: only one encoder layer, threshold-only
+combination, no decoding variation, and a modest sample have been
+tried — real headroom remains untested *within* the current
+architecture. Two concrete experiments identified as the immediate next
+steps, ahead of RQ3/Stage D: encoder layer depth (literature-motivated,
+never tested — only the default last layer has ever been used) and
+decoding-parameter sensitivity (the most direct available test of the
+decoder-stage inference itself).
+
+**Alternatives considered**
+- Treat Stage C2's negative result as sufficient grounds to escalate
+  toward Stage D (fine-tuning) or RQ3 (a different ASR backend).
+  **Rejected**: two negative *fusion* results (duration, Praat features)
+  say something about which extra signals help, not about whether
+  CrisperWhisper's own representation — at other layers, or under other
+  decoding settings — has been exhausted. Escalating past untested,
+  cheap, in-architecture options on the strength of unrelated negative
+  results would be evidence-free in exactly the way the owner asked this
+  reassessment to check for.
+- Conclude the heuristic space is fully explored and recommend no further
+  work within the current architecture. **Rejected**: explicitly checked
+  against what has and hasn't actually been tried — encoder layer depth
+  and decoding parameters have literally never been varied anywhere in
+  this project, a fact, not an assumption.
+- Recommend switching to a different pretrained ASR now, given two
+  fusion attempts failed. **Rejected**: no experiment in this project
+  has ever run a second ASR backend (item 10/RQ3 remain fully open) — a
+  recommendation to switch would rest on zero comparative evidence,
+  exactly the sunk-cost-avoidant-but-still-ungrounded move the owner
+  explicitly warned against.
+
+**Why this choice**
+Directly answers the question asked, using the complete body of evidence
+rather than the most recent (negative) results in isolation, and keeps
+the evidence/inference/judgment distinction the owner asked for legible
+enough that a future reader can independently check whether they agree
+with the judgment layer without having to accept it on authority.
+
+**Measured result**
+Not a numeric result — a strategic reassessment. `ASR_RESEARCH_TRACK.md`
+gets a new "First-principles reassessment" section at the top of the
+file (mirroring `ROADMAP.md`'s own established pattern for this kind of
+content). `ROADMAP.md`'s pointer to this track updated with the
+conclusion. No code changed by this entry itself; the two recommended
+experiments are pre-registered and executed in the entry that follows.

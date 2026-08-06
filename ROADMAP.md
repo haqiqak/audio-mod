@@ -799,6 +799,25 @@ C's own encoder-distance conclusion. With the mis-routing lead (n=4, too
 small to test) and Praat both explored, low-cost fusion candidates are
 largely exhausted at this sample size — three options recorded, not yet
 chosen, in `ASR_RESEARCH_TRACK.md`'s end-of-session handoff update.**
+**First-principles reassessment, 2026-08-06 — is this track (and
+CrisperWhisper specifically) still the right trajectory, or attachment
+to it?** Reassessed explicitly, evidence/inference/judgment kept
+separate: **not** yet time to move to a different or purpose-built ASR —
+that would be evidence-free in the opposite direction (RQ3, whether any
+of this is CrisperWhisper-specific, has never been tested). What *is*
+true: only the narrowest slice of the richer-representation direction
+has been tried (one encoder layer, threshold-only, no decoding variation,
+a modest sample) and that narrow slice is now returning diminishing/
+negative results. Two concrete, cheap, never-tried experiments remain
+squarely within the current architecture and are more evidence-motivated
+than either extreme (preserving CrisperWhisper by default, or abandoning
+it by default): **encoder layer depth** (only the last layer has ever
+been used; literature found deeper layers carry more signal for a
+comparable task) and **decoding-parameter sensitivity** (never varied;
+the most direct available test of whether the loss is decoder-side, as
+inferred, or something deeper). Both come before RQ3 and Stage D in the
+plan now. Full reasoning: `ASR_RESEARCH_TRACK.md`'s new "First-principles
+reassessment" section, at the top of the file.
 Full results, controls, and limitations: `ASR_RESEARCH_TRACK.md` §8.
 
 ## Near-term
