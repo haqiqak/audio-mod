@@ -621,6 +621,68 @@ for these three (see item 10's revised framing below).
     requiring the project owner's decision (cloud GPU/budget, real-data
     acquisition scope, or the cheaper generalization check first), not
     resolved unilaterally.
+    **Final research audit completed, 2026-08-07 — see
+    `ASR_RESEARCH_TRACK.md`'s "Final research audit" (Experimental Phase
+    Stopping Point, Findings Classification, Existing Technology &
+    Literature Landscape, Open Research Gap and Novelty Assessment,
+    Stage D Requirements/Re-entry Gate, Venture/Research Collaboration
+    Brief, and a 19-source verified bibliography).** Independently
+    reviewed all 12 experiments this track has run and grounded them
+    against the published literature (18 sources fetched and read
+    directly, not summarized from search snippets) rather than simply
+    endorsing the project owner's own framing. Key correction: the
+    defensible claim is narrower than "no existing ASR can solve this"
+    — it is that *the specific off-the-shelf approaches this project
+    tested* were insufficient, not that the field has none. Key
+    literature finding: this is a real, narrow, genuinely underexplored
+    gap (fragment-level `sound_repetition` preservation, distinct from
+    word-level repetition) *within* an active, published research area
+    — the closest precedent (Kordt et al., Interspeech 2026) fine-tunes
+    Whisper with disfluency tokens and independently confirms this
+    track's own catastrophic-forgetting concern with real numbers, but
+    collapses sound- and word-level repetitions into one coarse marker
+    (F1 0.35-0.63) rather than resolving this project's exact
+    distinction. Formal Stage D readiness specification (data, compute,
+    model/engineering, and evaluation requirements) and a re-entry gate
+    (do-not-start-until / ready-when conditions) are now recorded. This
+    is a documentation-and-research-review pass only — no new
+    experiment, model, or dataset was touched. No change to `main`.
+    **Deep-pass research-positioning analysis completed, 2026-08-07 —
+    see `ASR_RESEARCH_TRACK.md`'s "Comprehensive research-positioning
+    analysis (deep pass)."** Treated the audit above as preliminary
+    input, not a final conclusion, per the project owner's explicit
+    instruction, and re-verified it against a substantially wider
+    literature search (26 total cited sources, 9 newly fetched and read
+    this pass). **One material revision, explicitly marked, not
+    silently corrected**: AS-70 (Gong et al., Interspeech 2024) is a
+    real, 48.8-hour, verbatim, character-level-annotated Mandarin
+    stuttering dataset that *does* distinguish sound repetition (`/r`)
+    from word/phrase repetition (`[]`) as separate categories on real
+    speech — directly contradicting the prior audit's claim that no
+    such dataset exists. Critically, AS-70's own published ASR
+    experiments strip disfluency markup before training/scoring CER,
+    and no source reviewed (including AS-70's own authors) has run the
+    fragment-preservation fine-tuning experiment despite having the
+    right data — sharpening the novelty claim to something narrower and
+    better-evidenced: every individual technique (explicit disfluency
+    tokens, joint ASR+detection, frame-level classifiers,
+    disfluency-aware alignment) has real precedent; assembling them at
+    this project's own fragment-level granularity, evaluated against
+    real speech, does not appear to have been done. Delivers: a
+    mechanistic, architecture-level explanation of where disfluency
+    information is lost in the ASR pipeline (log-mel -> encoder ->
+    decoder, with the decoder's autoregressive prior identified as the
+    active bias, not just a passive information bottleneck); structured
+    analysis of every major relevant paper; a 10-family solution
+    taxonomy; a re-derived, cheaper minimum-viable Stage D pilot (AS-70-
+    first, Mandarin, before English data acquisition); a brutally honest
+    paper-worthiness assessment (Papers A/B/C supportable now pending
+    one real-speech validation pass; Papers D/E require Stage D itself);
+    an explicit scientific-vs-engineering-vs-data-vs-compute gap
+    distinction (verdict: engineering-and-assembly gap, not a scientific
+    unknown); and a concise "Research Position as of 2026-08-07"
+    summary. Documentation-and-research-review pass only — no
+    experiment, model, or dataset touched. No change to `main`.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every

@@ -8,6 +8,58 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-07 (asr-research branch)
 
+- **Deep-pass research-positioning analysis: one material revision, a
+  sharpened novelty claim, no new experiments.** Treated the same-day
+  "Final research audit" (below) as preliminary, not final, per
+  explicit instruction, and independently re-verified it against 9
+  additional fetched-and-read primary sources (26 total). **Material
+  revision, marked not hidden**: AS-70 (Gong et al., Interspeech 2024)
+  is a real, 48.8-hour, verbatim Mandarin stuttering dataset that *does*
+  distinguish sound repetition from word repetition on real speech,
+  with a published F1=65.76% detection baseline for sound repetition
+  specifically — contradicting the prior audit's "no such data exists"
+  claim. But AS-70's own authors strip disfluency markup before their
+  own ASR fine-tuning experiments — even they haven't run the
+  fragment-preservation fine-tune. Sharpened novelty claim: every
+  individual technique needed has real precedent (including, now,
+  adequate real data for at least one language); nobody has assembled
+  them at this project's fragment-level granularity, on real speech.
+  Added: an architectural deep-dive on exactly where disfluency
+  information disappears in the ASR pipeline; individually-analyzed
+  entries for every major relevant paper; a 10-family solution
+  taxonomy; a re-derived, cheaper minimum-viable Stage D pilot
+  (AS-70-first, Mandarin, before English data acquisition); a brutally
+  honest paper-worthiness assessment (Papers A/B/C supportable now
+  pending real-speech validation; D/E need Stage D itself); an explicit
+  scientific-vs-engineering-vs-data-vs-compute gap verdict
+  (engineering-and-assembly gap, not a scientific unknown); and a
+  concise "Research Position as of 2026-08-07" summary. No experiment
+  run, no code written beyond documentation. No change to `main`. →
+  *PAPER_DECISION_LOG.md, "Deep-pass research-positioning analysis..."*
+
+- **Final research audit: literature-grounded close-out of the
+  experimental phase, no new experiments.** Reviewed all 12 completed
+  experiments (Stage A through the combined-signal classifier) and
+  classified findings into high-confidence / limited-scope / open /
+  Stage-D-hypothesis / must-not-claim categories, specifically to guard
+  against overclaiming novelty. Fetched and read 18 additional primary
+  sources (foundational ASR paradigms, disfluency datasets,
+  disfluency-aware ASR, audio-native dysfluency detectors) on top of
+  this track's own 13 prior citations. Key correction to the project
+  owner's own framing: the closest published precedent (Kordt et al.,
+  Interspeech 2026) already fine-tunes Whisper with disfluency tokens
+  and independently confirms this track's catastrophic-forgetting
+  concern — but collapses sound- and word-level repetitions into one
+  coarse marker, leaving this project's own fragment-level granularity
+  genuinely, narrowly unaddressed. New sections: Experimental Phase
+  Stopping Point, Findings Classification, Existing Technology &
+  Literature Landscape, literature-comparison table, Open Research Gap
+  and Novelty Assessment, existing-approaches-vs-Stage-D comparison,
+  Stage D Requirements/Re-entry Gate, Venture/Research Collaboration
+  Brief, and a full bibliography. No experiment run, no code written
+  beyond documentation. No change to `main`. → *PAPER_DECISION_LOG.md,
+  "Final research audit..."*
+
 - **Stage D planned: scientifically motivated, not currently actionable
   — a real infrastructure blocker.** Full design written (what it
   targets, why it might succeed where cheaper directions didn't,
