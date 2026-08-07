@@ -816,6 +816,67 @@ for these three (see item 10's revised framing below).
     remains not yet justified — named as the honestly-earned next step
     only if that combined-rich-feature classifier is also tried and
     fails.
+    **Rank 3 pre-registered, implemented, and run, same day — the final
+    bounded experiment in this sequence, Inconclusive with an instability
+    signature, leading to a considered Stage D go decision — see
+    `ASR_RESEARCH_TRACK.md`'s "Rank 3: combined rich-feature classifier,"
+    "Rank 3 results," and "Final synthesis: Rank 1 + Rank 2 + Rank 3, and
+    the Stage D decision."** Per the project owner's explicit instruction
+    to run this as the final bounded low-cost experiment without
+    stopping to ask, built `profiling/evaluation/stage_j_combined_rich_
+    classifier.py`: Rank 1's full ~1280-dim encoder embedding and Rank
+    2's full 26-dim raw acoustic MFCC statistics, concatenated, on the
+    exact same 120-clip/766-candidate population Phase A's original
+    combined-signal classifier used (chosen specifically so this run is
+    directly comparable to that already-published Arm A/B result, not a
+    new population). Self-tested (11/11, after catching and fixing one
+    self-test authoring bug — two hand-constructed comparison arms
+    given identical F1 values, collapsing a "win" case into an
+    already-correct Inconclusive tie; the decision-gate logic itself was
+    right). **Real result**: population reproduced Phase A's original
+    counts exactly (766/62), and Arm A/B recomputed here landed on
+    Phase A's exact original F1 numbers (0.147/0.244) — confirming a
+    clean, uncounfounded comparison. Combined classifier: F1=0.254 —
+    nominally higher than either individual arm, but the pre-registered
+    per-fold stability check (vs. Arm B, the stronger baseline) came back
+    2W/3L of 5 folds, with a fold-to-fold F1 range (0.091-0.400) wider
+    than either individual arm's and a worst-case fold worse than the
+    *weaker* baseline's — the concrete signature of an unstable,
+    ~1307-dimension-over-~613-row fit, exactly the risk pre-registered
+    before running, not a robust win. **Verdict: Inconclusive**, not a
+    reliable improvement over the best existing single signal.
+    **Final decision**: taken together with Rank 1 and Rank 2's clean
+    Failures, this is judged sufficient evidence that the representation-
+    side, no-new-data path has reached a real small-sample ceiling (not a
+    "look harder" situation) — **Stage D, re-scoped to L2, is now judged
+    the evidence-justified next step**, not immediately actionable
+    without the project owner's separate infrastructure/data decision,
+    but no longer blocked on further cheap experimentation. No further
+    feature/variant proposed, per the project owner's explicit
+    instruction.
+    **End-of-day consolidation, 2026-08-07 — see `ASR_RESEARCH_TRACK.md`'s
+    "Current Project State — 2026-08-07 EOD" (added at the very end of
+    that document).** An additive documentation pass only (no experiment,
+    no code change beyond what Rank 3 already added) — ties together the
+    full day's chronological experimental story (Stage A/B/C, Phase 2,
+    direction (g), MFCC escalation, the combined-signal classifier, Rank
+    1/2/3) with the primary application objective kept explicitly above
+    the ASR/novelty question throughout; classifies every claim as
+    Experimentally Demonstrated / Strongly Supported / Supported by
+    Literature / Inferred / Unresolved / Not Tested / Proposed (no
+    blurring); re-summarizes the literature position as "what existing
+    technology can we use," not "can we claim novelty"; retrieves and
+    updates (does not reinvent) the existing Stage D design/requirements
+    sections with one real, explicitly-marked, dated revision (Stage D
+    moved from "not yet justified," written this morning, to
+    "evidence-justified," written tonight after Rank 1-3); states the
+    current research stopping point and exactly why; and replaces the
+    stale "Decision for Next Session" (superseded in place, not deleted)
+    with a 10-step plan for deciding and pre-registering Stage D's exact
+    architecture/data/compute before any implementation begins. This item
+    (item 10) is the authoritative pointer for this entire day's work;
+    `ASR_RESEARCH_TRACK.md` is the primary comprehensive research document
+    going forward.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every

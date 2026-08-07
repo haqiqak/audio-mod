@@ -8,6 +8,42 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-07 (asr-research branch)
 
+- **End-of-day research consolidation: additive synthesis, no new
+  experiment.** Added "Current Project State — 2026-08-07 EOD" to the
+  very end of `ASR_RESEARCH_TRACK.md` — a complete, cross-referenced
+  synthesis of the entire day (Stage A/B/C review, Phase 2, direction
+  (g)/RMS-ZCR/MFCC escalation, the combined-signal classifier, Rank
+  1/2/3, literature position, application requirements, Stage D
+  retrieved-and-updated with the L2-vs-L4 distinction and tonight's
+  "not yet justified" -> "evidence-justified" evolution, current
+  stopping point, and a 10-step next-session plan for deciding Stage D's
+  concrete architecture). Every existing section preserved unedited; the
+  now-stale "Decision for Next Session" marked superseded in place, not
+  deleted. No experiment run, no code changed beyond documentation. No
+  change to `main`. → *PAPER_DECISION_LOG.md, "End-of-day research
+  consolidation..."*
+
+- **Rank 3 (combined rich-feature classifier): the final bounded
+  experiment in this sequence — Inconclusive with an instability
+  signature, leading to a Stage D go decision.** Combined Rank 1's full
+  encoder embedding (~1280 dims) with Rank 2's full raw acoustic MFCC
+  statistics (26 dims) into one classifier, on Phase A's original
+  120-clip population for a clean, directly comparable re-test. Result:
+  F1=0.254, nominally the best of three arms, but the pre-registered
+  per-fold stability check showed the combined classifier losing to the
+  simpler encoder-distance-alone baseline on 3 of 5 folds, with a wider
+  fold-to-fold variance than either individual arm and a worse worst-case
+  fold than the weakest baseline — the signature of an unstable fit at
+  ~1307 dims over ~613 training rows, not a real improvement. New:
+  `profiling/evaluation/stage_j_combined_rich_classifier.py`, self-tested
+  (11/11, one self-test authoring bug caught and fixed). **Final
+  decision**: taken with Rank 1 and Rank 2's own clean Failures, this is
+  judged sufficient evidence of a real small-sample ceiling on the
+  representation-side, no-new-data approach — Stage D (re-scoped to L2)
+  is now judged the evidence-justified next step. No fourth variant
+  proposed, per explicit instruction. No change to `main`. → *PAPER_
+  DECISION_LOG.md, "Rank 3 (combined rich-feature classifier)..."*
+
 - **Rank 2 (learned acoustic candidate-generation classifier): pre-
   registered, implemented, run — marginal Failure, synthesis decision
   names the real next step.** Tested whether a learned classifier over

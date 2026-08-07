@@ -6730,6 +6730,19 @@ the evidence-justified next step, exactly as scoped in Part 7 above.
 
 ## Decision for Next Session
 
+**[SUPERSEDED, same day, 2026-08-07 EOD — preserved for the historical
+record, not deleted.]** Everything below in this subsection was written
+immediately after the Application-Objective Decision Analysis, before
+Rank 1, Rank 2, and Rank 3 were actually run. All three have since been
+pre-registered, implemented, run, and decided (see "Rank 1 results,"
+"Rank 2 results," "Rank 3 results," and "Final synthesis: Rank 1 + Rank
+2 + Rank 3, and the Stage D decision," all below). The concrete "start
+with Rank 1" instruction below is now complete, not the current plan —
+**the authoritative, current next-session plan is in "Current Project
+State — 2026-08-07 EOD" at the very end of this document.** This
+subsection is kept exactly as originally written so the reasoning that
+led to Rank 1 remains part of the record.
+
 **Do not open with more literature research or novelty analysis.** Open
 with implementation, per the ranked roadmap above:
 
@@ -7367,3 +7380,918 @@ where every cheap, evidence-motivated representation-side option this
 project can identify has actually been exhausted, and Stage D (re-scoped
 to L2, per the Application-Objective Decision Analysis) would become the
 honestly-earned next step, not a default.
+
+**Update, same day**: per the project owner's explicit instruction to
+treat this as the final bounded low-cost experiment and run it now rather
+than defer it, the combined-rich-feature classifier is pre-registered and
+run below ("Rank 3").
+
+---
+
+# Rank 3: combined rich-feature classifier — pre-registered protocol (2026-08-07)
+
+Per the project owner's explicit instruction: run this as the final
+bounded low-cost experiment in this same pass, without stopping to ask
+first, diagnosing genuine bugs if found, and ending with a clear
+evidence-based Stage D decision either way — not another new variant if
+this one also fails.
+
+## Hypothesis
+
+Rank 1 (full ASR-encoder embedding alone) and Rank 2 (full raw acoustic
+MFCC statistics alone) each found real, cross-validated, but individually
+insufficient signal, with *differently shaped* failure modes. The
+already-failed combined-signal classifier (Phase A, F1=0.242) tested
+combination, but only ever combined *hand-picked scalars* from each
+domain (one MFCC-similarity number, one encoder-distance number, plus
+burst count and duration) — never the rich representations Rank 1/2 just
+tested individually. **Rank 3's hypothesis**: a classifier given the
+*full* encoder embedding and the *full* raw acoustic feature vector
+together, on the same population the original combined classifier used,
+separates true `sound_repetition` candidates from false ones better than
+either rich signal alone, or than the earlier scalar-only combination.
+
+## Population
+
+**Deliberately the exact same population the original combined-signal
+classifier used** — the first 120 real LibriStutter clips with usable
+audio (`load_libristutter_dir_with_audio(...)[:120]`, same selection
+logic, no re-sorting), scored via `stage_g`'s own acoustic-candidate
+generator, `sound_repetition` only. Chosen over Rank 2's larger 499-clip
+population **specifically for cost** (§ below) and **specifically for
+comparability**: this lets Rank 3 be judged directly against Phase A's
+own already-measured Arm A (MFCC-alone, F1=0.147) and Arm B
+(encoder-distance-alone, F1=0.244) results on the identical population,
+the cleanest possible "did richer features help" test — not a new
+population that would confound the comparison. Real counts from the
+original run: 766 candidates, 62 positive (~8.1%). Baselines are
+recomputed fresh in this run (not reused from the old cached numbers),
+same discipline as Rank 1/2, with the same provenance caveat: if the
+Track B ASR cache has changed, the re-derived counts may differ slightly
+from 766/62, and that will be reported, not hidden.
+
+## Features
+
+- **Acoustic (26 dims)**: Rank 2's own feature exactly — mean + std of
+  MFCC coefficients 1-12 across the candidate's bursts, plus n_bursts and
+  duration. Reused via direct import from `stage_i_learned_acoustic_
+  classifier.py`, unmodified.
+- **Encoder (full ~1280-dim embedding + 1 has-signal indicator)**: the
+  same pooling logic `stage_combined_classifier.py`'s `_encoder_
+  distance_for_candidate` already uses (find the cached ASR hyp token
+  overlapping the candidate's span, pool the encoder's last-layer state
+  there) — but returning the **raw vector**, not a collapsed distance
+  scalar, matching Rank 1's own full-embedding approach. Not every
+  candidate has a coverable ASR token (the original run found ~79.2%
+  coverage) — missing embeddings are median-imputed per dimension with a
+  paired has-signal indicator column, the exact convention `stage_
+  combined_classifier.py`'s `_to_feature_matrix()` already established
+  and validated.
+- **Deliberately excluded**: the derived encoder-distance-to-centroid
+  scalar itself is *not* added as an extra input feature (it would be
+  redundant with the raw embedding it's derived from) — it is computed
+  separately, only as Arm B's own baseline value for comparison.
+
+Total classifier input: 26 + 1280 + 1 ≈ **1307 dimensions**, over 766
+candidates (~613 per outer-CV training fold). **Stated honestly, before
+running**: this is a substantially worse dimensions-to-samples ratio than
+either Rank 1 (1280-dim / 66 positives) or Rank 2 (26-dim / 245
+positives) individually — a real, foreseeable risk of instability that
+nested-CV L2 selection is designed to mitigate but cannot eliminate. This
+is flagged here, not discovered after seeing results, exactly per rule 3.
+
+## Model
+
+The identical nested-CV L2-regularized logistic regression + train-fold-
+optimal-threshold mechanism used throughout this track (item 17,
+`stage_combined_classifier.py`, Rank 1, Rank 2) — no new model class
+introduced for this experiment.
+
+## Baseline
+
+Both of Phase A's own original arms, recomputed fresh on this run's
+population: **Arm A** (mean MFCC similarity + CV threshold) and **Arm B**
+(encoder-distance-to-centroid + CV threshold) — the same dual-baseline
+structure the original combined-signal classifier was judged against, not
+a new, easier single baseline.
+
+## Evaluation protocol
+
+5-fold clip-split CV (`_clip_folds`, unmodified). Baselines scored by
+`_cv_threshold`; the combined classifier by `_cv_classifier_optimal_
+threshold`. Same reporting format as every prior stage.
+
+## Success / failure criteria (fixed before running)
+
+Extends Rank 1/2's stability-then-bars structure to the dual-baseline
+case:
+- **Stability check**: per-fold win/loss, classifier F1 vs. **Arm B**
+  (the stronger of the two baselines, and the most relevant "did this
+  beat the single best existing signal" comparison). If the classifier
+  does not win on ≥4 of 5 folds **and** does not lose on ≥4 of 5 folds,
+  the result is **Inconclusive**.
+- **Success**: (only if stable) mean F1 beats **both** Arm A and Arm B by
+  **≥20% relative** (the identical dual-bar Phase A itself used) **AND**
+  clears the same absolute usability floor used throughout this session
+  (precision ≥0.15, recall ≥0.3).
+- **Failure**: stable direction, but does not clear all of the above.
+
+## Compute cost
+
+The only new cost is one CrisperWhisper encoder pass over the 120-clip
+population's acoustic candidates — **already measured directly** for this
+exact shape of computation: Phase A's original combined-signal classifier
+ran this same encoder pass over this same population in **3068s (~51
+minutes)**. That number is cited directly as this run's cost estimate,
+not re-derived from a fresh dry run, since it is the identical
+computation. Acoustic feature extraction and the CV/classifier fitting
+itself add negligible time (seconds, pure numpy).
+
+## What this experiment settles either way
+
+Per the project owner's explicit instruction: if Rank 3 also fails, this
+document does **not** propose a further new feature/variant — the
+verdict moves directly to a Stage D go/no-go decision, stated with the
+evidence this and the two prior experiments together provide. If Rank 3
+succeeds, the result is validated toward the live pipeline as the next,
+separate engineering step, not treated as license to keep researching.
+
+## Novelty (kept explicitly secondary, per the governing objective)
+
+Not a novelty claim — a direct, same-population re-test of Phase A's own
+already-failed hypothesis, now with the two richer feature sets Phase A
+never had access to, both developed later in this same track.
+
+## Rank 3 results (2026-08-07)
+
+Implemented as `profiling/evaluation/stage_j_combined_rich_classifier.py`,
+self-tested (11/11 checks pass after one self-test authoring bug was
+caught and fixed before trusting the suite — two hand-constructed arms
+were given identical F1 values, making a "beats A, not B" case
+collapse into a tied, correctly-Inconclusive case instead; the
+underlying decision-gate logic was right, the test data was wrong, fixed
+by giving the two arms distinct values), then run for real against the
+pre-registered protocol, no changes to the protocol after seeing results.
+
+**Population reproduced exactly**: 766 candidates, 62 positive — an
+exact match to Phase A's original 120-clip run (unlike Rank 1's
+population, which had grown since its own baseline session), and Arm A/
+Arm B recomputed fresh here landed on the **identical** F1 numbers Phase
+A originally reported (F1=0.147 / F1=0.244) — a clean confirmation this
+run's population and methodology are the same ones being compared
+against, not a confound.
+
+**Real result (n_pos=62, n_neg=704):**
+
+| Arm | F1 | Precision | Recall |
+|---|---|---|---|
+| Arm A: MFCC-similarity-alone + CV threshold | 0.147 | 0.090 | 0.541 |
+| Arm B: encoder-distance-alone + CV threshold | 0.244 | 0.343 | 0.234 |
+| Rank 3: full acoustic (26d) + full embedding (1280d) combined | 0.254 | 0.330 | 0.257 |
+
+Mean F1 is nominally higher for the combined classifier than either
+individual arm. But the pre-registered **stability check** (per-fold win/
+loss against Arm B, the stronger baseline) came back **2W/3L of 5
+folds** — the combined classifier actually did *worse* than the single
+encoder-distance scalar on 3 of the 5 outer folds, despite winning on
+mean. Per the pre-registered gate, this is **Inconclusive**, not a pass
+on the mean-F1 comparison alone.
+
+**Audit before trusting (rule 3)**: this is exactly the failure mode the
+pre-registration flagged as a real risk *before* running — 1307 input
+dimensions over ~613 training rows per fold. The combined classifier's
+own fold-to-fold F1 range (0.091-0.400) is far wider than either
+individual arm's (Arm A: 0.121-0.189; Arm B: 0.125-0.300), and its worst
+fold (0.091) is worse than Arm A's worst fold — a concrete symptom of an
+unstable, high-variance fit, not a robust improvement that happens to
+look noisy. The mean-F1 "win" (0.254 vs. 0.244) is well within the
+range this instability alone could produce by chance; it should not be
+read as evidence the combination helped.
+
+**Verdict per the pre-registered gate: INCONCLUSIVE** — this experiment
+does not provide reliable evidence that combining the full embedding and
+full acoustic features beats the single best existing signal (Arm B)
+already established in this track.
+
+---
+
+# Final synthesis: Rank 1 + Rank 2 + Rank 3, and the Stage D decision (2026-08-07)
+
+Per the project owner's explicit instruction: if Rank 3 also failed (or,
+as it did, came back Inconclusive with a real instability signature, not
+a clean win), do not invent a further feature/variant — give the
+evidence-based Stage D decision directly.
+
+**What the full arc of representation-side experiments now shows,
+together:**
+- **Rank 1** (full ASR-encoder embedding alone, on the ASR-alignment-gap
+  population): real signal, ~10x precision gain, but recall collapsed
+  (0.147) — Failure on deployability.
+- **Rank 2** (full raw acoustic MFCC statistics alone, on the acoustic-
+  candidate population, 4x the sample size): real but small, boundary-
+  case signal — Failure on deployability, by a narrow margin.
+- **Rank 3** (both together, on Phase A's original acoustic-candidate
+  population): no reliable improvement over the single strongest
+  individual signal already known (Arm B) — Inconclusive, with an
+  instability signature (wide fold-to-fold variance, a worse worst-case
+  fold than the weaker baseline) that is itself informative: it is the
+  signature of a classifier running out of data to fit its own
+  dimensionality, not the signature of a signal waiting to be found by
+  yet more feature engineering.
+
+**Every cheap, no-GPU, no-new-data representation-side option this
+project could identify has now been tried**: the encoder representation
+alone, the acoustic representation alone, and their combination. None
+reached the pre-registered deployability floor, and the richest attempt
+(Rank 3) shows a pattern consistent with a genuine small-sample ceiling —
+adding more parameters (going from Rank 2's 26 dims or Rank 1's 1280 dims
+to their 1307-dim union) made the fit *less* stable, not more powerful.
+This is a structurally different situation from "we haven't looked hard
+enough" — it is evidence that the limiting factor is the quantity of real
+labeled `sound_repetition`/`word_repetition` examples this project can
+currently access (62-245 depending on population, an order of magnitude
+smaller than what a ~1000+-dimensional classifier needs to fit reliably),
+not the choice of representation.
+
+**Does this move the project closer to a working application?** Yes, in
+an honest, bounded sense: three real, quantified, negative-to-marginal
+results now exist where before this session there was only a single
+weaker hand-picked-scalar attempt — the project knows, with evidence, that
+representation choice alone will not close this gap at the current data
+scale, which is itself a real, load-bearing finding that prevents future
+sessions from re-trying the same kind of cheap feature-engineering
+variant expecting a different outcome.
+
+## The Stage D decision
+
+**Stage D (re-scoped to L2 — stop deleting disfluency information during
+ASR decoding, not spell out fragment content, per the Application-
+Objective Decision Analysis) is now judged the evidence-justified next
+step.**
+
+This is a considered judgment over the full three-experiment arc, not a
+mechanical trigger from Rank 3's Inconclusive verdict alone — stated
+plainly per standing rule 8's requirement to record the reasoning, not
+just the verdict:
+- Rank 1 and Rank 2 are clean Failures on their own pre-registered
+  criteria, not Inconclusive results being stretched into a verdict.
+- Rank 3's Inconclusive result is not a "we don't know, try again"
+  outcome — its specific *shape* (worse-than-baseline worst-case fold,
+  wide variance despite a nominally higher mean) is itself evidence of a
+  sample-size ceiling, not an open question a fourth cheap variant could
+  resolve. Per the project owner's own explicit instruction, a fourth
+  variant is not proposed.
+- Stage D is mechanistically a different kind of intervention than
+  anything Rank 1-3 tried: those three fit a classifier on top of the
+  *existing, frozen* ASR/encoder representation; Stage D would change
+  what the ASR itself produces via fine-tuning on more real data —
+  addressing the actual bottleneck this arc identified (data quantity)
+  rather than repeating the same small-sample classifier-fitting exercise
+  a fourth time with yet another feature combination.
+- This is consistent with, not a departure from, the project owner's own
+  explicit decision hierarchy: existing components first (tried, and
+  found lossy — the original ASR-research-track finding); cheapest
+  reliable recovery method second (now tried three ways, all falling
+  short); Stage D only once those demonstrably fail (met).
+
+**What remains true and unchanged from earlier sessions**: Stage D's own
+real, already-documented infrastructure requirements (no local GPU, real
+English-language disfluent-speech data acquisition) have not changed and
+are not resolved by this decision — this is a recommendation that Stage D
+is now the *evidence-justified* next step, not a claim that it is
+immediately actionable without the project owner's separate decision on
+budget/infrastructure, exactly as this track's own "Stage D Requirements
+/ Re-entry Gate" section already specified.
+
+---
+
+# Current Project State — 2026-08-07 EOD
+
+**This is the end-of-day consolidation checkpoint for 2026-08-07.** It is
+an *additive* synthesis, not a replacement for anything above it — every
+section above this one remains the full, unedited historical record of
+how this project arrived here, with its own citations, methodology, and
+reasoning intact. This section's job is narrower: give a reader who has
+never seen this conversation a complete, accurate, properly cross-
+referenced picture of where the project actually stands right now,
+without asking them to reconstruct it from ~7,600 lines of chronological
+research log. Read this section first; use the pointers in it to go
+deeper into any specific claim.
+
+## The primary objective — restated, because it governs everything below
+
+Per the "PROJECT OBJECTIVE" section at the very top of this document
+(added 2026-08-07, morning) and reaffirmed explicitly by the project
+owner at the start of this evening's session: **the objective is to
+build an application that takes a speaker's audio and reliably extracts
+the speech problems/hindrances actually occurring in it — including
+stuttering and other disfluencies — so they can be localized, classified,
+understood, and used downstream for assistance such as rephrasing,
+synonym substitution, or alternative phrasing.** Restated one more time
+in the project owner's own words tonight: *"Speaker audio → preserve
+useful disfluency evidence → detect/classify/localize problems → provide
+useful feedback/intervention. The ASR is a component serving that
+application. It isn't the product by itself."*
+
+The objective is **not**: proving nobody has solved this before, finding
+an unexplored research territory, creating a novel ASR for its own sake,
+or writing a paper for its own sake. An ASR (or any component this track
+investigates) earns a place in the pipeline only if it is actually
+necessary and useful for the application objective — never by default,
+never because it is interesting. This governs every conclusion below.
+
+## A. The complete chronological experimental story
+
+Each item below states the real, measured result and points to the full
+section for methodology, citations, and reasoning — nothing here
+replaces those sections.
+
+**Stage A — large-scale evidence of information loss/normalization.**
+CrisperWhisper's decoded text normalizes away real, ground-truth
+`sound_repetition`/`word_repetition` instances at a high rate (45.2%/
+40.5% — figures established and cited throughout this document, e.g. the
+"Stage D Requirements / Re-entry Gate" §D baseline list above) — the
+finding that opened this entire research track. Full detail: the
+document's own opening sections and the repeated citations of this exact
+figure throughout (search "45.2%/40.5%").
+
+**Stage B/C — the encoder retains information the decoder discards, but
+not always precisely enough to act on alone.** Stage B found a real,
+Cohen's-d-confirmed signal (`sound_repetition` d=0.894) in CrisperWhisper's
+own last-layer encoder states at exactly the positions where the decoded
+text gives zero evidence. Stage C confirmed this signal survives a
+duration-confound check (encoder arm AUC=0.723 vs. a duration-only
+baseline AUC=0.483) — real, not an artifact of "longer disfluent bursts
+are just louder/longer." See "Stage B — pre-registered protocol" (line
+2100) / "Stage B — Results" (2205) and "Stage C — pre-registered
+protocol" (2406) / "Stage C — Results" (2474) above for full methodology
+and numbers, including Stage C2's negative Praat voice-quality fusion
+result (2564/2661).
+
+**Phase 2 — alternative ASR/representation/decoding investigations.**
+A pre-registered 3-arm comparison (stock `whisper-large-v3` full
+pipeline; the same checkpoint's encoder via layer sweep; WavLM-Large's
+representation) to test whether CrisperWhisper specifically, or the
+Whisper/general-ASR architecture more broadly, is the bottleneck. All
+three arms: Failure (see "Phase 2 results" at line 1022 and "Integrative
+conclusion: Failure / Failure / Failure" at 1117) — the normalization
+pattern is architecture-general (Whisper-family), not a CrisperWhisper-
+specific fine-tuning artifact, and WavLM's differently-distributed signal
+was never stronger than either Whisper variant. This result is what
+motivated moving to acoustic-native and combined-signal directions rather
+than continuing to shop among existing ASR/representation choices.
+
+**Direction (g) — acoustic-native `sound_repetition` candidate
+generation, RMS/ZCR pass.** A waveform-only detection mechanism (short,
+spectrally self-similar voiced bursts), tested with no ASR dependency at
+all, using RMS/ZCR envelope-shape similarity as the first, cheapest
+per-burst feature. Real result: recall=0.824 but precision=0.081 — high
+recall, unusable precision, because ordinary fluent speech (function
+words, fast syllables) also produces short, similarly-shaped voiced
+segments the RMS/ZCR envelope-shape feature cannot distinguish from a
+genuine repeated fragment — a feature-specificity problem, not evidence
+against an acoustic signature existing (the high recall is itself real,
+positive evidence a signature exists). A real cross-clip scoring bug
+(pooling raw per-clip timestamps globally, producing an implausible
+recall=1.000/precision=0.966) was caught per rule 3 and fixed before this
+result was trusted. Full detail: "Direction (g): an acoustic-native
+`sound_repetition` candidate generator — pre-registered protocol" (line
+1174) and "Direction (g) results" (1306).
+
+**MFCC escalation — corrected implementation, real trade-off, still
+short of the bar.** Escalated from RMS/ZCR to a hand-rolled MFCC spectral-
+shape similarity feature. A second real bug was caught first: MFCC
+coefficient 0 (overall log-energy, not spectral shape) was dominating
+similarity scores — 90% of all burst pairs scored ≥0.9 similarity
+including it, because any two voiced (energetic) segments look similar
+on energy alone, silently defeating the point of escalating past RMS/ZCR
+— fixed by excluding coefficient 0 (standard MFCC practice), then
+re-run. Corrected result: a genuine precision/recall trade-off curve
+(unlike RMS/ZCR's flat one) with best F1=0.170 (recall=0.686,
+precision=0.097) vs. RMS/ZCR's F1=0.161 — a real, modest improvement,
+but short of the pre-registered ≥20%-relative-improvement bar over the
+duration-only baseline (needed F1≥0.176) by a small margin. Full detail:
+"Direction (g), MFCC escalation — pre-registered addendum" (line 1433)
+and "MFCC escalation results" (1491).
+
+**Combined-signal classifier — weak scalar signals, combined.** Tested
+whether a plain logistic regression over 4 hand-picked *scalar* features
+(MFCC similarity, burst count, duration, and Stage C's encoder-distance
+scalar) separates true `sound_repetition` instances better than any
+single signal alone. A real bug (F1=0.000 across all 5 folds despite one
+input feature independently scoring F1=0.244) was caught and fixed —
+diagnosed via a synthetic check as a hardcoded 0.5 decision threshold
+miscalibrated to this population's ~8% positive rate, not a model that
+learned nothing — by giving the classifier the same train-fold-optimal
+threshold convention its baseline arms already used. Corrected result:
+combined F1=0.242, MFCC-alone F1=0.147, encoder-distance-alone F1=0.244
+— the combination **matched but did not exceed** the strongest individual
+signal (needed to beat both by ≥20% relative to count as Success) —
+**Failure**. This result specifically showed that combining *weak,
+hand-picked scalars* did not help; it did **not** test whether combining
+the *rich* representations each signal is derived from would help (that
+question is exactly what Rank 3, below, was designed to answer). Full
+detail: "Combined-signal classifier — pre-registered protocol" (line
+3358) and "Combined-signal classifier results" (3547).
+
+**Literature review, in parallel** — see item C below; not repeated here.
+
+**Rank 1 — full ASR-encoder embedding, candidate-generation
+classifier.** Tested whether item 17's own shipped classifier mechanism
+(the full ~1280-dim CrisperWhisper encoder embedding, nested-CV
+L2-regularized logistic regression, train-fold-optimal threshold) —
+previously only ever applied to *corroborating* already-flagged
+candidates — separates true candidate-*generation*-gap positions (real
+ASR-normalized-away `sound_repetition`/`word_repetition` sites) from
+clean positions, compared against Stage C's own single-scalar
+distance-to-centroid baseline, both cross-validated identically. Real
+result (n_pos=66, n_neg=1780): baseline F1=0.097 (P=0.055, R=0.462) vs.
+classifier **F1=0.230 (P=0.580, R=0.147)** — precision improved roughly
+10x and mean F1 more than doubled, clearing the pre-registered relative
+bar by a wide margin, with a stable per-fold direction (4 of 5 folds).
+**But recall (0.147) missed the pre-registered absolute usability floor
+(≥0.3) — Failure on deployability specifically**, not on whether the
+full embedding carries more signal than the scalar reduction (it clearly
+does). This experiment could not distinguish whether the low recall
+reflects a genuine representation ceiling or simply too few positive
+examples (66) to fit a stable ~1280-dimensional decision boundary — left
+explicitly unresolved, not guessed at. Full detail, including the
+provenance note on why this run's population (66/1780) differs slightly
+from Stage B/C's original (36/966) due to Track B cache growth between
+sessions: "Rank 1: full-embedding candidate-generation classifier —
+pre-registered protocol" (line 6767) and "Rank 1 results" (6980).
+
+**Rank 2 — learned acoustic classifier over richer MFCC statistics.**
+Tested whether a classifier that *learns* how to weight per-coefficient
+MFCC statistics (mean + std across a candidate's bursts, 26 dims) beats
+direction (g)'s *hand-designed* single-scalar cosine-similarity metric —
+acoustic-only, no ASR/encoder involved, scaled to all 499 real
+LibriStutter clips (affordable specifically because this arm needs no
+encoder pass, ~6 minutes total). Real result (n_pos=245, n_neg=2970):
+baseline F1=0.133 (P=0.077, R=0.531) vs. classifier **F1=0.163 (P=0.114,
+R=0.308)** — clears the relative bar only barely (a margin smaller than
+either arm's own fold-to-fold F1 variance), recall clears the absolute
+floor narrowly (0.308) but **precision does not (0.114 vs. ≥0.15) —
+Failure**, honestly flagged as possibly just a well-calibrated version of
+the same underlying similarity concept rather than genuinely new
+information (this experiment could not rule that out). Provides a
+**differently shaped** signal than Rank 1 (small, flatter effect vs.
+Rank 1's large precision gain) — evidence the two representations are
+not redundant with each other, which is exactly what motivated Rank 3.
+Full detail: "Rank 2: learned acoustic candidate-generation classifier —
+pre-registered protocol" (line 7056) and "Rank 2 results" (7239); see
+also "Rank 1 + Rank 2 synthesis and next-step decision" (7305), which
+first named the Rank 3 idea.
+
+**Rank 3 — full encoder embedding + full acoustic representation,
+combined.** Tested whether concatenating Rank 1's full embedding with
+Rank 2's full 26-dim acoustic features, together, beats either alone —
+on Phase A's *original* 120-clip acoustic-candidate population (a
+deliberate choice for direct comparability to the already-published
+Arm A/B baselines, not Rank 2's larger population). Population and
+baselines reproduced Phase A's original numbers exactly (766 candidates,
+62 positive; MFCC-alone F1=0.147; encoder-distance-alone F1=0.244) —
+confirming a clean, unconfounded comparison. Combined classifier:
+**F1=0.254** — nominally the highest of the three arms. But the
+pre-registered per-fold stability check (combined vs. the stronger
+encoder-distance baseline) came back **2 wins / 3 losses of 5 folds** —
+the combined classifier actually lost to the single scalar signal on a
+majority of folds despite a higher mean, with a fold-to-fold F1 range
+(0.091-0.400) wider than either individual arm's and a worst-case fold
+(0.091) worse than even the *weaker* MFCC-alone baseline's worst fold
+(0.121). **This is why the mean F1 alone must not be read as success**:
+it is exactly the signature of an unstable, high-variance fit at
+~1307 dimensions over ~613 training rows per fold — a risk this track
+pre-registered explicitly *before* running, not one discovered
+after the fact. Per the pre-registered gate: **Inconclusive**, not
+Success. One self-test authoring bug (two hand-constructed comparison
+arms accidentally given identical F1 values, collapsing an intended test
+case into a trivial, already-correct tie) was caught and fixed before
+trusting the 11-test suite; the decision-gate logic itself was correct
+throughout. Full detail: "Rank 3: combined rich-feature classifier —
+pre-registered protocol" (line 7378) and "Rank 3 results" (7512).
+
+**The cumulative conclusion**, stated once, precisely: three
+independent, cheap, no-GPU, no-new-data representation-side experiments
+(encoder alone, acoustic alone, both combined) each found real,
+cross-validated, non-random signal for this exact candidate-generation
+gap — but none reached a pre-registered deployable operating point, and
+the richest combination became *less* stable, not more powerful, when
+given more information. Taken together with the two clean Failures
+(Rank 1, Rank 2) and Rank 3's own diagnostic instability signature, this
+is judged — as a considered whole, not a mechanical trigger — sufficient
+evidence that the limiting factor is the *quantity* of real labeled
+examples available (62-245 depending on population), not the choice of
+representation. See "Final synthesis: Rank 1 + Rank 2 + Rank 3, and the
+Stage D decision" (line 7565) for the full reasoning and the resulting
+Stage D decision, summarized again in section F below.
+
+## B. What is EXPERIMENTALLY DEMONSTRATED, STRONGLY SUPPORTED, SUPPORTED BY LITERATURE, INFERRED, UNRESOLVED, NOT TESTED, and PROPOSED
+
+Kept as precise, separate categories per the project owner's explicit
+instruction — not blurred into each other, and specifically avoiding two
+overclaims the project owner named directly: **do not write "ASR cannot
+solve this"** (the correct, narrower claim is below), and **do not write
+"nobody has solved this"** (already falsified by this track's own
+literature review — see section C).
+
+**EXPERIMENTALLY DEMONSTRATED** (this track's own measured results,
+real audio or real experiments, cited above):
+- CrisperWhisper's decoded text normalizes away a large fraction (45.2%/
+  40.5%) of real `sound_repetition`/`word_repetition` ground truth (Stage
+  A).
+- The encoder retains a real, duration-confound-refuted signal at
+  exactly the positions the decoder discards (Stage B/C: d=0.894,
+  AUC=0.723).
+- This normalization pattern is Whisper-architecture-general, not a
+  CrisperWhisper-specific artifact (Phase 2, all 3 arms Failure in the
+  same direction).
+- `sound_repetition` has *some* recoverable acoustic signature
+  independent of ASR entirely (direction (g)'s real recall=0.824,
+  even though precision was unusable at that stage).
+- A learned classifier over the full encoder embedding recovers real
+  signal at candidate-generation-gap positions that a single hand-picked
+  scalar does not (Rank 1: ~10x precision improvement, stable across
+  folds).
+- A learned classifier over raw acoustic features modestly beats a
+  hand-designed acoustic similarity heuristic, but only marginally
+  (Rank 2).
+- Combining the full embedding and full acoustic features does **not**
+  reliably improve over the best single existing signal at the sample
+  sizes available, and shows a concrete instability signature when it is
+  tried (Rank 3).
+
+**STRONGLY SUPPORTED** (very likely true given the pattern of evidence,
+short of being independently re-verified):
+- The limiting factor for further cheap, frozen-representation
+  candidate-generation work is real-labeled-example quantity (62-245
+  positives depending on population), not representation choice — this
+  is the load-bearing inference behind tonight's Stage D decision,
+  supported by three independently-shaped results (two Failures plus one
+  instability-flagged Inconclusive) rather than any single result alone.
+
+**SUPPORTED BY LITERATURE** (established by sources this track verified
+directly, not by this track's own experiments):
+- Real precedent exists for fine-tuning reducing an ASR's own
+  deletion/normalization rate on disfluent speech (StammerTalk: 26.56%→
+  2.29% deletion-error rate for severe stuttering) — the direct
+  evidentiary basis for Stage D's L2-level scope, see section D below and
+  section C for full citation detail.
+- Real precedent exists for explicit disfluency-marker fine-tuning at
+  modest real-world compute scale (Kordt et al., ~10-20 hours of training
+  data per corpus) — recalibrates what "large-scale" plausibly means for
+  a Stage D pilot.
+- No dataset reviewed provides real speech with word-level, fragment-
+  vs-word-granular repetition annotation at scale, off-the-shelf (the
+  literature-verified data gap that makes Stage D's data requirement
+  real, not assumed).
+
+**INFERRED** (this track's own reasoned conclusions from evidence, not
+directly measured, and explicitly labeled as such throughout the
+document body):
+- A taxonomy-targeted fine-tuning objective would likely do better at
+  this specific taxonomy than a representation trained for a different
+  objective (general ML priors — supervised learning tends to improve at
+  what it's optimized for — not something this track's evidence has
+  tested or can currently confirm or refute; Stage D would be the first
+  real test).
+- Mandarin orthography likely cannot represent a sub-character phonetic
+  fragment as literal text at all, meaning AS-70/StammerTalk may be
+  structurally unable to test true L4 fragment-content preservation even
+  in principle — this review's own reasoned inference, not a claim any
+  source makes directly (see "A structural finding" at line 6237).
+
+**UNRESOLVED** (this track's evidence explicitly cannot answer these,
+stated as open, not guessed at):
+- Whether Rank 1's low recall (0.147) reflects a genuine encoder-
+  representation ceiling for this task, or is simply an artifact of too
+  few positive examples (66) to fit a stable high-dimensional decision
+  boundary.
+- Whether Rank 2's classifier is exploiting genuinely new per-coefficient
+  information, or is mostly rediscovering a calibrated version of the
+  same similarity concept the one hand-designed scalar already captured.
+- What real precision/recall an L2-scoped Stage D fine-tune would
+  actually achieve on this project's own taxonomy — no experiment in
+  this track has tested Stage D's actual premise (a taxonomy-targeted
+  training objective); every experiment so far tested representations
+  already trained for a different objective.
+
+**NOT TESTED** (explicitly out of scope for every experiment run so
+far):
+- Any actual model fine-tuning/training (Stage D itself — every
+  experiment in this track evaluated frozen, pretrained representations).
+- L4-level fragment-content preservation (e.g. literally transcribing
+  "c-c-cat") in any language — the literature review found no source that
+  has attempted this for `sound_repetition` specifically, and this
+  track's own experiments never targeted it either (see section D on why
+  L4 is not currently believed necessary for the application anyway).
+- Generalization of any of this track's results beyond LibriStutter's
+  synthetic splicing to real, non-synthetic disfluent speech — a real,
+  named, unresolved risk for any future training effort.
+
+**PROPOSED** (named as options, not committed to, not yet built):
+- The re-scoped L2-level Stage D fine-tune (section D/F below).
+- A "cheap real-data generalization check" (acquire a modest amount of
+  real disfluent speech, without training anything, to test whether
+  today's signals generalize beyond LibriStutter before committing to
+  Stage D) — named in "Stage D planning (2026-08-07)" (line 3771) as a
+  real, credible, cheaper-than-Stage-D option; not decided on tonight,
+  named here again for completeness since section F below judges Stage D
+  itself as now justified without first requiring this check, a
+  judgment call explained there.
+
+## C. The literature position — what existing technology can we use, not "can we claim novelty"
+
+This section's purpose, restated per the project owner's explicit
+instruction: **"What existing technology can we use to build the
+application?"** — not "can we claim nobody has done this?" The full,
+detailed literature review (every source directly fetched and read, not
+summarized from search snippets) remains completely intact above — the
+"Final research audit" (line 3808), "Comprehensive research-positioning
+analysis (deep pass)" (4826), and "Novelty-falsification pass" (6157)
+sections, with two full bibliographies (B1-B19 at 4676, B20-B26 at 6082,
+plus B27). This subsection is a short, application-focused index into
+that material, not a replacement for it.
+
+| Source | What it solves | What our application needs from it |
+|---|---|---|
+| **AS-70** (Gong et al., Interspeech 2024) [B20/B27-adjacent] | A real, 48.8-hour, verbatim, character-level-annotated Mandarin stuttering dataset with a genuine sound-repetition (`/r`) vs. word/phrase-repetition (`[]`) distinction — the right taxonomy granularity, on real speech. | The clearest real precedent that fragment-granular real-speech annotation is achievable at all; not directly usable as training data for an English-language application, and — per this track's own structural inference — may be unable to represent true L4 sound-fragment *content* even in principle, though L4 is not what our application needs anyway (see below). |
+| **StammerTalk / StutteredSpeechASR** (Li et al., FAccT 2025) [B21] | A real, published Whisper-large-v2 LoRA fine-tune on AS-70, with a directly quantified, large deletion-error-rate improvement (26.56%→2.29% severe stuttering) — i.e., a real demonstration that fine-tuning stops an ASR from deleting disfluent content. | **This is the single closest real precedent for exactly the L2-level intervention our application needs** — not fragment-content spelling, just "stop deleting evidence that something disfluent happened here." Directly cited as Stage D's own L2 scoping justification (section D below). |
+| **Kordt et al.** (Interspeech 2026 target) [B11] | Explicit disfluency-marker (`REP`, etc.) fine-tuning of Whisper, with real continual-learning methods (EWC, Experience Replay, A-GEM, Weight Averaging) to control catastrophic forgetting, at modest (~10-20h/corpus) real compute scale. Collapses word- and phoneme-level repetition into one coarse marker. | The best real precedent for *how* to fine-tune without wrecking general transcription quality, and for realistic compute/data scale — but not fine-grained enough on its own for our `sound_repetition`-vs-`word_repetition` distinction. |
+| **Whisper family** (stock `whisper-large-v3`, CrisperWhisper) | General, fluent/verbatim-leaning transcription; CrisperWhisper specifically is disfluency-preserving-by-design relative to stock Whisper, which is why it was chosen as this project's ASR in the first place. | The current pipeline's ASR component — real, working, chosen for good reason, but demonstrably normalizes away 45.2%/40.5% of the exact evidence this application needs (Stage A) — the finding that opened this whole track. Not being replaced; being extended. |
+| **WavLM-Large** | A paralinguistic-sensitivity-oriented encoder, real published design objective. | Tested directly in Phase 2 (Arm 3): no stronger than either Whisper variant for this specific taxonomy, though its signal distributes differently across depth — a real, literature-consistent finding, not adopted further. |
+| **HuBERT** and related self-supervised encoders | General-purpose speech representation learning. | Reviewed in the literature passes above as part of the broader representation landscape; not separately experimented on in this track — no claim made about how they'd perform here (NOT TESTED). |
+| **Explicit disfluency-token / joint ASR+SED approaches** (Kordt et al.; Huang et al., reviewed in the deep pass and the Application-Objective Decision Analysis §3-4) | Detecting/marking that a disfluency occurred, sometimes jointly with ASR. | Read against the actual application requirement (detection, not fragment-content preservation), these are **closer to solving our real problem than the earlier novelty-centered framing credited them for** — see Application-Objective Decision Analysis §3-4 (lines 6421-6496) for the full re-scoring. |
+| **YOLO-Stutter / SSDM** and related audio-native learned detectors | Deep, GPU-trained, end-to-end learned detection directly from audio, no ASR involved. | The architecture-*class* Rank 2 deliberately, honestly scoped down from (stated explicitly in Rank 2's own pre-registration, line 7158) to something CPU-feasible — Rank 2 is not a claim of parity with this class, only a bounded approximation of its spirit. |
+
+**Where existing technology already fully solves a piece of what the
+application needs**: block/prolongation/filler detection — already
+solved, shipped, in `profiling/detect.py`, no research gap (see
+Application-Objective Decision Analysis §2, line 6401, for the exact
+per-type mapping table). **Where existing technology partially solves
+it**: `sound_repetition`/`word_repetition` detection — the encoder and
+acoustic signals this track measured are real partial solutions
+(non-zero, cross-validated signal), just not yet deployable ones.
+**Where a real, narrow gap remains, accurately documented but kept
+secondary to the application**: fragment-level (`sound_repetition`
+specifically) candidate-*generation* at production-usable precision/
+recall, from either frozen representation, at this project's current
+data scale — this is the actual, precise, narrowly-scoped gap, not
+"detecting stuttering" broadly and not "novel ASR" generally.
+
+## D. The application requirement, reassessed with everything learned today
+
+Restating and lightly extending the Application-Objective Decision
+Analysis's own §1 (line 6353) and §2 (6401) — not replacing them, both
+remain the fuller treatment:
+
+- **Intended/clean linguistic content**: required, and — the key,
+  repeatedly-reconfirmed finding across today's work — typically already
+  available even where the disfluency *evidence itself* is lost, because
+  the "clean" word CrisperWhisper eventually settles on is usually
+  correct even when it silently dropped the repeated fragment that
+  preceded it.
+- **Actual disfluent realization (that a repetition/block/prolongation/
+  filler occurred, and roughly where)**: required — this is what
+  "detection" means for this application, and is the actual target of
+  Rank 1/2/3 and everything upstream of them today.
+- **Sound repetitions, word/phrase repetitions**: the two types this
+  entire day's experimental arc targeted — real, quantified, partial
+  progress, not yet deployable (section A/B above).
+- **Prolongations, blocks**: already solved, shipped, not touched by any
+  of today's work (Application-Objective Decision Analysis §2).
+- **Interjections/fillers**: already solved, shipped, not touched by any
+  of today's work (same).
+- **Timing/localization**: required, and — per the Application-Objective
+  Decision Analysis's own §1 — word-level precision is likely sufficient
+  (an inference, not independently re-tested today).
+- **Acoustic evidence**: a *means*, not an end — every acoustic feature
+  this track has built (direction (g)'s bursts, Rank 2's MFCC statistics)
+  exists to serve detection, never valued for its own sake.
+- **ASR evidence**: also a means, not an end — the encoder's internal
+  representations (Rank 1, Rank 3) are used precisely because they
+  contain information the *decoded text* alone does not, not because ASR
+  itself is the goal.
+- **Not every piece of information needs to appear in the ASR transcript
+  itself** — this is the single most important reframing to carry
+  forward: the current and every proposed architecture in this document
+  is fundamentally `audio → ASR + audio-native evidence → alignment/
+  fusion → disfluency events → downstream assistance`, exactly the shape
+  the project owner named tonight, and exactly what the shipped detector
+  (`profiling/detect.py`) already implements structurally (word-level ASR
+  text plus acoustic corroboration, fused) — today's work is about
+  improving the fusion's candidate-generation half specifically, not
+  about replacing this architecture.
+- **Downstream semantic/rephrasing requirements**: out of this repo's
+  own scope — `audio-mod` owns extraction; a separate "Speech AI Module"
+  (per this project's own established two-repo product structure) owns
+  the downstream rephrasing/substitution. Nothing in today's work changes
+  that boundary.
+
+## E. Stage D — retrieved and updated, not reinvented
+
+**Everything Stage D means in this project was already developed across
+two sections earlier today**: "Stage D planning (2026-08-07) — design,
+requirements, risks, and a real infrastructure finding" (line 3622) and
+"Stage D Requirements / Re-entry Gate" (4296) — both remain complete and
+authoritative for *what Stage D is, what it needs, and what blocks it*.
+Nothing in this subsection replaces them; it summarizes them and states
+what changed tonight.
+
+- **What Stage D means**: fine-tuning an *existing* pretrained checkpoint
+  (CrisperWhisper or stock `whisper-large-v3`) — **not training a new ASR
+  from scratch** — with a taxonomy-targeted auxiliary objective, most
+  plausibly LoRA-style parameter-efficient adaptation (matching
+  StammerTalk's own real, published recipe) combined with a continual-
+  learning method (EWC/Experience Replay/A-GEM/Weight Averaging, per
+  Kordt et al.) to control catastrophic forgetting.
+- **What it is NOT**: not a from-scratch architecture; not (per the L2
+  re-scoping below) an attempt to spell out literal fragment content;
+  not something this project can start tonight or without a separate,
+  explicit infrastructure decision.
+- **L2 vs. L4 — explicitly distinguished, and the scope actually
+  targeted**: **L2** means preventing useful disfluency *evidence* from
+  being normalized/deleted during decoding (StammerTalk's own directly-
+  demonstrated objective: deletion-error rate 26.56%→2.29%) — something
+  *is* output at the disfluent position, even if not phonetically exact.
+  **L4** is the much stronger objective of preserving the literal
+  repeated fragment's *content* (e.g. "c-c-cat" as actual output text) —
+  found, by this track's own literature-falsification pass, to be
+  unaddressed by any source, and, per the Application-Objective Decision
+  Analysis, **not currently believed necessary for this application**,
+  since the intended/clean word is typically already recoverable even
+  when the disfluency evidence is lost (section D above). **Stage D, as
+  currently scoped, targets L2, not L4** — this is a real, explicit,
+  dated revision from the "Novelty-falsification pass"'s own original
+  L4-oriented Stage D framing (see "What this means for Stage D, revised
+  precisely," line 6296, and the Application-Objective Decision
+  Analysis's §7, line 6569, which performs and explains this exact
+  revision) — preserved above, not deleted, exactly as the project
+  owner's preservation rule requires.
+- **Data required**: real (non-synthetic) disfluent speech with word-
+  level timestamps and a fragment-vs-word repetition distinction — not
+  provided off-the-shelf at scale by SEP-28k, KSoF, or FluencyBank's
+  existing schemas (literature-verified gap). FluencyBank Timestamped is
+  the best-identified fit (real people who stutter, word-level
+  timestamps) but needs an unbuilt CHAT-format parser and possible access
+  approval. **LibriStutter (this track's own working sample) is
+  synthetic splicing and is explicitly judged insufficient as the sole
+  training corpus** — a model fine-tuned on it risks learning splice
+  artifacts rather than genuine disfluency production patterns, a
+  materially worse risk for a *training* target than it has been for
+  this track's own repeated evaluation-only use of it.
+- **Annotation structure required**: word-level timestamps (already this
+  project's native format) plus a fragment-vs-word distinction at each
+  disfluent position.
+- **Compute required**: GPU-scale, for any realistic fine-tuning run. A
+  single mid-range cloud GPU (16-24GB VRAM) would plausibly suffice for a
+  `whisper-small`/`base`-scale pilot following Kordt et al.'s own
+  demonstrated recipe; CrisperWhisper/`whisper-large-v3`-scale would want
+  24-48GB+ or LoRA-style adaptation to stay in the same modest compute
+  envelope.
+- **Why the current CPU-only machine is insufficient**: verified
+  directly, not assumed — `torch.cuda.is_available()` is `False`, the
+  installed `torch` build is CPU-only, the only GPU present is
+  integrated (not CUDA-capable). Fine-tuning requires forward *and*
+  backward passes across many real examples per epoch, across multiple
+  epochs — categorically heavier than this project's own already-slow
+  CPU inference (~54s/clip for one forward pass); training at any
+  reasonable scale would take days-to-weeks on this hardware.
+- **Minimum viable Stage D experiment**: `whisper-small`-scale,
+  FluencyBank-Timestamped-only (or equivalent), `sound_repetition`-only,
+  L2-scoped (reduce the deletion/normalized-away rate, evaluated by this
+  project's own already-built Stage-A-style 4-category classification
+  re-applied to the fine-tuned model's output) — not full CrisperWhisper-
+  scale, full-taxonomy scope, matching this track's own repeated
+  "cheapest first" discipline.
+- **Evaluation required**: this track's own already-measured baselines
+  (Stage A's 45.2%/40.5%, stock Whisper's 89.5%/88.2%, the combined
+  classifier's F1=0.242) as the numbers to beat; a genuinely held-out,
+  speaker-disjoint real-data test split; general clean-speech WER
+  measured directly to catch catastrophic forgetting rather than assume
+  its absence.
+- **Main risks**: no accessible large-scale real paired training data
+  (potentially blocking on its own); LibriStutter's synthetic-splice risk
+  producing a confidently-wrong "success" if used as the primary training
+  corpus; catastrophic forgetting (literature-documented risk); no local
+  compute (cloud-GPU cost/setup, not yet budgeted); unverified
+  generalization even after a nominally successful fine-tune, absent real
+  held-out data.
+- **What success/failure would mean**: success = a real, measured
+  reduction in the normalized-away rate on held-out real speech, with a
+  bounded, explicitly-tolerated WER cost on clean speech (mirroring
+  Kordt et al.'s own visible trade-off); failure = no meaningful
+  reduction, or a reduction that only shows up on LibriStutter's
+  synthetic data and does not generalize.
+- **What changed tonight, specifically**: earlier today (Application-
+  Objective Decision Analysis §7, written before Rank 1/2/3 were run),
+  Stage D was judged **not yet justified** — two cheaper, untried options
+  (Rank 1, Rank 2) existed and had to be tried first. Tonight, after
+  Rank 1 (Failure), Rank 2 (Failure), and Rank 3 (Inconclusive, with the
+  instability signature described in section A above), Stage D is now
+  judged **the evidence-justified next step** — see "Final synthesis:
+  Rank 1 + Rank 2 + Rank 3, and the Stage D decision" (line 7565) for the
+  full, considered reasoning. This is a real, dated evolution of the same
+  day's own earlier conclusion, stated explicitly as such, not a silent
+  contradiction.
+- **What this decision does NOT claim**: that Stage D *will* solve the
+  problem (untested premise, see section B's UNRESOLVED/NOT TESTED
+  entries), or that it is immediately actionable (the infrastructure gate
+  above is unchanged and unresolved).
+
+## F. Current research stopping point — 2026-08-07
+
+**We are stopping experimental exploration here, deliberately, because
+of what the evidence shows — not because of fatigue or an arbitrary time
+limit.** Three independent, cheap, no-GPU, no-new-data representation-
+side directions (full encoder embedding alone; full raw acoustic features
+alone; both combined) have now been tried against the real
+candidate-generation gap this track identified. Two came back clean
+Failures against pre-registered deployability criteria; the third came
+back Inconclusive with a specific, diagnostic instability signature
+(higher mean, less stable, worse worst-case than a weaker baseline) that
+is itself evidence of a small-sample ceiling, not an invitation to try a
+fourth feature combination. Per the project owner's own explicit
+instruction, **no Rank 4, no further classifier, no further threshold or
+feature-engineering variant is proposed tonight** — the next real
+question is resource/infrastructure feasibility for Stage D (and/or
+identifying the single best architecture using entirely existing,
+off-the-shelf systems, if Stage D's own infrastructure gate cannot be
+cleared), not another round of frozen-representation experimentation.
+
+## G. Decision for next session — supersedes the stale one above
+
+The "Decision for Next Session" section earlier in this document (line
+6731) was written before Rank 1/2/3 existed and is now marked superseded
+in place (not deleted). **This is the current plan:**
+
+1. **Review today's final evidence** — this "Current Project State" section, plus the full "Rank 1 results" / "Rank 2 results" / "Rank 3 results" / "Final synthesis" sections it points to.
+2. **Confirm the application-level target** — re-read the "PROJECT OBJECTIVE" section (line 18) and section D above before making any architecture decision; do not let Stage D's own technical interest override it.
+3. **Review the already-costed Stage D design and requirements** — "Stage D planning" (3622), "Stage D Requirements / Re-entry Gate" (4296), and section E above — do not re-derive this from scratch.
+4. **Decide the concrete Stage D implementation architecture** — confirm: CrisperWhisper vs. stock `whisper-large-v3` as the fine-tuning base; LoRA vs. full fine-tune; which continual-learning method.
+5. **Identify the exact model to fine-tune/use** — a specific checkpoint, not a class of models.
+6. **Identify the exact data path** — resolve FluencyBank Timestamped's CHAT-parser and access-terms question first (named, unbuilt, in "Stage D Requirements" §A), or name a concrete alternative.
+7. **Identify the minimum resource/GPU requirement** — price a specific cloud GPU option against the "Compute requirements" figures in section E above; this needs the project owner's explicit budget approval before anything is provisioned.
+8. **Define evaluation before implementation** — reuse this track's own established baselines and metrics (section E above), not a fresh, incomparable set.
+9. **Pre-register the Stage D experiment** — exact architecture, objective, data split, metrics, success/failure criteria — in this same document, before writing any training code, exactly as every prior stage in this track has done.
+10. **Only then, once the plan is agreed with the project owner, begin implementation.**
+
+**Do not begin Stage D implementation, or any other new experiment,
+without first completing steps 1-9 above and getting explicit
+project-owner sign-off on cost/scope** — this is a resource-committing
+decision (cloud GPU cost, data acquisition/access work), categorically
+different from every prior stage in this track, which needed nothing
+beyond local compute and already-available data.
+
+## H. Which file should I share with collaborators?
+
+**`ASR_RESEARCH_TRACK.md` is the primary, comprehensive research
+document** — every experiment, every pre-registration, every literature
+citation, every bug caught and fixed, every decision and its reasoning,
+in full chronological detail, is here. Share this file (or this "Current
+Project State" section specifically, for a fast orientation, with
+pointers into the rest for depth) with anyone who needs to understand the
+research itself.
+
+`ROADMAP.md`, `PAPER_DECISION_LOG.md`, and `CHANGELOG.md` are supporting
+**project-control** documents — `ROADMAP.md` tracks prioritized
+implementation/research items with dated status updates and pointers
+back into this document; `PAPER_DECISION_LOG.md` is the append-only
+decision ledger (what was done / alternatives considered / why / measured
+result) for every non-trivial choice; `CHANGELOG.md` is a fast-scan,
+one-line-per-change index. All three point back into this document for
+full detail rather than duplicating it — useful for tracking project
+status at a glance, not a substitute for the research record itself.
+
+## I. Consolidation report — what this pass did to the document
+
+Per the project owner's explicit preservation rule, stated precisely:
+- **Preserved unchanged**: every section that existed before tonight's
+  session — the full "PROJECT OBJECTIVE" section, the entire "First-
+  principles reassessment," "Integrative first-principles reassessment,"
+  "Phase 2 of this research track," "Direction (g)" (protocol and
+  results), "MFCC escalation," Stage B/C/C2, the "End-of-session
+  handoff," "End of Today's Session," "Next Session Plan," "Research
+  review (2026-08-07)," "Stage D planning (2026-08-07)," the "Final
+  research audit," the "Comprehensive research-positioning analysis
+  (deep pass)," the "Novelty-falsification pass," the "Application-
+  Objective Decision Analysis," and the Rank 1/Rank 2/Rank 1+2-synthesis/
+  Rank 3 sections written earlier this evening. None of these were
+  shortened, summarized in place, or rewritten.
+- **Received additions**: one short, clearly-marked superseded-notice was
+  inserted at the top of the "Decision for Next Session" subsection
+  (line ~6731) — its own original content is fully intact below that
+  notice, unedited.
+- **Revised because later evidence superseded an earlier conclusion**:
+  none of tonight's edits altered any prior section's own text. The one
+  real, dated revision this evening reflects — Stage D moving from "not
+  yet justified" (Application-Objective Decision Analysis §7, written
+  this morning) to "evidence-justified" (tonight's Final synthesis,
+  written after Rank 1-3 ran) — was already recorded, at the time it
+  happened, as a new dated section ("Final synthesis: Rank 1 + Rank 2 +
+  Rank 3, and the Stage D decision") rather than an edit to §7's own
+  text; this consolidation pass only cross-references that already-
+  correctly-recorded evolution, it does not re-perform it.
+- **Deleted**: nothing. No section, citation, number, or piece of
+  reasoning was removed from this document during this consolidation
+  pass.

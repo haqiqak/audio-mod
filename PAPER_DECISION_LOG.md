@@ -6712,3 +6712,198 @@ embedding + Rank 2's acoustic stats together) is the named next step.
 `ROADMAP.md` item 10 updated with a pointer and summary. New file:
 `profiling/evaluation/stage_i_learned_acoustic_classifier.py`. No change
 to `main`.
+
+## 2026-08-07 — Rank 3 (combined rich-feature classifier): the final bounded experiment, Inconclusive with an instability signature, Stage D decision made
+
+**What was done**
+Per the project owner's explicit instruction to run the combined-
+rich-feature classifier immediately as the final bounded low-cost
+experiment — without stopping to ask first, diagnosing genuine bugs if
+any, and ending with a clear evidence-based Stage D decision either way,
+not another new variant if this one also failed — pre-registered a third
+full protocol in `ASR_RESEARCH_TRACK.md`. Rank 3's design choice: reuse
+the *exact* population Phase A's original combined-signal classifier
+used (the first 120 real LibriStutter clips' acoustic candidates, 766
+total, `sound_repetition` only) rather than Rank 2's larger 499-clip
+population, deliberately trading sample size for a clean, directly
+comparable re-test of Phase A's own already-published Arm A (MFCC-alone,
+F1=0.147) and Arm B (encoder-distance-alone, F1=0.244) baselines — the
+cleanest possible "did richer features help" comparison. Concatenated
+Rank 1's full ~1280-dim encoder embedding (pooled at each acoustic
+candidate's overlapping ASR token, median-imputed with a has-signal
+indicator where uncoverable — reusing `stage_combined_classifier.py`'s
+already-validated imputation convention) with Rank 2's full 26-dim raw
+per-coefficient MFCC statistics, into one ~1307-dim feature vector per
+candidate, fed through the same nested-CV logistic regression this track
+has used throughout. Explicitly pre-registered, before running, that this
+dimensions-to-samples ratio (1307 / ~613 per training fold) was
+foreseeably worse than either Rank 1 or Rank 2 individually — a real risk
+stated up front, not discovered after the fact. Implemented as
+`profiling/evaluation/stage_j_combined_rich_classifier.py`. Self-tested
+(11/11) — one self-test authoring bug was caught and fixed before
+trusting the suite: two hand-constructed comparison arms were
+accidentally given identical F1 values, collapsing an intended "beats
+one baseline but not the other" test case into a tied, already-correct
+Inconclusive result; the decision-gate logic itself was right, only the
+test's own input data needed fixing (documented here per rule 3's audit
+discipline, applied to test code as much as production code).
+
+**Result**: population reproduced Phase A's original counts exactly
+(766 candidates, 62 positive) and both baselines recomputed fresh landed
+on Phase A's exact original numbers (Arm A F1=0.147, Arm B F1=0.244) —
+confirming this is a genuinely clean, unconfounded re-test, not a
+different population being silently compared. Combined classifier
+F1=0.254 (P=0.330, R=0.257) — nominally the highest mean F1 of the three
+arms. But the pre-registered per-fold stability check (combined vs. Arm
+B, the stronger baseline) came back 2 wins / 3 losses of 5 folds — the
+combined classifier actually lost to the single encoder-distance scalar
+on a majority of folds despite winning on the mean. The combined
+classifier's own fold-to-fold F1 range (0.091-0.400) is far wider than
+either individual arm's, and its worst fold (0.091) is worse than Arm
+A's worst fold (0.121) — the concrete, pre-registered-as-a-risk signature
+of an unstable, high-variance fit at this dimensionality, not a real
+generalizable improvement that happens to look noisy. Per the
+pre-registered gate: **Inconclusive**.
+
+**Final synthesis and Stage D decision**: taken together with Rank 1
+(clean Failure, recall) and Rank 2 (clean Failure, precision, marginal),
+Rank 3's Inconclusive-with-instability result is judged, as a considered
+whole, sufficient evidence that this project's representation-side,
+no-new-data classifier-fitting approach has reached a genuine small-
+sample ceiling — not a "look harder with one more feature" situation.
+Three independent representations (encoder alone, acoustic alone, both
+combined) have each been tried; the richest one became *less* stable, not
+more powerful, exactly the signature of running out of real labeled
+examples (62-245 depending on population) to fit an increasingly
+high-dimensional decision boundary against. **Decision: Stage D,
+re-scoped to L2 (stop deleting disfluency information during decoding,
+per the Application-Objective Decision Analysis), is now judged the
+evidence-justified next step.** Per the project owner's explicit
+instruction, no fourth feature/variant is proposed in its place.
+
+**Alternatives considered**
+- Report the combined classifier's higher mean F1 (0.254) as a modest
+  win, since it is numerically the best of the three arms. **Rejected**:
+  the pre-registered stability check exists precisely to catch this —
+  a mean improvement built from 2 wins and 3 losses, with a wider
+  variance and a worse worst-case fold than even the weakest baseline,
+  is not evidence of a real effect. Reporting the mean alone without the
+  per-fold picture would have been technically true and substantively
+  misleading.
+- Treat Inconclusive as insufficient grounds for any decision and
+  recommend a fourth experiment (e.g. a smaller, more regularized feature
+  set, or a different combination). **Rejected**, directly per the
+  project owner's explicit instruction not to invent another feature/
+  variant if this one failed, and because the specific *shape* of the
+  Inconclusive result (instability from added dimensionality, not a near-
+  miss) is itself informative enough, combined with Rank 1/2's own clean
+  Failures, to support a real decision rather than another cheap
+  iteration.
+- Treat this as insufficient to recommend Stage D, since Rank 3's own
+  verdict was Inconclusive, not Failure, and defer the Stage D question
+  again. **Rejected**: the project owner explicitly asked for the
+  evidence-based Stage D decision now, given this exact outcome — and per
+  standing rule 8, a considered decision over the *combined* weight of
+  three real experiments (two clean Failures plus one Inconclusive-with-
+  a-specific-diagnostic-shape) is exactly the kind of evidence-
+  constrained call that rule authorizes, recorded with its reasoning, not
+  a default.
+
+**Why this choice**
+This is the exact question the project owner asked to have answered at
+the end of this bounded three-experiment sequence: given everything
+tried, is Stage D now justified? The answer is reasoned from the full
+arc, not from Rank 3 in isolation — each experiment's specific failure
+shape (not just pass/fail) is what makes the aggregate conclusion
+defensible: two clean floor-misses plus a combination that got *less*
+stable when given more information, together, are the signature of a
+data-quantity ceiling this project's existing representations and no-
+new-data classifier-fitting approach cannot get past on their own.
+
+**Measured result**
+Numeric, reported in full above and in `ASR_RESEARCH_TRACK.md`'s "Rank 3
+results" and "Final synthesis" sections; raw output saved to
+`eval_results/20260807T214951_stage_j_combined_rich_classifier.json` and
+the cached row-level dataset to `eval_results/_stage_j_rows_cache.npz`.
+Verdict: **Inconclusive** (Rank 3 alone); **Stage D judged evidence-
+justified** (final synthesis over all three experiments). `ROADMAP.md`
+item 10 updated with a pointer and summary. New file: `profiling/
+evaluation/stage_j_combined_rich_classifier.py`. No change to `main`.
+
+## 2026-08-07 — End-of-day research consolidation: additive synthesis, no new experiment
+
+**What was done**
+Per the project owner's explicit, detailed instruction to close out the
+day with an *additive* consolidation (not a rewrite) of the entire
+`asr-research` branch's research record, reviewed all four project
+documents (`ASR_RESEARCH_TRACK.md`, `ROADMAP.md`, `PAPER_DECISION_LOG.md`,
+`CHANGELOG.md`) and confirmed every item the project owner explicitly
+asked to be incorporated was already present in full detail somewhere in
+`ASR_RESEARCH_TRACK.md` (direction (g), the RMS/ZCR result, the cross-
+clip scoring bug, MFCC escalation, the coefficient-0 bug, the combined-
+signal classifier, Rank 1/2/3, the literature falsification work covering
+AS-70/StammerTalk/Kordt et al./StutteredSpeechASR/Whisper/HuBERT/WavLM,
+the application-objective reorientation, the Stage D cost/infrastructure
+analysis, and the L2-vs-L4 distinction) — verified by section-header
+inventory before writing anything, not assumed. Added one new, clearly-
+demarcated section, "Current Project State — 2026-08-07 EOD," at the very
+end of `ASR_RESEARCH_TRACK.md`: a complete, properly cross-referenced
+synthesis covering the primary objective (restated first, per the project
+owner's explicit requirement that it be impossible to miss), the full
+chronological experimental story with real numbers and pointers into the
+detailed sections, a precise Experimentally-Demonstrated/Strongly-
+Supported/Supported-by-Literature/Inferred/Unresolved/Not-Tested/Proposed
+classification (deliberately avoiding both "ASR cannot solve this" and
+"nobody has solved this" as the project owner explicitly named), a
+literature position table reframed around "what can we use" rather than
+novelty, a reassessed application requirement list, a retrieved-and-
+updated (not reinvented) Stage D summary explicitly noting the L2 rescope
+and tonight's "not yet justified" -> "evidence-justified" evolution, an
+explicit current-stopping-point statement, a 10-step next-session plan
+that supersedes (via an in-place marker, not a deletion) the now-stale
+"Decision for Next Session" written earlier the same day, and guidance on
+which file to share with collaborators. Added matching, non-duplicative
+pointer entries to `ROADMAP.md` item 10 and this same-day `CHANGELOG.md`
+entry.
+
+**Alternatives considered**
+- Rewrite or compress any existing section for stylistic consistency now
+  that the full day's story is known. **Rejected**, directly per the
+  project owner's explicit, repeated instruction: "Do not shorten
+  existing literature reviews, experiment descriptions, citations,
+  methodology, or reasoning just because you can summarize them... Do not
+  replace detailed sections with summaries." Every section that existed
+  before tonight remains completely unedited.
+- Silently correct the now-outdated "Decision for Next Session" section
+  (written before Rank 1-3 existed) to reflect tonight's actual plan.
+  **Rejected**: marked superseded in place, with a short dated note
+  explaining exactly what changed and pointing to the new authoritative
+  section, per the project owner's own explicit rule 4 ("If an earlier
+  conclusion is superseded, DO NOT erase its history. Mark it as
+  superseded/revised and explain what new evidence changed it").
+- Duplicate the full Stage D design/requirements detail into the new EOD
+  section, in case a reader doesn't follow the pointer. **Rejected**:
+  the project owner explicitly asked to "retrieve and update the
+  previous Stage D analysis rather than inventing a new one" — the EOD
+  section summarizes and cross-references the existing "Stage D planning"
+  and "Stage D Requirements / Re-entry Gate" sections rather than
+  restating them at full length, avoiding exactly the kind of
+  unnecessary duplication the project owner also asked to avoid ("Do not
+  duplicate thousands of lines unnecessarily across all four files").
+
+**Why this choice**
+This is a documentation-and-synthesis pass, not a research pass — its
+value is entirely in making the existing, already-correct research record
+navigable and complete for a reader (human or a future Claude session)
+who was not present for today's work, without risking the loss or
+distortion of any of the historical reasoning, citations, or measured
+results that make this track's conclusions trustworthy in the first
+place.
+
+**Measured result**
+Not a numeric result — a documentation consolidation. `ASR_RESEARCH_
+TRACK.md` gains one new section ("Current Project State — 2026-08-07
+EOD") and one superseded-marker addition to an existing section; no
+existing section's own text was edited, shortened, or removed.
+`ROADMAP.md` item 10 and `CHANGELOG.md` gain matching pointer entries. No
+code, experiment, or dataset touched. No change to `main`.
