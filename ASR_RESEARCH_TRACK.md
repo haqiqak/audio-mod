@@ -6740,9 +6740,11 @@ with implementation, per the ranked roadmap above:
 2. **Pre-register, then implement, Rank 1**: a full-raw-embedding
    logistic-regression classifier for `sound_repetition`/`word_
    repetition` candidate generation, reusing `compare_corroboration_
-   mechanisms.py`'s exact existing methodology, evaluated against the
-   same population direction (g) and the combined-signal classifier
-   already used. No new data, no GPU, no new infrastructure.
+   mechanisms.py`'s exact existing methodology, evaluated against
+   Stage B/C's own population (the real, ASR-text-normalized-away
+   candidate-generation gap), not direction (g)'s acoustic-candidate
+   population — corrected here from this line's earlier, imprecise
+   wording. No new data, no GPU, no new infrastructure.
 3. **If Rank 1 shows real improvement**: scope how to integrate it into
    the live detection pipeline as a genuine engineering task — a
    separate, deliberate decision, not automatic.
@@ -6759,3 +6761,609 @@ Claude**: the objective is a working application that extracts speech
 disfluencies reliably enough to act on — not a research paper, not a
 novel finding, not a new ASR. Everything in this document, including
 its own most interesting-sounding findings, is a means to that end.
+
+---
+
+# Rank 1: full-embedding candidate-generation classifier — pre-registered protocol (2026-08-07)
+
+Per the project owner's explicit instruction to proceed with Rank 1, and
+to plan it precisely before running anything. This section is written and
+committed to the record *before* the implementation below it is run —
+this project's own standing rule 1.
+
+## 1. What information Rank 1 consumes
+
+CrisperWhisper encoder last-layer hidden states (the same primitive
+`profiling/encoder_embedding.py` already exposes — `extract_last_layer_
+states()` + `pool_span()`), pooled at the span of every ASR hypothesis
+token that Track B's alignment marks `correct` (i.e., every position
+where the real ASR transcript and the ground-truth reference agree on
+which word is there — both disfluent-but-detected and clean words are
+eligible, exactly as Stage B/C already scoped it). Per position, this is
+a single ~1280-dimensional vector (CrisperWhisper large-v3's encoder
+hidden size) — the **full** raw embedding, not the single scalar
+(distance-to-centroid) Stage B/C reduced it to.
+
+No new ASR inference is required: this reuses the already-cached Track B
+hypothesis tokens (`eval_datasets/_track_b_cache`, populated across
+earlier sessions) and the already-downloaded real LibriStutter audio
+(`eval_datasets/libristutter_sample[_audio]`, 499 clips). One new encoder
+pass is required, over the same small clip subset Stage B already
+identified as relevant (see §4) — this is the only new compute cost, and
+it is the same cost profile already measured directly (~33s/clip,
+Stage B's own log).
+
+## 2. What it is trying to recover
+
+Whether **any position** in the real ASR transcript — not just positions
+where the transcript already contains a repetition-shaped surface
+pattern — is a `sound_repetition` or `word_repetition` site that
+CrisperWhisper's own decoded text gives **zero** surface evidence for
+(Stage A's "category 1": nothing predicted there at all, gate off). This
+is a **detection/candidate-generation** task: flag a position as
+disfluent or not, from encoder representation alone, independent of
+whatever the decoded text says. It is explicitly *not* attempting to
+recover the disfluent fragment's literal content (L4) — per the
+Application-Objective Decision Analysis above, that is not believed
+necessary for this project's actual product objective.
+
+## 3. Why this is different from the experiments already run and failed
+
+- **Different from Stage B/C themselves**: Stage B/C tested exactly one
+  hand-picked scalar reduction of the embedding (cosine distance to the
+  clip's fluent centroid) with a single-threshold decision rule (M1).
+  They never asked whether the *full* embedding, given to a classifier
+  that can weight all ~1280 dimensions independently (M3), separates the
+  two classes better than that one particular projection does. Standard
+  dimensionality-reduction theory says a good learned projection can only
+  match or beat a fixed hand-picked one on the same information — Rank 1
+  tests whether it actually does, on this population, not whether it
+  could in principle.
+- **Different from the combined-signal classifier** (`stage_combined_
+  classifier.py`, Failure, F1=0.242): that experiment combined 5 hand-
+  picked *scalar* features (MFCC similarity, burst count, duration, and
+  the same single encoder-distance scalar Stage B/C used) — it never gave
+  the classifier the raw embedding either. It also ran over direction
+  (g)'s acoustic-candidate population (positions an acoustic heuristic
+  already flagged as repetition-shaped), not Stage B/C's true candidate-
+  generation-gap population (positions where nothing at all was flagged).
+  These are different populations answering different questions, and
+  conflating them was this project's own imprecise wording in last
+  session's "Decision for Next Session," corrected above.
+- **Different from item 17's own shipped classifier**: item 17's
+  classifier already uses the full raw embedding + M3 — but only ever
+  sees positions the app's own candidate generator already flagged as
+  `word_repetition`/`sound_repetition` (a **corroboration** task: is this
+  already-proposed candidate real or a false positive?). Rank 1 asks the
+  logically prior question — should a candidate have been proposed here
+  at all? — over positions where today's candidate generator proposes
+  nothing. This is the exact gap item 20/Stage A's finding named (45%/
+  40% of real repetitions leave no surface trace for any text-based
+  candidate generator to find), and item 17's classifier structurally
+  cannot help with it, since it never sees these positions.
+
+## 4. Population and ground truth
+
+Identical to Stage B/C's own pre-registered and already-run population,
+reused unmodified via `stage_b_representation_probe.py`'s
+`_identify_positions()` — chosen deliberately over defining a new
+population, to keep this a strict, single-variable methodological
+comparison (classifier arm only) against already-published numbers,
+rather than introducing a second simultaneous change:
+
+- **Targets (label=1)**: real-ASR positions where the ground-truth
+  reference token is `sound_repetition` or `word_repetition`, the
+  alignment marks the position `correct` (i.e. this specific position
+  really is in the real, real-condition, real-audio ASR hypothesis, not
+  a deletion), and the live detector — classifier gate explicitly forced
+  off — predicts **nothing** there (Stage A's category 1). Real counts,
+  already measured (`eval_results/20260805T211000_stage_b_representation_
+  probe.json`): **19** `sound_repetition` targets, **17** `word_
+  repetition` targets, **36** combined, across **31** of the 499 real
+  LibriStutter clips (the only 31 that contain at least one such
+  position at all).
+- **Controls (label=0)**: every other `correct`-aligned, non-disfluent
+  position in those same 31 clips. Real count: **966**.
+- **Honest, load-bearing limitation, stated up front, not discovered
+  after the fact**: this is the entire available population for this
+  exact task on this dataset — Stage B/C already scanned all 499 real
+  clips to find it. 36 positives (19/17 split by type) is a genuinely
+  small sample. Under 5-fold clip-split CV this is roughly 7 positive
+  test examples per fold combined, 3-4 per fold for either type alone.
+  Per this project's own standing rule 3, any result from this
+  experiment — positive or negative — gets reported with this sample
+  size stated plainly alongside it, not as an unqualified headline
+  number. This ceiling cannot be raised without acquiring more labeled
+  real (non-synthetic) disfluent speech data, which is explicitly out of
+  Rank 1's scope (that is what would make it Rank 3/Stage D, not Rank 1).
+- **Provenance note, fixed before running**: `_identify_positions()` is
+  re-run fresh against whatever is currently on disk in `eval_datasets/
+  _track_b_cache` (a cache that has grown/changed across sessions), not
+  against a frozen snapshot of Stage B's own inputs. If the re-derived
+  counts differ from the 19/17/36/966 figures above, that will be
+  reported explicitly (cause: cache-population difference, a known,
+  legitimate reason, not a silent discrepancy) before any result is
+  trusted — the same discipline `stage_c_duration_baseline.py` already
+  applied when it re-derived Stage B's population and asserted the counts
+  matched (they did, that day).
+
+## 5. Baseline
+
+Stage C's own (S1, M1) mechanism — cosine distance to the fluent
+centroid, threshold selected by F1 on the training data — but
+**recomputed under identical 5-fold clip-split cross-validation** to the
+new (S1-full, M3) arm below, using `compare_corroboration_mechanisms.
+py`'s own `_cv_threshold()` unmodified. This is a stricter baseline than
+Stage C's originally-reported AUC=0.723 (sound_repetition) /
+precision-at-recall figures, which were computed over the whole
+population at once, not cross-validated — the CV baseline will very
+likely score lower than 0.723 AUC's implied ceiling, and that is
+expected and correct, not a bug: it is the fair, generalization-honest
+number to compare Rank 1's own cross-validated result against.
+
+## 6. Metrics and success/failure criteria
+
+Primary population: **Any** (`word_repetition` + `sound_repetition`
+combined, n_pos=36) — the least-small-sample cut available. Per-type
+(`sound_repetition` alone, n_pos=19; `word_repetition` alone, n_pos=17)
+reported alongside, explicitly labeled exploratory/too-small-to-trust-
+standalone per rule 3, not used alone to decide the gate below.
+
+For each population: 5-fold clip-split CV, nested-L2 logistic regression
+over the full standardized embedding, **train-fold-optimal threshold**
+(reusing `stage_combined_classifier.py`'s already-fixed
+`_cv_classifier_optimal_threshold()` convention from the start — not
+`compare_corroboration_mechanisms.py`'s hardcoded `proba>=0.5`, which
+this project already found silently fails on populations this imbalanced,
+first-hand, this same track, two sessions ago). Report mean
+precision/recall/F1 across folds, same format as every other stage in
+this track.
+
+**Decision gate, fixed before running (rule 1):**
+- **Success → integrate/validate toward the app** (§9): (S1-full, M3) on
+  the **Any** population beats the CV baseline by **≥20% relative F1**
+  (the same bar `stage_combined_classifier.py` used, kept consistent
+  across this track's classifier experiments) **AND** clears an absolute
+  usability floor of **precision ≥ 0.15 at recall ≥ 0.3** on that same
+  population — a technically-passing-but-still-unusable result (e.g. 3%
+  precision) does not count as Success even if it beats the baseline
+  relatively, because it would not be deployable.
+- **Failure, proceed to Rank 2**: does not clear both bars above.
+- **Inconclusive** (explicitly a third, honest outcome, not forced into
+  Success or Failure), operationalized concretely before running: compare
+  per-fold F1 (classifier vs. baseline) across the 5 outer folds; if the
+  classifier does not win (strictly higher F1) on at least 4 of 5 folds
+  AND does not lose on at least 4 of 5 folds — i.e. the per-fold direction
+  is mixed, neither side winning a clear majority — the result is
+  Inconclusive regardless of what the mean-F1 comparison alone would
+  suggest. Given n_pos=36, this is a real possible outcome and must be
+  reported as such, not smoothed into a false Success or Failure.
+
+## 7. What would justify Rank 2 vs. Stage D
+
+- **Rank 2** (learned acoustic detector, YOLO-Stutter/SSDM architecture
+  class): justified by Failure or Inconclusive here — this result alone
+  does not touch acoustic-only signal at all (it is encoder-representation-
+  only, matching Stage B/C's own scope), so a Failure here says nothing
+  about whether a purpose-built acoustic detector would do better, only
+  that this specific representation-side lever (full embedding vs. one
+  scalar) does not close the gap enough to ship.
+- **Stage D** (re-scoped to L2, per the Decision Analysis above): only
+  justified once **both** Rank 1 and Rank 2 are tried and Failure/
+  Inconclusive on both — not by this result alone, per the pre-registered
+  roadmap order.
+
+## 8. Downstream integration path, if Success
+
+The live app already runs a second CrisperWhisper encoder-only pass at
+inference time for item 17's corroboration classifier (`ROADMAP.md` item
+18 tracks removing this redundancy as a separate, not-yet-done
+optimization). A shipped Rank 1 classifier would extend that existing
+pass from "encoder features at already-flagged candidate positions only"
+to "encoder features at every correctly-aligned transcript position" —
+a real, already-named, already-accepted-as-open cost (`ROADMAP.md` item
+18/20: added live-app latency), not a new unknown. Integration would mean:
+run the classifier over every ASR token span during inference, emit a new
+candidate wherever it fires, then route that candidate through the
+existing type/confidence/downstream-event pipeline exactly as any other
+candidate is today. This is a scoped engineering task if and when Success
+is reached — not attempted in this pass.
+
+## 9. Novelty (kept explicitly secondary, per the governing objective)
+
+Not a novelty claim. This is this project's own already-proven classifier
+methodology (item 17), applied to a different, already-precisely-
+identified population within the same project. Whether it succeeds or
+fails, the finding is an internal engineering result about this specific
+pipeline, not a claim about the broader field.
+
+## Rank 1 results (2026-08-07)
+
+Implemented as `profiling/evaluation/stage_h_candidate_generation_
+classifier.py`, self-tested (8/8 checks pass — decision-gate logic on
+hand-constructed win/loss/floor cases, row-packing round-trip), then run
+for real against the pre-registered protocol above, no changes to the
+protocol after seeing results.
+
+**Provenance note triggered, as anticipated in §4**: the Track B cache
+has grown since Stage B/C's session (189 clips cached now vs. whatever
+was cached then) — re-derivation found **58** clips with at least one
+category-1 target position (vs. Stage B's 31), **37** `sound_repetition`
+targets (vs. 19), **29** `word_repetition` targets (vs. 17), **1780**
+control positions (vs. 966). The ~1.87x scale-up is consistent across
+every count (58/31 = 1.87, matching 189/roughly-101-clips-then), which is
+the expected signature of more of the same corpus having been ASR'd and
+cached since, not a bug — reported per the pre-registered handling, not
+silently accepted or treated as alarming.
+
+**Real result, primary population (Any, n_pos=66, n_neg=1780):**
+
+| Arm | F1 | Precision | Recall |
+|---|---|---|---|
+| Baseline (S1, M1): distance-to-centroid + CV threshold | 0.097 | 0.055 | 0.462 |
+| Rank 1 (S1-full, M3): full embedding + nested-CV logistic regression | **0.230** | **0.580** | 0.147 |
+
+Per-fold win/loss: 4W/1L (stable direction, gate proceeds past the
+Inconclusive check). Relative bar (F1 > 0.097×1.2 = 0.116): **cleared**
+(0.230). Absolute floor (precision ≥0.15 **and** recall ≥0.3): **not
+cleared** — precision clears it by a wide margin (0.580, ~10x the
+baseline's 0.055) but recall (0.147) falls well short of the 0.3 floor.
+
+**Verdict per the pre-registered gate: FAILURE** — on the absolute-floor
+half of the criterion specifically, not the relative-improvement half.
+
+**Per-type cuts (both explicitly too-small-to-trust standalone, per §6,
+reported for completeness, not used to override the primary verdict):**
+`sound_repetition` alone (n_pos=37): baseline F1=0.068, classifier
+F1=0.120, 2W/1L of 5 folds — **Inconclusive** (neither side reaches the
+pre-registered 4-fold stability threshold). `word_repetition` alone
+(n_pos=29): baseline F1=0.040, classifier F1=0.000 (every fold), 0W/3L —
+also **Inconclusive** by the same rule, despite looking like a clear loss
+on the raw numbers; the stability rule is deliberately conservative here
+and that is working as designed, not a loophole.
+
+**What this actually shows, stated precisely (rule 3 — audit before
+trusting, small samples get a caveat, not a headline):**
+
+This is a genuine, informative negative result, not a null one. The full
+embedding *does* contain more separable signal than the single hand-
+picked scalar projection — precision improved roughly 10x and mean F1
+more than doubled, and that gain survived cross-validation (4 of 5
+folds agree on the direction). That confirms §3's underlying hypothesis
+(a learned projection can do more with the same information than one
+fixed scalar) was correct, as far as it goes. But at n_pos=66 (and far
+smaller per-type), fitting a ~1280-dimensional decision boundary produces
+a classifier that is highly conservative — precise when it fires, but it
+fires on only ~15% of real instances. This experiment **cannot
+distinguish** between two different explanations for that low recall:
+(a) the encoder's own representation genuinely doesn't separate most of
+these positions well enough, or (b) 66 positive examples is too few to
+fit a stable, well-calibrated decision boundary in this dimensionality,
+independent of whether the representation itself is separable. Both are
+live possibilities; this experiment does not adjudicate between them, and
+claiming it does would be exactly the kind of overclaim rule 3 and the
+governing objective both warn against.
+
+**Per the pre-registered roadmap (§7): this result is Failure on the
+primary population → Rank 2 is next**, not Stage D. Stage D remains a
+reserve option per the project owner's own explicit instruction, not the
+automatic destination — and this result does not by itself justify it,
+since Rank 1's Failure is specifically about representation/sample-size,
+not about acoustic signal, which Rank 2 tests independently.
+
+---
+
+# Rank 2: learned acoustic candidate-generation classifier — pre-registered protocol (2026-08-07)
+
+Per the project owner's explicit go-ahead to run the full cycle (plan,
+implement, test, run, document, decide) in one pass. This section is
+written and committed to the record before the implementation below it
+exists, per this project's own standing rule 1.
+
+## Hypothesis
+
+Direction (g) and its MFCC escalation (`stage_g_acoustic_sound_
+repetition.py`) already tested whether `sound_repetition` has a
+recoverable acoustic signature — they found real signal (recall 0.69 at
+best) but a **hand-designed** similarity metric (cosine similarity
+between two bursts' *mean-pooled, single* MFCC vectors, collapsed to one
+scalar) could not turn that signal into useful precision (best F1=0.170,
+uncross-validated; F1=0.147 under proper CV). The combined-signal
+classifier then combined that one scalar with 3 other hand-picked scalars
+and a *separate, ASR-encoder-derived* signal — still Failure (F1=0.242,
+short of beating the encoder-distance arm alone). Neither experiment ever
+let a model **learn** how to weight the individual MFCC coefficients or
+how much inter-burst variation is tolerable — both hard-coded that via a
+single fixed cosine-similarity formula.
+
+**Rank 2's hypothesis**: a classifier that learns, from the full
+per-coefficient MFCC statistics of the bursts a candidate is built from
+(not one hand-collapsed similarity number), which spectral properties
+distinguish a real repeated fragment from an incidental run of short
+voiced bursts, will separate the two classes better than the fixed
+cosine-similarity heuristic does — evaluated purely on **acoustic**
+signal, with **no ASR and no encoder involved at all** (unlike Rank 1,
+which was encoder-representation-only). This is the genuinely distinct
+question direction (g) never tested: not "is there acoustic signal"
+(already found: yes) and not "does combining acoustic + encoder help"
+(already tested: no) — but "does a *learned* combination of the *raw*
+acoustic features beat a *hand-designed* one," acoustic-only.
+
+## Acoustic inputs / features
+
+Reuses `stage_g_acoustic_sound_repetition.py`'s exact, unmodified
+primitives: `segment_voiced()` (voiced/silent segmentation),
+`compute_mfcc()` (the hand-rolled, already-validated 13-coefficient MFCC
+extractor), and the exact same candidate-*span* detection logic inside
+`generate_candidates()` (a maximal run of ≥2 consecutive short voiced
+bursts, short-gap tolerant) — candidate spans depend only on the voiced/
+silent segmentation and duration/gap thresholds, not on which similarity
+feature is computed from them, so this experiment's candidate population
+is **identical** to direction (g)'s own (same spans, same audio, same
+thresholds), only the per-candidate feature vector changes.
+
+For each candidate (a run of `n_bursts` ≥ 2 short bursts), instead of one
+hand-designed cosine-similarity scalar between consecutive bursts, extract:
+- **Mean MFCC vector across the run's bursts** (12 dims, coefficient 0
+  excluded — same established exclusion as direction (g)'s own MFCC
+  escalation, for the same measured reason: coefficient 0 is overall
+  energy and swamps genuine spectral-shape information).
+- **Per-coefficient standard deviation across the run's bursts** (12
+  dims) — how much the bursts disagree with each other, coefficient by
+  coefficient. This generalizes direction (g)'s pairwise-cosine-
+  similarity idea (low inter-burst variation ≈ similar ≈ repetition-like)
+  to any `n_bursts` ≥ 2 and, critically, lets the classifier weight each
+  coefficient's variability independently instead of forcing all 12 into
+  one fixed-geometry similarity formula.
+- `n_bursts`, `duration` (2 scalars — the same weak context features
+  already used in the combined-signal classifier, included for
+  consistency, not expected to carry the result alone).
+
+26 dimensions total. Pure numpy, no new dependency (the MFCC extractor
+and `scipy.fftpack.dct` it uses are already in this project's
+environment). A new function, `_generate_candidates_with_bursts()`, is
+added to Rank 2's own script (not to `stage_g_acoustic_sound_
+repetition.py`) — a deliberate, small duplication of that module's
+run-detection loop, because `AcousticCandidate` itself does not expose
+the individual burst segments its aggregate `similarities` were computed
+from, and modifying an already-validated, already-shipped module's return
+type to serve one new caller is not warranted here.
+
+## Target population
+
+`sound_repetition` only — matching direction (g)'s own established scope
+exactly (the acoustic burst mechanism is specific to sub-word fragment
+repetition; `word_repetition`'s acoustic signature, if any, is a
+different question this project has not scoped). Ground truth comes
+directly from LibriStutter's own labels (Track-A-style, no ASR involved
+anywhere in this experiment, matching direction (g)'s own methodology).
+
+**Scaled up from direction (g)'s own n=120 clips to all 499 real
+LibriStutter clips with usable audio** — a deliberate, real difference
+from every acoustic-population experiment so far in this track. This is
+possible specifically *because* Rank 2 needs no CrisperWhisper encoder
+pass (unlike Rank 1, Stage B/C, or the combined-signal classifier's Arm
+B/C) — the entire per-clip cost is voicing segmentation + a hand-rolled
+MFCC pass, already measured directly at 97s/120 clips (`eval_datasets/
+_stage_g_mfcc_run_output.txt`), giving an expected total cost of
+**~400s (under 7 minutes)** for all 499 clips — cited from an
+already-logged run of the identical computation, not a fresh guess.
+Scaling up directly addresses Rank 1's own most-flagged limitation (a
+sample too small to distinguish "no signal" from "not enough data") —
+if the same ~51-target-per-120-clip rate holds, this gives roughly
+**~210 `sound_repetition` targets**, a meaningfully larger and more
+trustworthy sample than Rank 1's 66. Real counts are reported as
+measured, not assumed.
+
+## Model / architecture
+
+The exact same nested-CV L2-regularized logistic-regression mechanism
+this track has used for every classifier so far (item 17,
+`stage_combined_classifier.py`, Rank 1) — `compare_corroboration_
+mechanisms.py`'s `_fit_logistic_regression`/`_select_l2_by_nested_cv`/
+`_standardize`, plus `stage_combined_classifier.py`'s already-fixed
+train-fold-optimal-threshold convention (`_cv_classifier_optimal_
+threshold`), all unmodified. This is a **deliberate, honest scoping-
+down** from YOLO-Stutter/SSDM's own architecture class (deep CNN/
+transformer models trained end-to-end on raw audio, typically on GPU) —
+this project has no GPU, and a full replication is out of scope for a
+bounded, single-session experiment. What Rank 2 preserves from that
+architecture class is the *spirit* (a model that **learns** the
+detection function from richer acoustic features, rather than a fixed
+hand-designed formula) at a cost this project can actually afford. This
+scoping-down is stated plainly here so the result is never described as
+"we tried a YOLO-Stutter-class detector" — it is a CPU-feasible,
+much smaller approximation of that idea, and is reported as such.
+
+## Baseline
+
+Direction (g)'s own mechanism — mean pairwise MFCC cosine similarity
+(coefficient 0 excluded) + a cross-validated threshold (S1, M1) —
+**recomputed fresh on this experiment's own n=499 population and folds**
+(not reusing the old n=120 cached number), for the same reason Rank 1's
+baseline was recomputed rather than reused: a fair comparison requires
+the identical sample and fold split for both arms.
+
+## Evaluation protocol
+
+5-fold clip-split cross-validation (`_clip_folds`, unmodified — same
+deterministic round-robin over sorted clip ids used throughout this
+track). Per fold: baseline arm scored by `_cv_threshold` (train-fold-
+optimal similarity threshold); classifier arm scored by `_cv_classifier_
+optimal_threshold` (nested-CV L2 selection + train-fold-optimal decision
+threshold). Report mean precision/recall/F1 across folds, matching this
+track's established format.
+
+## Success / failure criteria (fixed before running)
+
+The same decision-gate structure as Rank 1's, reused unchanged for
+cross-experiment consistency, not re-derived per experiment:
+- **Stability check first**: per-fold win/loss (classifier F1 vs.
+  baseline F1) across the 5 outer folds. If the classifier does not win
+  on ≥4 of 5 folds **and** does not lose on ≥4 of 5 folds (a genuinely
+  mixed direction), the result is **Inconclusive**, regardless of the
+  mean-F1 comparison.
+- **Success**: (only if the stability check resolves to a clear
+  direction) mean F1 beats the baseline by **≥20% relative**, **AND**
+  clears an absolute usability floor of **precision ≥0.15 at recall
+  ≥0.3** — the identical floor Rank 1 used, kept fixed across this
+  track's classifier experiments rather than tuned per experiment.
+- **Failure**: stable direction, but does not clear both bars.
+
+## What would justify Stage D vs. another low-cost direction
+
+Per the project owner's explicit instruction that Stage D is a reserve
+option, not the automatic destination, and that the chain should stop
+at genuine dead ends rather than spawn open-ended new variants:
+- **If Rank 2 succeeds**: validate/integrate toward the live pipeline,
+  same as Rank 1's own success path would have been — not a new research
+  question.
+- **If Rank 2 fails or is Inconclusive**: this is the point named in the
+  Application-Objective Decision Analysis's §7/§8 as "Rank 1 and Rank 2
+  both tried and leave a real gap" — at that point Stage D (re-scoped to
+  L2, per that section) becomes the evidence-justified next step **only
+  if** no further low-cost, evidence-motivated direction is identifiable
+  at that time; this document's own honest assessment of the two
+  results together, not a default, decides which. This pre-registration
+  does not commit in advance to "Stage D no matter what" — per the
+  owner's explicit instruction to stop the experimental chain at the
+  pre-registered stopping point and reassess, not keep spawning variants.
+
+## Novelty (kept explicitly secondary, per the governing objective)
+
+Not a novelty claim. A bounded, CPU-feasible test of whether this
+project's own existing acoustic pipeline benefits from a learned rather
+than hand-designed similarity function — an internal engineering
+question, answered honestly either way.
+
+## Rank 2 results (2026-08-07)
+
+Implemented as `profiling/evaluation/stage_i_learned_acoustic_classifier.
+py`, self-tested (12/12 checks pass — candidate/burst extraction, feature
+construction on synthetic identical-vs-degenerate bursts, decision-gate
+logic, row-packing round-trip), then run for real against the
+pre-registered protocol above, no changes to the protocol after seeing
+results.
+
+**Scale-up worked as predicted**: 358s (under 6 minutes) for all 499
+clips, no encoder involved — confirming the pre-registered cost estimate.
+**200** ground-truth `sound_repetition` instances across 168 clips,
+**3215** acoustic candidates generated, **245** positive — a substantially
+larger, more trustworthy sample than either direction (g)'s original
+n=120 run (51 targets) or Rank 1's n=66, exactly the intended benefit of
+not needing the encoder.
+
+**Real result (n_pos=245, n_neg=2970):**
+
+| Arm | F1 | Precision | Recall |
+|---|---|---|---|
+| Baseline: mean MFCC similarity + CV threshold | 0.133 | 0.077 | 0.531 |
+| Rank 2: raw per-coefficient MFCC stats + nested-CV logistic regression | 0.163 | 0.114 | 0.308 |
+
+Per-fold win/loss: 4W/1L (stable direction). Relative bar (F1 >
+0.133×1.2 = 0.160): **cleared, but only barely** (0.163 vs. 0.160 — a
+margin smaller than the fold-to-fold F1 range either arm shows: baseline
+0.088-0.159, classifier 0.111-0.215). Absolute floor (precision ≥0.15
+**and** recall ≥0.3): recall clears it narrowly (0.308), **precision does
+not** (0.114, roughly 24% short of the 0.15 floor).
+
+**Verdict per the pre-registered gate: FAILURE** — on the absolute-floor
+half again, this time on precision rather than recall, and by a
+narrower margin than Rank 1's failure.
+
+**Audit before trusting (rule 3) — this is a genuinely marginal result,
+not a clean one, and is reported as such rather than rounded toward
+either "basically failed" or "almost succeeded":** the classifier's mean
+F1 improvement over the baseline (0.133→0.163) clears the pre-registered
++20%-relative bar by less than half a percentage point of raw F1 — a
+margin smaller than ordinary fold-to-fold noise in this experiment. The
+4-of-5 per-fold win record is real evidence the effect isn't pure chance,
+but the *size* of the effect is small. Compared to Rank 1's result, the
+character is different, not just the numbers: Rank 1's classifier traded
+most of its recall for a large (~10x) precision gain; Rank 2's classifier
+traded roughly half its recall (0.531→0.308) for a much smaller (~1.5x)
+precision gain (0.077→0.114) — closer to what direction (g)'s own
+already-published threshold sweep on the single similarity scalar alone
+already showed (higher threshold -> lower recall, roughly flat
+precision/F1, `stage_g`'s own table above). This experiment cannot fully
+rule out that the 26-dimensional classifier is doing little more than
+re-deriving a well-calibrated version of the same underlying "how similar
+are these bursts" concept the one hand-designed scalar already
+captures, rather than genuinely exploiting the richer per-coefficient
+information it was given — an honest limitation, not glossed over.
+
+**Per the pre-registered roadmap: this is Failure**, meaning — per this
+section's own pre-registered §"What would justify Stage D vs. another
+low-cost direction" — the next decision is whether Stage D is now
+justified, or whether a further low-cost, evidence-motivated direction
+remains identifiable. See the synthesis section immediately below, which
+addresses both Rank 1 and Rank 2 together, as the project owner
+requested.
+
+---
+
+# Rank 1 + Rank 2 synthesis and next-step decision (2026-08-07)
+
+Both pre-registered, bounded experiments the project owner authorized are
+now complete. Per their explicit instruction, this section states the
+decision plainly rather than opening new variants.
+
+**What both results say, taken together**: every representation this
+track has tried at the candidate-*generation* level — the ASR encoder's
+full embedding (Rank 1) and raw per-coefficient acoustic features
+(Rank 2) — independently contains **real, non-random, cross-validated
+signal** for `sound_repetition`/`word_repetition` positions the current
+text-based pipeline misses entirely. Neither, on its own, reaches a
+precision/recall combination this project judged deployable in advance.
+Critically, **the two failures are shaped differently**: Rank 1 gave up
+recall for a large precision gain; Rank 2 gave up recall for a small
+precision gain. That difference in shape is itself evidence the two
+representations are not redundant with each other — if they were
+capturing the exact same information, their failure modes would look
+alike.
+
+**Does this move the project closer to a working application?** Yes, in
+a specific, honest sense: two more real detection levers now exist and
+are quantified (real precision/recall numbers, not vague plausibility),
+where before this session there was only the single, weaker hand-picked
+similarity scalar and the combined classifier that mixed weak scalars
+from both domains together (F1=0.242, using neither Rank 1's full
+embedding nor Rank 2's raw MFCC stats). No, in the sense that neither
+result is shippable as-is — the application still cannot reliably
+recover most of these missed positions today.
+
+**Is a further low-cost, evidence-motivated direction identifiable
+(per this document's own pre-registered exit condition)? Yes — one real,
+specific, not-yet-tried option**: a classifier combining Rank 1's *full*
+encoder embedding with Rank 2's *full* 26-dimensional raw acoustic
+feature vector, together, on one population. This is meaningfully
+different from the already-failed combined-signal classifier
+(`stage_combined_classifier.py`, F1=0.242), which only ever combined four
+*hand-picked scalars* (one MFCC-similarity number, burst count, duration,
+one encoder-distance number) — never the rich representations either
+Rank 1 or Rank 2 just tested individually. Given the two signals' failure
+modes look different (precision-favoring vs. a smaller, flatter effect),
+there is a real, stated reason — not just optimism — to expect a
+combination of the *rich* features might do better than either alone,
+the same reasoning that motivated trying the weak-scalar combination in
+the first place, now applied to the versions of each signal that
+actually contain more information. This remains genuinely cheap: no new
+data, no GPU — only an encoder pass over Rank 2's acoustic-candidate
+population (scoped to the clips that actually contain a candidate,
+matching every prior stage's own cost-scoping discipline).
+
+**Decision**: per the project owner's own explicit hierarchy (existing
+components first; cheapest reliable recovery method second; Stage D only
+if those demonstrably fail) and this document's own pre-registered exit
+condition, **Stage D is not yet justified — one further low-cost,
+untried, evidence-motivated combination remains, and should be tried
+before Stage D, not after it.** This is a decision to name and record for
+the next session, not to implement in this one, per the project owner's
+own instruction to stop the experimental chain at the pre-registered
+stopping point rather than keep spawning variants inside a single pass.
+If that combined-rich-feature classifier is tried and also fails to
+clear a deployable floor, that would be the point — for the first time —
+where every cheap, evidence-motivated representation-side option this
+project can identify has actually been exhausted, and Stage D (re-scoped
+to L2, per the Application-Objective Decision Analysis) would become the
+honestly-earned next step, not a default.

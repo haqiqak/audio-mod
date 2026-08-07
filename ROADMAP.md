@@ -745,6 +745,77 @@ for these three (see item 10's revised framing below).
     actual product objective. No code, experiment, or dataset touched
     this pass — decision analysis and documentation only. No change to
     `main`.
+    **Rank 1 pre-registered, implemented, and run, 2026-08-07 — Failure
+    on the primary population, with a real, informative nuance — see
+    `ASR_RESEARCH_TRACK.md`'s "Rank 1: full-embedding candidate-generation
+    classifier" and "Rank 1 results."** Per the project owner's explicit
+    go-ahead, built `profiling/evaluation/stage_h_candidate_generation_
+    classifier.py`: the same (S1-full, M3) mechanism item 17 already
+    ships, applied for the first time to Stage B/C's real candidate-
+    *generation*-gap population (positions where CrisperWhisper's decoded
+    text gives zero surface evidence of a real `sound_repetition`/`word_
+    repetition`), compared against Stage C's own (S1, M1) scalar-distance
+    baseline under identical 5-fold clip-split CV. Self-tested (8/8) before
+    the real run. **Real result** (Any population, n_pos=66, n_neg=1780,
+    re-derived slightly larger than Stage B/C's own 36/966 because the
+    Track B cache has grown since — reported, not hidden, per the
+    pre-registered provenance check): baseline F1=0.097 (P=0.055,
+    R=0.462) vs. classifier F1=0.230 (P=0.580, R=0.147) — clears the
+    pre-registered relative bar (+20%) by a wide margin and precision
+    improves ~10x, but recall (0.147) falls short of the pre-registered
+    absolute usability floor (≥0.3) — **Failure**, specifically on
+    deployability, not on whether the full embedding carries more signal
+    than the single scalar (it does). Per-type cuts (`sound_repetition`
+    n_pos=37, `word_repetition` n_pos=29) both landed **Inconclusive**
+    under the pre-registered per-fold stability rule — too small to call
+    either way, exactly the caveat pre-registered for them. Honestly
+    flagged as unresolved by this experiment, not smoothed over: whether
+    the low recall reflects a genuine representation ceiling or simply
+    too few positive examples (66) to fit a stable ~1280-dimensional
+    decision boundary — this experiment cannot distinguish the two.
+    **Per the pre-registered roadmap: Rank 2 (a learned acoustic
+    detector) is next, not Stage D** — Stage D remains the reserve
+    option per the project owner's own instruction, not automatically
+    triggered by this result.
+    **Rank 2 pre-registered, implemented, and run, same day — Failure,
+    narrower and differently-shaped than Rank 1's — see `ASR_RESEARCH_
+    TRACK.md`'s "Rank 2: learned acoustic candidate-generation
+    classifier," "Rank 2 results," and "Rank 1 + Rank 2 synthesis and
+    next-step decision."** Per the project owner's explicit instruction
+    to complete the full cycle (plan, implement, test, run, document,
+    decide) without stopping for permission, built `profiling/
+    evaluation/stage_i_learned_acoustic_classifier.py`: a nested-CV
+    logistic regression over each acoustic candidate's *raw*
+    per-coefficient MFCC statistics (mean + std across the candidate's
+    bursts, 26 dims), acoustic-only, no ASR/encoder involved at all —
+    testing whether a *learned* combination of raw acoustic features
+    beats direction (g)'s own *hand-designed* single-scalar similarity
+    metric. Scaled to all 499 real LibriStutter clips (not just 120)
+    specifically because this experiment needs no encoder pass (~6
+    minutes total, matching the pre-registered cost estimate exactly),
+    giving a much larger sample (245 positives) than Rank 1 had.
+    Self-tested (12/12) before the real run. **Real result**: baseline
+    (mean MFCC similarity + CV threshold) F1=0.133 (P=0.077, R=0.531);
+    classifier F1=0.163 (P=0.114, R=0.308) — clears the relative bar
+    (+20%) only barely (a margin smaller than either arm's own
+    fold-to-fold variance), clears the recall half of the absolute floor
+    narrowly but **not** the precision half (0.114 vs. the 0.15 floor) —
+    **Failure**, explicitly audited and reported as a marginal, not
+    clean, result: this experiment cannot rule out that the 26-dim
+    classifier is mostly re-deriving a calibrated version of the same
+    underlying similarity concept the one hand-designed scalar already
+    captures, rather than genuinely exploiting the richer per-coefficient
+    information. **Synthesis decision**: taken together, Rank 1 and
+    Rank 2 each found real, differently-shaped signal (encoder:
+    precision-favoring; acoustic: smaller, flatter effect) that neither
+    alone reaches deployability — a real, specific, not-yet-tried
+    low-cost option remains (a classifier combining Rank 1's full
+    embedding with Rank 2's full 26-dim acoustic features together,
+    meaningfully richer than the already-failed weak-scalar combined
+    classifier) and should be tried before Stage D, not after it. Stage D
+    remains not yet justified — named as the honestly-earned next step
+    only if that combined-rich-feature classifier is also tried and
+    fails.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every

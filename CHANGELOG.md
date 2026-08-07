@@ -8,6 +8,44 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-07 (asr-research branch)
 
+- **Rank 2 (learned acoustic candidate-generation classifier): pre-
+  registered, implemented, run — marginal Failure, synthesis decision
+  names the real next step.** Tested whether a learned classifier over
+  raw per-coefficient MFCC statistics (26 dims, acoustic-only, no ASR/
+  encoder) beats direction (g)'s hand-designed single-scalar similarity
+  metric. Scaled to all 499 real LibriStutter clips (cheap: no encoder
+  needed, ~6 minutes), giving 245 positives, several times Rank 1's
+  sample. Result: F1 0.133->0.163 (clears the relative bar only
+  narrowly, smaller than fold-to-fold noise), recall clears the
+  deployability floor barely (0.308) but precision doesn't (0.114 vs.
+  0.15) — Failure, honestly flagged as possibly just a calibrated
+  version of the same similarity concept, not necessarily new
+  information. New: `profiling/evaluation/stage_i_learned_acoustic_
+  classifier.py`, self-tested (12/12). **Synthesis**: Rank 1 (encoder)
+  and Rank 2 (acoustic) both found real, differently-shaped signal that
+  neither alone reaches deployability; a genuinely untried, still-cheap
+  option (combining both signals' *rich* features, not the already-
+  failed weak-scalar combination) is named as the next step — Stage D
+  judged not yet justified. No change to `main`. → *PAPER_DECISION_LOG.
+  md, "Rank 2 (learned acoustic candidate-generation classifier)..."*
+
+- **Rank 1 (full-embedding candidate-generation classifier): pre-
+  registered, implemented, run — Failure on deployability, real signal
+  confirmed.** Tested whether item 17's own shipped classifier mechanism
+  (full raw encoder embedding + nested-CV logistic regression), applied
+  to Stage B/C's real candidate-generation-gap population instead of
+  their single-scalar baseline, closes the gap. Result: precision
+  improved ~10x (0.055->0.580) and F1 more than doubled (0.097->0.230,
+  clearing the pre-registered relative bar), but recall (0.147) missed
+  the pre-registered absolute usability floor (>=0.3) — Failure,
+  specifically on deployability, confirming the representation carries
+  real signal without yet being usable standalone. New: `profiling/
+  evaluation/stage_h_candidate_generation_classifier.py`, self-tested
+  (8/8). Per the pre-registered roadmap, next step is Rank 2 (a learned
+  acoustic detector), not Stage D. No change to `main`. → *PAPER_
+  DECISION_LOG.md, "Rank 1 (full-embedding candidate-generation
+  classifier)..."*
+
 - **Application-Objective Decision Analysis: novelty explicitly
   demoted to secondary, research redirected toward implementation.**
   Project owner course-corrected: the actual objective is a working
