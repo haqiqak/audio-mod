@@ -6296,3 +6296,195 @@ now, pending one real-speech validation pass; Papers D (proposed
 architecture) and E (full system) require Stage D's own results first.
 `ROADMAP.md` item 10 updated with a pointer and summary. No code,
 experiment, or dataset touched. No change to `main`.
+
+## 2026-08-07 — Novelty-falsification pass: L1-L4 operationalized, a further material revision, primary sources traced to the actual paper
+
+**What was done**
+Per the project owner's own direct verification of the AS-70 primary
+source and a request for a stricter, four-level operationalization
+(L1: ASR for stuttered speech; L2: verbatim vs. normalized output; L3:
+explicit disfluency-type representation; L4: actual repeated-fragment
+*content* preserved, e.g. "c-c-cat," not a generic marker), traced the
+Hugging Face `StutteredSpeechASR` model card to its actual technical
+paper rather than accepting the card's own (notably incomplete —
+"word repetitions and interjections," not sound repetitions)
+description. Fetched and read Li, Li, Gong, Wang, & Wu's "Our
+Collective Voices" (FAccT 2025) in full — 16 pages including the
+appendix, via the authors' own open preprint, not a paywalled or
+summarized version — and confirmed it is the technical paper behind
+both `StutteredSpeechASR` and the `StammerTalk`/`AS-70` dataset
+(overlapping authors, identical scale, identical annotation schema).
+
+**Real, quantified L2 confirmation, directly verified**: the paper's
+own fine-tuned Whisper deletion-error rate (the error type triggered by
+omitting a repetition) dropped from 26.56% to 2.29% (severe stuttering)
+and 15.77% to 1.27% (moderate) after fine-tuning on literal (verbatim,
+markup-stripped-but-content-real) transcriptions — genuine, first-party
+evidence L2 is solved, on real speech.
+
+**The precise L4 evidence, read directly from the paper's own Tables
+3-4**: one concrete example shows a `/r` (sound-repetition) annotation
+on a single character; the baseline model's output at that position is
+a single wrong homophone character with no repeat structure at all —
+even in the same utterance where a word-level repeat elsewhere
+partially (if garbled) survived. **A real, honestly-stated gap in what
+this paper demonstrates**: no corresponding fine-tuned-model output
+example for a `/r` event was found in the paper — only aggregate,
+severity-level CER/deletion-rate numbers, not a qualitative comparison
+isolated to sound-repetition events. This was not filled by assumption
+in either direction.
+
+**A further, material, explicitly-marked revision to this same day's
+earlier deep pass**: comparing the annotation convention across both
+papers ("小/r明," "自/r卑的" — always a marker on one whole existing
+character) against what true L4 requires, this review's own reasoned
+inference (stated explicitly as inference, not attributed to either
+paper) is that Chinese orthography has no sub-character grapheme
+available to write a phonetic fragment as literal text — word-level
+repeats can be written as genuinely repeated whole characters (which is
+exactly why StammerTalk's word-level content preservation is real and
+demonstrated), but a sound-level fragment has no comparable written
+form. **If correct, this means AS-70/StammerTalk — despite being the
+best real, right-granularity data this entire review found — may be
+structurally unable to test this project's actual L4 hypothesis for
+`sound_repetition`,** independent of model or training-method choice.
+This revises, not merely extends, the deep pass's "AS-70-first,
+Mandarin pilot" recommendation: that pilot remains real and useful for
+de-risking the *training recipe* (verbatim-target fine-tuning,
+catastrophic-forgetting control, using StammerTalk's own directly-
+demonstrated approach), but cannot substitute for eventually testing
+fragment-content preservation in English or another alphabetic-script
+language, which is the specific question Stage D exists to answer.
+
+**Alternatives considered**
+- Accept the Hugging Face model card's own claims at face value, since
+  it explicitly says the model "preserves disfluencies." **Rejected**:
+  the card itself doesn't specify sound-repetition preservation (only
+  "word repetitions and interjections"), gives no example output, and
+  doesn't define "verbatim" precisely enough to answer L4 — exactly the
+  kind of secondary-source gap this project's own citation discipline
+  exists to close by going to the primary source instead.
+- Treat AS-70/StammerTalk's real, demonstrated L2 success as sufficient
+  evidence that L4 is also likely solved, by extension. **Rejected**:
+  checked directly instead of assumed — L2 (verbatim vs. normalized)
+  and L4 (fragment-content preservation, specifically for sound-level
+  repetition) are different claims, and the paper's own qualitative
+  examples show a real, unresolved gap at exactly the point that
+  matters for L4.
+- Present the Mandarin-script structural finding as an established fact
+  from the literature. **Rejected**: explicitly labeled as this
+  review's own inference throughout, since no source read states it
+  directly — consistent with the project owner's own instruction to
+  distinguish "demonstrated by our experiments" / "supported by
+  literature" / "inferred" / "still hypothetical" precisely.
+
+**Why this choice**
+Directly executes the requested stricter falsification pass — the
+value of operationalizing L1-L4 and tracing every claim to its primary
+source is specifically in finding exactly where the evidence stops,
+which it did (at L4 for sound-level fragments), and in catching a
+further real revision (the script-structural finding) that the
+broader, less strict deep pass did not surface.
+
+**Measured result**
+Not a numeric result — a precise, primary-source-traced novelty
+falsification. `ASR_RESEARCH_TRACK.md` gets a new section, "Novelty-
+falsification pass — 2026-08-07," with the operationalized L1-L4
+framework, the revised three-level verdict (L1/L2 already solved; L3
+partially solved; L4 for `sound_repetition` specifically remains
+unaddressed), and a revised (not silently replaced) recommendation:
+Stage D at true L4 preservation, most plausibly in English, is a
+genuine contribution, not a reassembly of existing techniques — but the
+Mandarin pilot named in the deep pass, while still useful for the
+training-recipe question, cannot test the actual hypothesis on its own.
+`ROADMAP.md` item 10 updated with a pointer and summary. No code,
+experiment, or dataset touched. No change to `main`.
+
+## 2026-08-07 — Application-Objective Decision Analysis: reinterpreting two sessions of research through the project's actual product objective
+
+**What was done**
+The project owner issued an explicit, direct course correction: the prior
+four entries today (final research audit, deep-pass positioning analysis,
+novelty-falsification pass) had drifted into treating "finding a novel,
+unaddressed ASR research gap" as the destination, when the project's
+actual objective — stated by the owner in full — is an application that
+takes a speaker's audio and reliably extracts the disfluencies actually
+occurring in it, so they can be localized, classified, and used downstream
+(rephrasing, synonym substitution) to help the speaker toward more fluent
+speech. Novelty is a side effect worth documenting honestly, never a goal
+to steer toward. Per this instruction, inserted a "## PROJECT OBJECTIVE"
+section near the top of `ASR_RESEARCH_TRACK.md` (before all prior
+sections) stating this explicitly and flagging that later sections'
+implicit L4 (fragment-content-preservation) framing was likely the wrong
+target read against the actual objective. Then wrote a full 10-part
+"Application-Objective Decision Analysis" re-examining this track's
+entire evidence base — Stage A/B/C, direction (g), the RMS/ZCR and MFCC
+failures, the combined-signal classifier failure, and all four literature
+passes — against that corrected objective: (1) what the application
+actually needs (detection/localization/classification of disfluencies;
+the *intended* clean content, not necessarily the disfluent fragment's
+literal content); (2) what the current pipeline already provides, mapped
+per-type; (3) the literature re-scored against "solves our actual
+requirement," not "is novel" (finding Kordt et al.'s marker-token approach
+and Huang et al.'s joint ASR+SED result closer to solving the real problem
+than the earlier framing credited them for); (4) the best existing
+solution by that criterion, not by novelty; (5) what this track's own
+experiments actually found, separated by category and not overgeneralized;
+(6) what remains genuinely unsolved for the application (narrowed to a
+detection/candidate-generation gap, not an alignment or output-
+representation problem); (7) Stage D re-evaluated (not currently
+necessary; if it becomes necessary, re-scoped from L4 to L2); (8) a
+ranked implementation roadmap (Rank 1: extend item 17's own full-raw-
+embedding classifier methodology to candidate generation, no new data or
+GPU; Rank 2: a learned acoustic detector matching YOLO-Stutter/SSDM's
+architecture class; Rank 3, fallback only: re-scoped Stage D); (9)
+novelty kept explicitly secondary, reported accurately either way; (10) a
+final, explicit decision statement in the owner's requested format,
+naming Rank 1 as the concrete next step. Closed with an explicit "Decision
+for Next Session" section per the owner's direct request, telling a future
+session to open with implementation (Rank 1), not further research.
+
+**Alternatives considered**
+- Treat this as a lightweight addendum to the existing novelty-focused
+  sections rather than a first-class section of its own. **Rejected**:
+  the owner explicitly required the objective to be placed *above* the
+  novelty question in a way "impossible for a future session to mistake,"
+  which a buried addendum would not achieve — hence the standalone
+  "PROJECT OBJECTIVE" section placed before everything else, plus a full
+  dedicated decision-analysis section rather than scattered edits.
+- Silently revise the prior four entries' conclusions to match the
+  corrected framing. **Rejected**, per the owner's own explicit
+  instruction ("Preserve all existing experimental evidence and
+  citations. Do not rewrite history or silently change conclusions.") and
+  this project's own standing rule 2 (append-only decision log) — the
+  prior audits stand as written, with the new section explicitly marked
+  as the current governing interpretation that supersedes their framing
+  without deleting it.
+- Let the decision analysis recommend Stage D anyway, since three prior
+  passes had built toward it. **Rejected** — re-reading the same evidence
+  against the actual requirement (detection, not fragment-content
+  preservation) shows two cheaper, untried, evidence-motivated options
+  (Rank 1/2) that were never disqualified by any experiment this track
+  ran; recommending Stage D first would have been schedule-momentum, not
+  evidence, exactly what standing rule 8 warns against.
+- Recommend further literature research as the next step, given how much
+  the last two research passes turned up. **Rejected**, directly per the
+  owner's own explicit instruction: "Do not continue experimenting
+  indefinitely... I want the research to converge toward implementation."
+
+**Why this choice**
+This entry is not a new experimental result — it is a correction of what
+question this track's evidence should be read as answering. The prior
+audits' literature findings, bibliography, and experimental results all
+remain valid and cited; what changes is which of them the project should
+act on next, evaluated against the application's real requirement instead
+of against "is this the first time anyone has done this."
+
+**Measured result**
+Not a numeric result — a documentation and decision-analysis pass.
+`ASR_RESEARCH_TRACK.md` gets a new top-of-file "PROJECT OBJECTIVE" section
+and a new "Application-Objective Decision Analysis — 2026-08-07" section
+(10 parts plus a "Decision for Next Session" close), superseding, not
+deleting, the novelty-centered framing of the four prior same-day entries.
+`ROADMAP.md` item 10 updated with a pointer and summary. No code,
+experiment, or dataset touched. No change to `main`.

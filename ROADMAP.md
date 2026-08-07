@@ -683,6 +683,68 @@ for these three (see item 10's revised framing below).
     unknown); and a concise "Research Position as of 2026-08-07"
     summary. Documentation-and-research-review pass only — no
     experiment, model, or dataset touched. No change to `main`.
+    **Novelty-falsification pass, same day — see `ASR_RESEARCH_TRACK.md`'s
+    "Novelty-falsification pass — 2026-08-07."** Per the project owner's
+    own direct primary-source check, traced `StutteredSpeechASR` to its
+    actual technical paper (Li et al., FAccT 2025 — the same underlying
+    "StammerTalk" data effort as AS-70) and operationalized the question
+    into four strict levels (L1: ASR for stuttered speech — solved; L2:
+    verbatim vs. normalized output — solved, directly verified via a
+    real deletion-error-rate improvement (26.56%->2.29%, severe
+    stuttering); L3: explicit disfluency-type representation —
+    partially solved, Kordt et al.'s own `REP` token confirmed to merge
+    word- and phoneme-level repetition; L4 — preserving the actual
+    repeated fragment's *content*, e.g. "c-c-cat," for `sound_
+    repetition` specifically — **remains unaddressed by any source
+    found**). **A further, material, explicitly-marked revision**: this
+    review's own reasoned inference (from directly-verified facts, not
+    a claim either paper makes) is that Chinese orthography likely
+    cannot represent a sub-character phonetic fragment as literal text
+    at all — meaning AS-70/StammerTalk, despite being the best real
+    data this whole review found, may be structurally unable to test
+    this project's actual L4 hypothesis for `sound_repetition`, revising
+    (not just extending) the prior recommendation that a Mandarin pilot
+    could stand in for the English-language question. Stage D, scoped
+    at true L4 preservation in English specifically, is assessed as a
+    genuine, not merely reassembled, contribution. Literature-
+    verification pass only — no experiment, model, or dataset touched.
+    No change to `main`.
+    **Application-Objective Decision Analysis, 2026-08-07 — a course
+    correction, not a new finding — see `ASR_RESEARCH_TRACK.md`'s
+    "PROJECT OBJECTIVE" section and "Application-Objective Decision
+    Analysis — 2026-08-07."** Per the project owner's explicit
+    instruction, this and every item above it were re-read through the
+    project's actual product objective (an application that extracts
+    real disfluencies from audio reliably enough to act on downstream —
+    not novelty, not a new ASR for its own sake). Re-mapped the current
+    pipeline against that objective directly: the real, measured gap is
+    narrowly **detection** of `sound_repetition`/`word_repetition` at
+    positions CrisperWhisper's text gives no signal — not localization,
+    not classification once detected, and, on reflection, not
+    necessarily recovery of the disfluent fragment's literal content
+    (L4) either, since the intended/clean word is typically already
+    available even where the disfluency evidence itself is lost. Re-
+    scored the same literature (Kordt et al., Huang et al. joint
+    ASR+SED, YOLO-Stutter/SSDM, StammerTalk/AS-70) against this
+    corrected requirement rather than against novelty, finding several
+    of them closer to "solves our actual problem" than the earlier
+    novelty-centered framing credited them for. **Conclusion: Stage D is
+    not immediately necessary.** Two cheaper, untried, evidence-
+    motivated options exist first: (Rank 1) retrain this project's own
+    already-shipped item-17 classifier methodology
+    (`compare_corroboration_mechanisms.py`'s full-raw-embedding nested-
+    CV logistic regression) for candidate *generation* rather than
+    corroboration — the combined-signal classifier above only ever
+    tried 5 hand-picked scalar features, never the full embedding item
+    17 itself uses; (Rank 2) a learned (not hand-engineered) acoustic
+    detector matching YOLO-Stutter/SSDM's architecture class. If both
+    are tried and leave a real gap, Stage D remains the fallback but
+    **re-scoped from L4 to L2** ("stop deleting," directly justified by
+    StammerTalk's own real deletion-error-rate result) rather than "spell
+    out fragments," since L4 is no longer believed necessary for the
+    actual product objective. No code, experiment, or dataset touched
+    this pass — decision analysis and documentation only. No change to
+    `main`.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every

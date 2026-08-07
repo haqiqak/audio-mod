@@ -15,6 +15,65 @@ experiment is next.
 
 ---
 
+## PROJECT OBJECTIVE — read this before anything else in this document (added 2026-08-07, governs everything above and below it)
+
+**Every section below this one, including all research, literature
+review, and novelty analysis, exists to serve the objective stated
+here — none of it is the objective.** This section was added after the
+project owner explicitly flagged a real risk: that a long research
+track chasing "is this genuinely unexplored" can quietly drift into
+treating novelty itself as the destination. It hadn't yet — nothing
+below was retracted — but the risk was real enough to warrant making
+the actual goal impossible to miss.
+
+**The objective, stated precisely**: build an application that takes a
+speaker's audio and reliably extracts the actual speech problems and
+hindrances occurring in that speech — stuttering and other disfluencies
+— so that these patterns can be **localized, classified, understood,
+and used downstream** to help the speaker (e.g., replacing a disfluent
+span with a fluent alternative or synonym phrasing, once that
+downstream capability exists). This project (`audio-mod`) owns the
+*extraction* half — detection, classification, localization from audio.
+A separate module (this project's own "Speech AI Module," per the
+broader product this project is one half of) is responsible for acting
+on that extraction. This document's job is to make audio-mod's
+extraction as reliable and complete as it can be — nothing more, and
+nothing less.
+
+**What this means concretely, and why it changes how the ASR question
+should be read**: an ASR system, a fine-tuned representation, an
+acoustic detector, or any other technical component discussed in this
+document is a **means**, evaluated only by whether it gets this project
+closer to reliable extraction. "Is this a novel research finding" is a
+question worth answering honestly wherever it comes up (this project
+documents its work rigorously and does not want to overclaim or
+underclaim what it found) — but it is never the criterion for choosing
+a technical direction. The criterion is always: *does this get the
+application the information it needs, reliably, with the resources this
+project actually has?*
+
+**The single most consequential reframing this produces, stated
+directly**: much of this track's later research (Phase 2, direction
+(g), the combined-signal classifier, and especially the L1-L4 novelty
+analysis) implicitly treated **true verbatim fragment-content
+preservation** (an ASR that literally outputs "c-c-cat") as the target.
+Re-read against the actual objective above, this was likely the wrong
+target. The application needs to know **that** a disfluency occurred,
+**where** (precise timing), and **what type** it is — it does not
+obviously need the ASR to spell out the disfluent fragment's own
+phonetic content as text, because the *intended* word (the clean
+replacement target) is typically already present in the transcript
+immediately after the disfluency, whether or not the disfluency itself
+was preserved. This distinction — extraction/detection vs. verbatim
+fragment transcription — is the organizing idea behind the full
+decision analysis at the end of this document
+("Application-Objective Decision Analysis — 2026-08-07"), which
+should be read as the current, governing interpretation of everything
+above it, superseding (not deleting) the novelty-centered framing of
+the sections that follow immediately below.
+
+---
+
 ## First-principles reassessment (2026-08-06): are we still on the right trajectory, or attached to CrisperWhisper?
 
 **What this section is.** After Stage C2, the project owner asked a
@@ -6008,6 +6067,18 @@ independent of the English-data problem) or the English-first path
 a real, live decision for the project owner, not resolved by this
 review.
 
+**Revised by the novelty-falsification pass immediately below, marked
+explicitly rather than silently corrected**: the Mandarin pilot can
+validate the *training recipe* (verbatim-target fine-tuning,
+catastrophic-forgetting control) using StammerTalk's own directly-
+demonstrated approach, but per that pass's own structural finding
+(Chinese orthography likely cannot represent a sound-level fragment as
+literal text at all), it cannot test this project's actual L4
+hypothesis for `sound_repetition` — the English-language data question
+is not just a practical inconvenience, it is plausibly load-bearing for
+the specific scientific question Stage D exists to answer. See "Novelty-
+falsification pass — 2026-08-07" below for the full reasoning.
+
 ## Additional Bibliography — sources verified in the deep pass (2026-08-07)
 
 Continues the numbering from the Bibliography section above. Every
@@ -6053,6 +6124,20 @@ snippet).
   page-level confirmation — flagged as a slightly lower-confidence
   citation than the fully-read sources above, consistent with this
   project's own citation-honesty discipline.
+- [B27] Li, J., Li, Q., Gong, R., Wang, L., & Wu, S. (2025). *Our
+  Collective Voices: The Social and Technical Values of a Grassroots
+  Chinese Stuttered Speech Dataset.* Proceedings of the 2025 ACM
+  Conference on Fairness, Accountability, and Transparency (FAccT '25).
+  https://doi.org/10.1145/3715275.3732179 — full text (16 pages,
+  including appendix) fetched and read directly this session via the
+  authors' own open preprint: https://www.shaomei.info/pdfs/FAccT25_Our_
+  collective_voices_preprint.pdf. This is the technical paper behind
+  the `AImpower/StutteredSpeechASR` Hugging Face model
+  (https://huggingface.co/AImpower/StutteredSpeechASR) and the
+  `AImpower/MandarinStutteredSpeech` dataset — the same underlying
+  data-collection effort as AS-70 [B20] (overlapping authors, identical
+  scale and annotation schema, referred to as "StammerTalk" in this
+  paper).
 
 Also referenced narratively in this deep pass without a dedicated
 citation number (general search-result characterization, not
@@ -6066,3 +6151,611 @@ characterization from search results discussing encoder-decoder mutual
 information, not a single specific paper independently verified this
 session). These are marked explicitly as narrative context, not
 load-bearing citations for any specific numeric claim in this document.
+
+---
+
+# Novelty-falsification pass — 2026-08-07: operationalizing L1-L4, and a further, material revision
+
+**Explicit instruction honored, again**: the deep pass above is treated
+as something to stress-test, not defend. This pass — prompted by the
+project owner's own direct verification of AS-70's primary source and
+a request for an even stricter operationalization — traces the
+`StutteredSpeechASR`/AS-70 lineage to its actual technical paper (not
+just a model card) and re-examines Kordt et al. specifically for
+whether its `REP` token preserves fragment *content*, not just
+presence. **One further material finding emerges, revising — not just
+extending — this document's most recent recommendation** (the
+"AS-70-first, Mandarin pilot" from the deep pass above). Marked
+explicitly below, not silently corrected.
+
+## The operationalized question, exactly as posed
+
+Four progressively stricter levels:
+
+- **L1**: Has anyone trained ASR specifically for stuttered speech?
+- **L2**: Has anyone trained ASR to produce verbatim/disfluency-aware
+  output rather than normalized semantic transcription?
+- **L3**: Has anyone explicitly represented different disfluency types
+  in the ASR output?
+- **L4 (this track's actual question)**: Has anyone trained/evaluated
+  ASR to preserve the actual content/form of a repeated sound or
+  fragment (e.g. "c-c-cat"), rather than merely emitting a generic
+  `<sound_repetition>` marker or detecting that one occurred?
+
+## Tracing `StutteredSpeechASR` to its primary source
+
+The Hugging Face model card alone (fetched first) does not specify
+output format precisely enough to answer L4 — it lists "word
+repetitions and interjections" as preserved (**notably not sound
+repetitions**), gives no example input/output pair, and does not
+formally define "verbatim." It links to Li, Li, Gong, Wang, & Wu,
+**"Our Collective Voices: The Social and Technical Values of a
+Grassroots Chinese Stuttered Speech Dataset"** (FAccT 2025, [B27]),
+fetched and read in full (16 pages, including all tables and the
+appendix) — not summarized from the model card or a search snippet.
+
+**Confirmed directly**: `StammerTalk` (this paper's name for the
+dataset) and `AS-70` (Gong et al.'s Interspeech 2024 paper, [B20]) are
+the same underlying data-collection effort — overlapping authors (Gong,
+Wang), identical scale (48.8-50h, 70-72 speakers), identical five-type
+annotation schema (`[]`/`/b`/`/p`/`/r`/`/i`). `StutteredSpeechASR` is
+this paper's own fine-tuned Whisper-large-v2 (LoRA/AdaLora), trained on
+what this paper calls "literal transcription" — **the disfluency
+markup symbols are stripped for scoring, but the underlying repeated
+*text* is real, verbatim content, not a marker** (e.g., "My, my, my
+name" is the literal fine-tuning target, kept as three real words).
+
+**Real, quantified L2 result, directly verified**: deletion-error rate
+(the error type that fires when ASR omits/smooths a repetition) dropped
+from 26.56% to 2.29% (severe stuttering) and 15.77% to 1.27% (moderate)
+after fine-tuning on literal transcriptions. This is a genuine,
+first-party-verified demonstration that fine-tuning toward a verbatim
+target measurably stops a model from deleting repeated content — L2,
+solved, on real speech, not inferred.
+
+**The critical, precise evidence for L4, read directly from the paper's
+own Tables 3-4** (baseline-model qualitative examples, given to
+illustrate the "smoothing" problem, not fine-tuned-model outputs — this
+distinction matters and is preserved below): one example shows a
+genuine `/r` (sound-repetition) annotation on a single character —
+"自**/r**卑的" (roughly: the character 卑, in 自卑/"feel inferior," marked
+as having a sound-level repeat). The baseline wav2vec2.0 output at that
+position is a single, unrelated homophone-substituted character — **no
+repeat structure survives at all for this specific sound-level event**,
+even in the same utterance where a *word*-level repeat elsewhere
+partially survives (garbled into wrong homophones, but still
+structurally repeated). **A real, honest gap in this paper's own
+demonstrated evidence, not filled by inference**: no corresponding
+example of the *fine-tuned* model's output for a `/r` event was found —
+the paper reports aggregate CER/deletion-rate improvements by severity,
+not a qualitative before/after comparison isolated to sound-repetition
+events specifically. This means the paper demonstrates L2 in aggregate
+and demonstrates the *baseline* problem for `/r` events concretely, but
+does **not** demonstrate that its own fine-tuned model recovers
+sound-level fragment content specifically.
+
+## A structural finding — clearly marked as this review's own inference, not a claim either paper makes
+
+Comparing the concrete annotation convention across both papers
+("小/r明", "自/r卑的" — a `/r` marker always attaches to one existing,
+whole character) against what L4 actually requires (writing out the
+repeated fragment's own content, as English does with "c-c-"): **Chinese
+orthography has no sub-character grapheme available to represent a
+phonetic fragment as literal text.** A word-level repeat can be written
+as genuinely repeated whole characters (我我我 is three real characters,
+each a complete linguistic unit) — Chinese script handles this natively,
+which is exactly why StammerTalk's word-level L4-equivalent preservation
+above is real and demonstrated. A sound-level repeat (part of a single
+character's pronunciation) has no comparable sub-character written
+form to spell out. **This is this review's own reasoned inference from
+directly-verified facts (the annotation convention; the general,
+independently-verifiable property of Chinese as a logographic/syllabic
+script), not a claim stated by Gong et al., Li et al., or any other
+source reviewed** — flagged explicitly as inference, per the project
+owner's own instruction not to make a novelty claim the primary sources
+don't support.
+
+**If this inference is correct, its consequence is significant**: even
+a hypothetically perfect Mandarin verbatim ASR could mark that a
+sound-repetition occurred (L3) but likely cannot spell out the
+fragment's own content (true L4) — not because nobody has tried, but
+because the script itself may lack the representational unit. This
+would mean AS-70/StammerTalk, despite being the best real, right-
+taxonomy-granularity data this entire review has found, may be
+**structurally unable to serve as a testbed for this project's own
+actual L4 question for `sound_repetition` specifically** — a limitation
+of the language/script pairing, not of the dataset's quality or the
+researchers' effort.
+
+## Re-examining Kordt et al. specifically for L3 vs. L4
+
+Confirmed directly (Methodology, already quoted in the deep pass above):
+"we aggregate similar disfluency events into four distinct token types:
+filler words (FILLER...), repetitions/revisions (REP; **word- and
+phoneme-level**)..." — `REP` is explicitly a single, generic marker
+across both granularities. This is **L3 at best (event-type
+representation), not L4** — confirmed, not inferred, directly from
+their own stated aggregation choice. **A genuine, unresolved gap in
+this review's own verification, stated honestly**: whether the CHAT-
+format source transcripts (SME/Pitt/Delaware) contained finer-grained
+phonological-fragment markup *before* Kordt et al.'s own aggregation
+step — the CHAT standard does have conventions for this in principle —
+was not confirmed one way or the other from the portions of the paper
+read. This is left as an open question, not resolved by assumption in
+either direction.
+
+## The revised three-level verdict
+
+| Level | Verdict | Evidence, precisely |
+|---|---|---|
+| **L1** — ASR trained specifically for stuttered speech | **Already solved** | AS-70/StammerTalk, Kordt et al., and others in this review's own literature landscape — directly demonstrated, real data |
+| **L2** — verbatim/disfluency-aware output vs. normalized semantic transcription | **Already solved** | StammerTalk's fine-tune: deletion-error rate 26.56%->2.29% (severe), 15.77%->1.27% (moderate) — real, quantified, real speech, directly verified this pass |
+| **L3** — explicit disfluency-type representation in output | **Partially solved / closely related** | Kordt et al.: 4 coarse types, `REP` conflates word- and phoneme-level, confirmed directly. StammerTalk: real word-content preservation *without* explicit typing |
+| **L4** — actual fragment *content* preserved (`c-c-cat`), specifically for `sound_repetition` | **Exact problem remains unaddressed** | No source found demonstrates this for sound-level fragments specifically. Word-level content preservation is demonstrated (StammerTalk) — a different, already-solved sub-problem. The one available concrete `/r` example shows no repeat structure surviving even in a verbatim-oriented pipeline's baseline output, and (this review's own inference) Mandarin's script may structurally preclude testing this at all |
+
+## What this means for Stage D, revised precisely
+
+**Assembling L1+L2+L3 techniques would not be a new contribution** —
+directly demonstrated, repeatedly, on real speech, by sources this
+review read in full. **A genuinely new contribution requires the
+L4-for-`sound_repetition` combination specifically** — and, per the
+structural finding above, **this most plausibly needs to be attempted
+in an alphabetic-script language (most directly, English, this
+project's own working language) rather than Mandarin**, since Mandarin's
+best-available real data may be unable to represent the target
+information at all, independent of model or training-method choice.
+
+**This revises, not merely extends, the deep pass's "AS-70-first,
+Mandarin pilot" recommendation above.** That pilot remains real and
+useful for de-risking the *engineering approach* (verbatim-target
+fine-tuning, controlling catastrophic forgetting, per StammerTalk's own
+directly-demonstrated recipe) — but it **cannot test this project's
+actual L4 hypothesis for `sound_repetition`**, which is the specific
+question Stage D exists to answer. The corrected sequencing: a Mandarin
+pilot could still be a cheap, real way to validate the *training
+recipe* before committing GPU time to the harder case, but it is not,
+on its own, a substitute for eventually testing the fragment-content-
+preservation objective in English (or another alphabetic-script
+language) — the English-language data gap named in the first "Final
+research audit" section above is, per this pass, not just a practical
+inconvenience but plausibly load-bearing for the specific scientific
+question this project cares about.
+
+**Would Stage D, scoped this way, constitute a meaningful new
+contribution, or merely reassemble an existing technique?** Per this
+now-exhaustively-checked review: **a meaningful new contribution**,
+specifically because L4-for-sound-level-fragments has not been
+demonstrated by any source found, and because the one body of work with
+adequate real data and the right taxonomy granularity (AS-70/
+StammerTalk) may be structurally unable to test it. Reassembling known
+techniques (verbatim fine-tuning + explicit typing + catastrophic-
+forgetting control) is real, necessary engineering — but applying them
+to English-language sound-fragment content preservation specifically
+is the part this review could not find prior art for, after genuinely
+trying.
+
+---
+
+# Application-Objective Decision Analysis — 2026-08-07
+
+**This section reinterprets everything above through the actual
+product objective (see "PROJECT OBJECTIVE" at the top of this
+document), not through "is this a novel research gap."** Nothing below
+is a new experiment — per the project owner's own instruction, this is
+synthesis of evidence already gathered, reread through the correct
+lens. Every citation, number, and finding from the sections above is
+reused, not rerun. Distinctions are marked throughout: **experimentally
+demonstrated** (this project's own measured result), **supported by
+literature** (a cited, verified external source), **inferred**
+(reasoned from evidence, not directly measured), **unresolved** (a real
+open question), and **proposed** (a recommendation, not a finding).
+
+## 1. What does the application actually need?
+
+Precisely, separated by category — and explicitly **not** assuming any
+of this must appear in the ASR transcript itself:
+
+- **Detection** (does a disfluency exist at this point in the audio?) —
+  **required, the foundational need**. Everything downstream depends on
+  this firing reliably.
+- **Localization** (precise start/end timing of the disfluent span) —
+  **required**. A downstream replacement/rephrasing step needs to know
+  exactly which audio/text span to act on. Word-level timestamp
+  precision is very likely sufficient — **inferred**, not measured;
+  nothing in this project's own evidence suggests sub-phoneme timing
+  precision is needed for a span-replacement operation, as opposed to a
+  clinical/research display use case.
+- **Classification** (which type: `sound_repetition`, `word_
+  repetition`, `phrase_repetition`, `prolongation`, `block`,
+  `interjection`/filler) — **required**. Different types plausibly need
+  different downstream handling (a filler is likely simply deleted; a
+  repetition's redundant copies need collapsing to one; a block's
+  silence needs different treatment than a prolongation's stretched
+  sound) — **proposed as a design assumption**, not yet validated
+  against actual downstream requirements, since the downstream
+  (Speech AI Module) side of this is out of this document's own scope.
+- **The intended/clean linguistic content** (what the speaker meant to
+  say, usable as the replacement target) — **required**, and — this is
+  the key reframing — **typically already available** even when the
+  disfluency itself is normalized away. Stage A's own finding
+  (`ASR_RESEARCH_TRACK.md` §8, this document, 45.2%/40.5% normalized-
+  away rates) is, read this way, evidence that the decoder usually
+  *does* correctly produce the intended word (e.g., "cat") — the loss
+  is specifically in the *disfluency evidence preceding it* (the
+  "c-c-" or the first "want"), not in the clean target itself.
+- **The actual disfluent realization's literal content** (e.g., the
+  precise phonetic shape of a repeated fragment, spelled out as text)
+  — **not obviously required** for the stated downstream goal (replace
+  with fluent/synonym phrasing). This would matter for a verbatim-
+  display or clinical-analysis feature, which is not what the project
+  owner's own restated objective asks for. Distinguishing this from
+  "detection + localization + classification" is the single most
+  important separation this reframing makes.
+- **Acoustic evidence as a detection/classification mechanism** (not as
+  an end in itself) — required as a *means*: this project's own
+  `block`/`prolongation` detectors already prove acoustic-native
+  detection can work in production (**experimentally demonstrated**,
+  shipped); this track's own Stage B/C and direction (g) tested whether
+  the same strategy extends to `sound_repetition`/`word_repetition`.
+
+## 2. What does the current pipeline already provide?
+
+Mapped directly against the requirements above, using only this
+project's own already-measured results:
+
+| Requirement | `block`/`prolongation` (shipped) | `filler` (shipped) | `sound_repetition`/`word_repetition` via ASR text (shipped) | `sound_repetition`/`word_repetition` via encoder/acoustic (this track) |
+|---|---|---|---|---|
+| Detection | **Solved** — acoustic-native, no ASR text needed | **Solved** — text-based, low normalization risk (fillers are rarely fully deleted the way repetitions are, per this project's own detector design) | **Real gap** — Stage A: ~45%/~40% of true instances produce no text-based candidate at all | **Partial** — real signal (encoder d=0.894; acoustic recall=0.824) but insufficient precision alone (best combined: P=0.314) |
+| Localization | Solved (waveform-native timing) | Solved (word timestamps) | Solved *when* a candidate exists | Solved *when* a candidate exists (acoustic-native candidates carry their own timing) |
+| Classification | Solved | Solved | Solved *when* a candidate exists | N/A — this track's mechanisms only address `sound_repetition` specifically, not full classification |
+| Clean/intended content | N/A (not applicable to these types) | N/A | **Usually already correct** even when the disfluency itself is lost (this document's own reframing above) | Same — this track's work targets detection, not content recovery |
+
+**What this table makes explicit that the novelty-centered framing
+did not**: the current pipeline's real, measured gap is narrowly
+**detection** for `sound_repetition`/`word_repetition` specifically —
+not localization, not classification (once detected), and not recovery
+of the intended replacement content (which is usually fine already).
+This narrows the actual engineering target substantially compared to
+"build an ASR that preserves verbatim fragments."
+
+## 3. What has the literature already solved, reread for our application's actual requirement
+
+Re-examining every major system from the two prior passes, now scored
+against **detection/localization/classification**, not verbatim
+fragment-content preservation:
+
+| System | Objective | Input/output | Preserves verbatim? | Detects disfluency? | Preserves fragment *content*? | Distinguishes sound- vs. word-level? | Preserves timing? | Dataset / language | Solves *our* requirement? |
+|---|---|---|---|---|---|---|---|---|---|
+| CrisperWhisper (this project's own, as used) | Verbatim-timestamped transcription | Audio -> text + word timestamps | Partially (word-level) | Only via downstream text-candidate matching, which Stage A shows fails ~45% of the time | No (this track's own finding) | N/A | Yes, word-level | N/A (general) | **Partially** — strong on localization/timing when a candidate exists; weak on detection specifically |
+| Stock `whisper-large-v3` (Arm 1) | Same as above, no verbatim fine-tune | Same | No, worse | Worse than CrisperWhisper (**experimentally demonstrated**, this track) | No | N/A | Yes | N/A | **No**, strictly worse than what's already shipped |
+| WavLM (Arm 3) | Paralinguistic-aware self-supervised representation | Audio -> embeddings, no decoding | N/A (not a transcription system) | Weak for `sound_repetition` at this scale (**experimentally demonstrated**, chance-level AUC) | N/A | N/A | Frame-level, if paired with a decoder | N/A | **No**, for this specific detection task, at this scale |
+| StammerTalk/AS-70 fine-tuned Whisper (**StutteredSpeechASR**) [B20][B27] | Verbatim Mandarin transcription for stuttered speech | Audio -> literal (verbatim) text | **Yes, real, demonstrated** — deletion-error rate dropped 26.56%->2.29% (severe) | **Yes, indirectly** — a model that stops deleting repeated words produces exactly the kind of text-based candidate this project's own detector needs to fire | Partially — word-level repeats preserved as real text; sound-level fragments not demonstrated (this pass's own finding) | No (annotation exists in training data but not confirmed emitted distinctly) | Yes, word-level | Real Mandarin speech, 48.8h | **Yes, for detection via decoder-output normalization specifically** — the closest real precedent to what this project's own gap actually needs |
+| Kordt et al. [B11] | Verbatim transcription with explicit disfluency tokens | Audio -> text + marker tokens | Yes, with markers | Yes, directly — a `REP` token is itself a detection signal | No (confirmed, merges word/phoneme level) | No (confirmed) | Token-level, not sub-word | Real (non-stuttering) disfluent speech, English | **Yes, for detection specifically** — an explicit marker token is arguably *more* directly useful for this project's own detection need than spelled-out fragment content would be |
+| Huang et al. [B21] (joint ASR+SED) | Joint transcription + stutter-event detection | Audio -> text + separate SED signal | Not the focus | **Yes, strongly** — SED F1 73.63%, +46.58% relative over separate training | No (SED is a detection signal, not fragment text) | Not confirmed | Detection-level | Real Mandarin (AS-70), stuttering-specific | **Yes, very directly** — this is almost exactly the shape of solution this project's application needs: strong joint detection alongside transcription |
+| YOLO-Stutter [B15] / SSDM [B16] | Audio-native dysfluency region detection | Audio -> region + type, no transcript needed | N/A | **Yes, directly, by design** | N/A (detection-only) | Yes, by taxonomy (repetition is a labeled class) | Yes, region-level, time-accurate | Simulated (VCTK-Stutter/Libri-Dys) | **Plausibly yes** — architecturally the most direct match to "detect + localize + classify without needing verbatim text," never tested against this project's own data |
+| This track's own encoder-distance signal (Stage B/C) | N/A (a measured signal, not a system) | Frozen encoder state -> distance-to-centroid | N/A | Real but precision-limited (**experimentally demonstrated**, d=0.894, AUC=0.723, ~34% precision in the combined-classifier's own re-scoring) | N/A | No | Frame-level, inherited from encoder | Synthetic (LibriStutter) | **Partially** — real detection signal, not yet precise enough alone |
+| This track's own acoustic candidates (direction (g)) | N/A | Waveform -> candidate span + similarity score | N/A | Real recall, weak precision (**experimentally demonstrated**) | N/A | N/A (sound_repetition only) | Yes, waveform-native | Synthetic (LibriStutter) | **Partially** — same shape of result as the encoder signal |
+
+**The single most important re-reading this table produces**: **Kordt
+et al.'s explicit-marker-token approach and Huang et al.'s joint-
+detection approach are, read against this project's *actual*
+requirement (detection, not fragment-content preservation), closer to
+"solving our problem" than this track's earlier L4 framing gave them
+credit for.** A `REP` token or a strong SED signal is exactly the kind
+of detection event this project's own downstream pipeline needs — the
+earlier framing marked these "No, solves our exact problem" only
+because it was scoring them against verbatim fragment-content
+preservation, which — per the objective restated at the top of this
+document — was never actually the requirement.
+
+## 4. What is the best existing solution we could use — not "what's most novel"
+
+Compared directly on one criterion: **which architecture gives the
+application the information it needs most reliably, with the resources
+this project actually has?**
+
+- **A. Current CrisperWhisper pipeline (as shipped)**: strong on
+  localization/classification/clean-content once a candidate exists;
+  real, measured, ~45%/~40% detection gap for `sound_repetition`/
+  `word_repetition` specifically. Zero additional cost — already built.
+- **B. Existing stutter-aware ASRs (StammerTalk/AS-70-style fine-tune)**:
+  **the strongest single lever identified in this entire two-session
+  review**, reread against the actual objective. A real, published,
+  replicable recipe (LoRA fine-tune on verbatim/literal targets) that
+  **directly and measurably fixes the deletion problem** Stage A
+  identified — not by preserving exact fragment phonetics, but by
+  training the decoder to stop smoothing repeated content away at all,
+  which is precisely what this project's own text-based candidate
+  matcher needs to fire. Cost: real (GPU + English-language data, per
+  the Stage D requirements already scoped above), but now justified by
+  a *directly on-target* objective (stop deleting) rather than a harder,
+  not-strictly-necessary one (spell out fragments phonetically).
+- **C. ASR + acoustic detector hybrid (this project's own architecture,
+  and this track's own Stage B/C, direction (g), and combined-signal
+  classifier)**: real, partial signal, insufficient precision alone at
+  the specific features tried — **but this project's own already-
+  shipped precedent (`ROADMAP.md` item 17's corroboration classifier)
+  used the *full* raw encoder embedding, not just a distance scalar,
+  and reached real, shippable performance for a related task** (see
+  Part 8 below — this is a genuine, cheap, unexplored variant of C).
+- **D. Explicit-disfluency-token approaches (Kordt et al.)**: real,
+  demonstrated detection value (a marker token *is* a detection
+  signal), real catastrophic-forgetting cost, not stuttering-specific
+  data.
+- **E. Joint ASR+SED (Huang et al.)**: the single strongest published
+  result found for this shape of problem (CER -37.71% relative, SED F1
+  +46.58% relative, jointly) — on real stuttering data, close to this
+  project's own architecture in spirit (ASR + a corroborating signal),
+  never tested in English or against this project's own taxonomy.
+- **F. Audio-native learned detectors (YOLO-Stutter/SSDM)**: real,
+  published, more capable than this track's own hand-engineered
+  acoustic attempt (direction (g)) — a genuine, cheap-relative-to-
+  Stage-D "try a better model, not just better hand-picked features"
+  option, never tested against this project's own data.
+
+## 5. What did our experiments actually discover — separated precisely
+
+- **Findings about Whisper/CrisperWhisper**: normalization is real and
+  large (Stage A, **experimentally demonstrated**, n=186); it is a
+  Whisper-architecture-general property, not CrisperWhisper-specific
+  (Arm 2, **experimentally demonstrated**); a bigger, non-fine-tuned
+  model doesn't fix it (Arm 1, **experimentally demonstrated**).
+- **Findings about information loss**: roughly half of `sound_
+  repetition`/`word_repetition` losses happen at otherwise-correctly-
+  transcribed positions (Stage A) — this is a **detection** loss
+  specifically, not (per the reframing above) necessarily evidence that
+  fragment *content* is unrecoverable or needed.
+- **Findings about acoustic evidence**: `sound_repetition` has a real,
+  ASR-independent acoustic co-occurrence with short voiced-burst runs
+  (direction (g), recall=0.824, **experimentally demonstrated**,
+  replicated across two feature implementations) — directly useful for
+  the **detection** requirement, regardless of the fragment-content
+  question.
+- **Findings about representation**: CrisperWhisper's frozen last-layer
+  encoder carries real, duration-independent detection signal (Stage
+  B/C, d=0.894, AUC=0.723, **experimentally demonstrated**) — again,
+  directly a **detection** signal, not a claim about fragment-content
+  recoverability (which this track never actually tested — no
+  experiment attempted to *decode* fragment content from the encoder,
+  only to *detect* anomalous positions).
+- **Findings about detection specifically (the actual requirement)**:
+  the best single detection number this track produced is the encoder-
+  distance signal's own precision (~34%, combined-classifier arm B);
+  the best combined attempt (5 hand-picked features, simple logistic
+  regression) reached P=0.314, not meaningfully better.
+- **Findings that are merely limitations of the particular experiments,
+  not the underlying question**: the combined classifier used only 5
+  scalar features, not the full raw embedding this project's own
+  shipped classifier (item 17) uses for a related task — this is a
+  **limitation of that specific experiment's design**, not evidence
+  that encoder-based detection has a hard ceiling. Similarly, direction
+  (g)'s hand-engineered acoustic features are a limitation of *that*
+  specific attempt, not evidence that *no* acoustic detector could do
+  better (YOLO-Stutter/SSDM's own published results are real,
+  independent evidence pointing the other way).
+
+## 6. What is still actually unsolved for our application
+
+The precise gap, stated once, directly: **reliable *detection* of
+`sound_repetition`/`word_repetition` at positions where CrisperWhisper's
+decoded text currently gives no signal at all.** Not an ASR problem in
+the "need a new ASR" sense — **a detection/candidate-generation
+problem**, for which this track has already tried and found real-but-
+insufficient signal via two different mechanisms (frozen-encoder
+distance; hand-engineered acoustic features), and has **not yet
+tried** two real, concrete, evidence-backed variants: (1) a richer
+classifier over the full encoder embedding (this project's own item-17
+precedent, not yet applied to this harder candidate-generation task),
+and (2) a learned (not hand-engineered) acoustic detector matching
+YOLO-Stutter/SSDM's published architecture class. Both are cheaper than
+Stage D and directly targeted at the actual, narrow gap identified
+above — not previously proposed with this framing because the prior
+passes were scoring options against fragment-content preservation, not
+detection.
+
+**Is the gap an ASR problem, acoustic detection problem, alignment
+problem, output-representation problem, a combination, or already
+solved?** Per this reframing: **primarily a detection-classifier
+problem** (can a classifier, given richer inputs than this track has
+tried, separate true positives from the class-imbalanced background at
+usable precision), **secondarily and optionally an ASR-decoder problem**
+(would a StammerTalk-style verbatim fine-tune, which directly targets
+*not deleting* content rather than spelling out fragments, close the
+gap more directly by making text-based candidates fire in the first
+place) — **not** an alignment problem (localization already works when
+a candidate exists) and **not** an output-representation problem (the
+clean/intended content is usually already correct).
+
+## 7. Re-evaluating Stage D against the actual objective
+
+**Is Stage D necessary?** Not immediately, and not in the form the
+L1-L4 novelty analysis scoped it. **Two cheaper, more directly-targeted
+options (Part 6 above) have not yet been tried and are evidence-backed,
+not speculative.** Forcing the answer toward Stage D before trying them
+would repeat exactly the mistake the project owner's own message
+warned against — reaching for the more novel/interesting-sounding
+option instead of the one the evidence actually points to next.
+
+**If Stage D does become necessary** (i.e., if the cheaper options in
+Part 8 below are tried and still leave a real gap), **it should be
+re-scoped from what the L1-L4 analysis proposed**: not a fine-tune
+targeting true L4 fragment-content preservation (harder, unproven, and
+per this session's own script-structural finding, possibly untestable
+in the one language with adequate real data), but an **L2-level
+fine-tune** — adapt CrisperWhisper (or stock `whisper-large-v3`) on
+real English disfluent speech (most plausibly FluencyBank Timestamped,
+pending its own access/parser work) with the direct, narrower objective
+of **not deleting repeated content**, following StammerTalk's own
+directly-demonstrated, real recipe (LoRA fine-tuning on literal
+transcriptions). This is better-precedented (a real, published,
+quantified success on a structurally analogous problem), cheaper to
+specify (no need to solve fragment-phonetic-spelling), and more
+directly aligned with what the application actually needs (a text-based
+candidate that fires, not a phonetically precise transcript).
+
+**Why this is genuinely why, not just asserted**: StammerTalk's own
+result (deletion-error rate 26.56%->2.29% for severe stuttering) is
+direct, quantified, real-speech evidence that this exact mechanism —
+fine-tuning toward a verbatim target stops the decoder from deleting
+disfluent content — works. This project's own text-based candidate
+matcher needs exactly that: *something* present at the disfluent
+position, not a phonetically exact transcription of it.
+
+**What would be built, what it needs, why the current machine can't run
+it, minimum viable experiment, and what would justify investing further**
+— unchanged from the Stage D Requirements/Re-entry Gate section earlier
+in this document, with one adjustment: the training objective is
+"reduce the deletion/normalized-away rate," evaluated with this
+project's own already-built Stage-A-style 4-category classification
+(re-applied to the fine-tuned model's output), not a fragment-content
+accuracy metric that doesn't yet have a defined ground truth. The
+GPU/data/engineering requirements already scoped (a single cloud GPU
+instance for a reduced-scale pilot; FluencyBank Timestamped or
+equivalent real English data; a training pipeline this project doesn't
+yet have) stand unchanged.
+
+## 8. Ranked implementation roadmap — shortest path to a working system
+
+**Rank 1 — cheapest, no new data, no GPU, directly reuses proven
+internal technology (proposed, not yet run).** Retrain the encoder-
+based classifier for the `sound_repetition`/`word_repetition`
+candidate-**generation** problem (not the corroboration problem item 17
+already solves) using the **full raw last-layer embedding** as the
+feature space — reusing `compare_corroboration_mechanisms.py`'s exact,
+already-shipped (S1, M3) methodology (nested-CV logistic regression,
+clip-split folds) unmodified, the same infrastructure that produced
+this project's one other trained, shipped model. This directly tests
+whether the combined-signal classifier's negative result (Part 5 above)
+was a feature-poverty problem — 5 hand-picked scalars — rather than a
+ceiling on what the encoder contains. **Why this ranks first**: zero
+new infrastructure, zero new data, zero GPU, and a direct, concrete,
+evidence-motivated hypothesis (item 17's own shipped success on a
+related task used exactly this richer feature space and worked).
+
+**Rank 2 — cheap, no GPU required for inference/evaluation, tests a
+better-architected acoustic detector.** Evaluate whether a learned (not
+hand-engineered) acoustic-native detector, matching YOLO-Stutter/SSDM's
+general architecture class (a small trained region/boundary detector
+over spectral features, not a hand-set RMS/ZCR or MFCC threshold),
+improves on direction (g)'s own recall/precision — a real, published,
+more-capable-in-general class of method this project has not yet tried
+against its own data. Training a small detector of this class is
+plausibly CPU-feasible at this project's own data scale (LibriStutter's
+120-clip working sample), though this should be confirmed with a real
+dry-run cost check before committing, per this track's own standing
+discipline — not assumed cheap without checking.
+
+**Rank 3 — if Ranks 1-2 leave a real, honestly-reported gap: cost out
+and pursue the re-scoped (L2-level, not L4-level) Stage D fine-tune**,
+per Part 7 above — real GPU, real English-language data acquisition
+(FluencyBank Timestamped or equivalent), a training pipeline this
+project doesn't yet have.
+
+**What to use from existing research, not rebuild**: this project's own
+`compare_corroboration_mechanisms.py` infrastructure (Rank 1); the
+general architecture pattern from YOLO-Stutter/SSDM as a design
+reference, not a required reimplementation (Rank 2); StammerTalk/AS-70's
+own real, published LoRA fine-tuning recipe as the starting point if
+Rank 3 is reached, rather than designing a training pipeline from
+scratch.
+
+**What requires new data**: only Rank 3 (English-language real
+disfluent speech). Ranks 1-2 reuse this project's own existing
+LibriStutter working sample and cached artifacts.
+
+**What requires GPU/compute**: only Rank 3, and only for training — a
+learned detector at Rank 2's scale is plausibly trainable on CPU at
+this project's own current data scale, to be confirmed with a real
+timing check before assuming so.
+
+**What can be done entirely on the current setup, today**: Ranks 1 and
+2 in full — no new infrastructure, no new data acquisition, no GPU.
+
+## 9. Research novelty — kept explicitly secondary, reported accurately either way
+
+Per the project owner's own instruction: do not stretch the evidence to
+create a novelty claim, and do not discard a real one either.
+
+- **Already known, not novel**: ASR normalizes disfluent speech
+  generally ([B13]); explicit disfluency-token fine-tuning works for
+  coarse categories ([B11]); verbatim fine-tuning reduces deletion
+  errors ([B20][B27], directly re-verified this session); joint
+  ASR+detection training improves both tasks ([B21]).
+- **A real, narrow, accurately-scoped novel finding, if this track
+  reports it**: direct, controlled, multi-angle evidence (representation
+  swapping, model-family swapping, decoding-parameter variation,
+  acoustic-signal combination) that no cheap, off-the-shelf intervention
+  recovers fragment-level `sound_repetition` *detection* signal at
+  usable precision for this specific taxonomy, at this sample size —
+  narrower and more defensible than "nobody has solved disfluency-aware
+  ASR," and **not** dependent on the L4 fragment-content question at
+  all, since detection (not content preservation) is what this track's
+  own experiments actually measured throughout.
+- **This project's actual contribution, if Rank 1/2 above succeed**: an
+  engineering combination — reusing a proven internal technique
+  (item 17's full-embedding classifier methodology) on a new, harder
+  task (candidate generation, not corroboration) — not a research
+  novelty claim in the academic sense, and does not need to be framed
+  as one to be valuable to this project.
+- **No novelty claim is asserted for the roadmap in Part 8** — it is an
+  engineering plan, correctly labeled as such.
+
+## 10. The decision
+
+**Given the actual application objective and everything discovered so
+far, the best next technical direction is: extend this project's own
+already-shipped, already-proven encoder-based classifier methodology
+(item 17's full-embedding logistic regression) to the `sound_
+repetition`/`word_repetition` candidate-*generation* problem, evaluated
+against direction (g)'s and Stage C's own already-established
+population — because this is the cheapest, most directly evidence-
+motivated untried option, requires no new data or GPU, reuses proven
+internal technology, and directly targets this project's own precisely-
+identified real gap (detection precision, not fragment-content
+preservation, not a new ASR).**
+
+This is **not** an existing off-the-shelf ASR (Arm 1/2 already ruled
+that out); **not** the current pipeline alone (it has the measured
+detection gap this whole track exists to close); **not** an existing
+stutter-aware model as-is (none is in English, at this project's
+taxonomy granularity, for the detection-not-content task); **not** a
+modified/fine-tuned ASR (Rank 3, held in reserve, re-scoped and
+justified, but not yet warranted before cheaper options are tried); and
+**not** Stage D in the form the L1-L4 analysis proposed. If Rank 1/2
+are tried and both leave a real, honestly-reported gap, Stage D — re-
+scoped to L2 (stop deleting), not L4 (spell out fragments) — becomes
+the evidence-justified next step, exactly as scoped in Part 7 above.
+
+---
+
+## Decision for Next Session
+
+**Do not open with more literature research or novelty analysis.** Open
+with implementation, per the ranked roadmap above:
+
+1. **Read this "Application-Objective Decision Analysis" section first**
+   — it is the current, governing interpretation of this entire
+   document, and reframes what "the gap" actually is (detection
+   precision, not fragment-content preservation).
+2. **Pre-register, then implement, Rank 1**: a full-raw-embedding
+   logistic-regression classifier for `sound_repetition`/`word_
+   repetition` candidate generation, reusing `compare_corroboration_
+   mechanisms.py`'s exact existing methodology, evaluated against the
+   same population direction (g) and the combined-signal classifier
+   already used. No new data, no GPU, no new infrastructure.
+3. **If Rank 1 shows real improvement**: scope how to integrate it into
+   the live detection pipeline as a genuine engineering task — a
+   separate, deliberate decision, not automatic.
+4. **If Rank 1 does not show real improvement**: move to Rank 2 (a
+   learned, not hand-engineered, acoustic detector), with its own
+   pre-registered dry-run cost check first, per standing practice.
+5. **Only if both Rank 1 and Rank 2 leave a real, honestly-reported
+   gap**: begin costing out the re-scoped (L2-level) Stage D — real
+   GPU, real English-language data acquisition — as the evidence-
+   justified next real step, not before.
+
+**Standing reminder for whoever opens this document next, human or
+Claude**: the objective is a working application that extracts speech
+disfluencies reliably enough to act on — not a research paper, not a
+novel finding, not a new ASR. Everything in this document, including
+its own most interesting-sounding findings, is a means to that end.

@@ -8,6 +8,48 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ## 2026-08-07 (asr-research branch)
 
+- **Application-Objective Decision Analysis: novelty explicitly
+  demoted to secondary, research redirected toward implementation.**
+  Project owner course-corrected: the actual objective is a working
+  application that extracts real disfluencies from audio for downstream
+  use, not a novel ASR research finding. Added a "PROJECT OBJECTIVE"
+  section to the top of `ASR_RESEARCH_TRACK.md` and a full 10-part
+  decision analysis re-reading this track's entire evidence base against
+  that objective. Conclusion: the real gap is detection precision for
+  `sound_repetition`/`word_repetition`, not fragment-content preservation
+  (L4) — Stage D is not immediately necessary; two cheaper, untried
+  options come first (extending item 17's own full-embedding classifier
+  methodology to candidate generation; a learned acoustic detector).
+  Ends with an explicit "Decision for Next Session" pointing at
+  implementation, not further research. Documentation pass only, no
+  code/experiment/dataset touched. No change to `main`. → *PAPER_
+  DECISION_LOG.md, "Application-Objective Decision Analysis..."*
+
+- **Novelty-falsification pass: L1-L4 operationalized, a further
+  material revision, primary sources traced to the actual paper.**
+  Traced the `StutteredSpeechASR` Hugging Face model card to its real
+  technical paper (Li et al., FAccT 2025 — the same "StammerTalk" data
+  effort as AS-70) rather than trusting the card's own incomplete
+  description. Operationalized the question into four strict levels:
+  L1 (ASR for stuttered speech) and L2 (verbatim vs. normalized output)
+  — both **already solved**, with L2 directly re-confirmed via a real
+  deletion-error-rate improvement (26.56%->2.29%, severe stuttering);
+  L3 (explicit disfluency-type representation) — **partially solved**
+  (Kordt et al.'s `REP` token confirmed to merge word- and phoneme-
+  level repetition); L4 (the actual repeated fragment's *content*, e.g.
+  "c-c-cat," not a generic marker, for `sound_repetition` specifically)
+  — **remains unaddressed by any source found**. A further, explicitly-
+  marked revision: this review's own inference (not a claim either
+  paper makes) is that Chinese orthography likely cannot represent a
+  sub-character phonetic fragment as literal text at all, meaning
+  AS-70/StammerTalk may be structurally unable to test this project's
+  actual L4 hypothesis — revising, not just extending, the same day's
+  earlier "AS-70-first Mandarin pilot" recommendation. Stage D at true
+  L4 preservation, most plausibly in English, assessed as a genuine
+  contribution, not a reassembly of existing techniques. Literature-
+  verification pass only, no code/experiment/dataset touched. No change
+  to `main`. → *PAPER_DECISION_LOG.md, "Novelty-falsification pass..."*
+
 - **Deep-pass research-positioning analysis: one material revision, a
   sharpened novelty claim, no new experiments.** Treated the same-day
   "Final research audit" (below) as preliminary, not final, per
