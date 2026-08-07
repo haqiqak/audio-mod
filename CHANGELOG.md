@@ -6,6 +6,55 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-07 (asr-research branch)
+
+- **Stage D planned: scientifically motivated, not currently actionable
+  — a real infrastructure blocker.** Full design written (what it
+  targets, why it might succeed where cheaper directions didn't,
+  requirements, risks, payoff, alternatives) before any training code.
+  §9's conditions 1/2 (broad loss; richer representations tried and
+  insufficient) are satisfied by eight independent probes across two
+  sessions. Condition 3 checked directly against this project's actual
+  environment for the first time: no CUDA GPU (confirmed via
+  `torch.cuda.is_available()`), CPU-only torch build, integrated
+  graphics only; no accessible large-scale real (non-synthetic) paired
+  training dataset (SEP-28k/FluencyBank both need real acquisition work
+  never done; LibriStutter is synthetic and risky as a sole fine-tuning
+  target). Recorded as a validated future-work item per §9's own stated
+  handling for this case, not a stalled implementation — a genuine
+  blocker needing the project owner's decision. No code written for
+  Stage D. → *PAPER_DECISION_LOG.md, "Stage D planned..."*
+
+- **Combined-signal classifier: a real bug caught (F1=0.000 despite one
+  input signal alone scoring 0.244), then a clean Failure.** A logistic
+  regression over MFCC similarity + burst count + duration + Stage C's
+  encoder-distance, reusing this project's own existing classifier
+  infrastructure. First run returned F1=0.000 across all 5 folds —
+  investigated per rule 3 rather than trusted, confirmed via a synthetic
+  check to be a fixed 0.5 decision threshold miscalibrated to this
+  population's ~8% positive rate (a well-documented logistic-regression
+  property under severe imbalance, not a defect in the fitting code).
+  Fixed by giving the classifier the same train-fold-optimal threshold
+  its two baseline arms already used. Real, corrected result:
+  F1=0.242 (P=0.314, R=0.244) — statistically indistinguishable from
+  encoder-distance-alone's F1=0.244; clears the bar against MFCC-alone
+  but not against the stronger encoder-distance-alone baseline, which
+  the pre-registration required clearing both. Per the project owner's
+  standing instruction, this closes the cheap-direction search — next
+  step is Stage D planning directly. → *PAPER_DECISION_LOG.md,
+  "Combined-signal classifier..."*
+
+- **Research review (2026-08-07): Stage D not yet justified by this
+  track's own §9 gate; one final bounded experiment authorized.** A
+  fresh, evidence/inference/speculation-separated review found every
+  signal this track measured was tested alone, never combined — §9's
+  own "tried and genuinely isn't enough, not merely untried" condition
+  wasn't yet met. Project owner authorized exactly one final, explicitly
+  bounded experiment (the combined-signal classifier above) before
+  Stage D, with an explicit instruction against letting it become an
+  open-ended optimization track. → *PAPER_DECISION_LOG.md, "Research
+  review (2026-08-07)..."*
+
 ## 2026-08-06 (asr-research branch)
 
 - **MFCC escalation run: Failure, closer to the bar, second real bug

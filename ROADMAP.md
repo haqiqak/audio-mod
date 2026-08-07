@@ -565,6 +565,62 @@ for these three (see item 10's revised framing below).
     bug was caught and fixed first, making this the most carefully
     verified negative result this track has produced for any single
     mechanism. No change to `main`.
+    **Research review (2026-08-07) and one final bounded experiment,
+    per the project owner's explicit decision — see `ASR_RESEARCH_
+    TRACK.md`'s "Research review (2026-08-07)" and "Combined-signal
+    classifier results."** A fresh evidence review found this item's
+    own `ASR_RESEARCH_TRACK.md` §9 gate for Stage D not yet satisfied:
+    every signal measured so far (encoder-distance, stock-Whisper/WavLM
+    representations, RMS/ZCR and MFCC acoustic similarity) was tested
+    *alone*, never combined — condition 2 ("tried and genuinely isn't
+    enough, not merely untried") wasn't met for a *combined* signal.
+    Ran exactly one bounded experiment to close that gap: a plain
+    logistic-regression classifier over MFCC similarity + burst count +
+    duration + Stage C's encoder-distance signal, reusing this
+    project's own existing nested-CV classifier infrastructure
+    (`compare_corroboration_mechanisms.py`, the same mechanism that
+    shipped item 17's classifier) rather than building anything new.
+    A real bug was caught before trusting the first result (F1=0.000
+    across all 5 folds, while one of the combined model's own input
+    signals independently scored F1=0.244 alone — investigated per rule
+    3, confirmed via a synthetic check to be a hardcoded 0.5 decision
+    threshold miscalibrated to this population's ~8% positive rate, not
+    a model that learned nothing) — fixed by giving the classifier the
+    same train-fold-optimal threshold convention its two baseline arms
+    already used, and re-run. **Real, corrected result: combined
+    classifier F1=0.242, statistically indistinguishable from
+    encoder-distance-alone's F1=0.244** — clears the bar against the
+    weaker MFCC-alone baseline but not against the stronger
+    encoder-distance-alone baseline, which the pre-registration required
+    clearing both to count as Success. **Failure** — this specific
+    combination (one strong signal plus three weaker, likely-correlated
+    ones) doesn't beat the strong signal alone at this sample size. Per
+    the project owner's explicit, standing instruction, this closes the
+    cheap-direction search — no further variant will be tried — and the
+    next step is Stage D planning directly.
+    **Stage D planned, 2026-08-07 — scientifically motivated, not
+    currently actionable: a real infrastructure blocker found, see
+    `ASR_RESEARCH_TRACK.md`'s "Stage D planning (2026-08-07)."** §9's
+    conditions 1 and 2 (broad loss; richer representations tried and
+    genuinely insufficient) are now satisfied by eight independent
+    probes across two sessions. Condition 3 (infrastructure/data exist
+    or are acquirable) was checked directly against this project's
+    actual environment for the first time — confirmed no CUDA GPU
+    (`torch.cuda.is_available()` is `False`, CPU-only torch build,
+    integrated graphics only), and no accessible large-scale real
+    (non-synthetic) paired training dataset (SEP-28k needs real audio
+    acquisition; FluencyBank needs an unbuilt CHAT parser; LibriStutter
+    is synthetic and risks training a model that overfits splice
+    artifacts rather than genuine disfluency patterns). Full design
+    (what Stage D targets, why it might succeed where cheaper directions
+    didn't, requirements, risks, expected payoff, and a named cheaper
+    alternative — acquiring real data first to test generalization
+    before training anything) is written up in full. Per §9's own stated
+    handling for exactly this case, recorded as a validated future-work
+    item, not a stalled implementation — a genuine engineering blocker
+    requiring the project owner's decision (cloud GPU/budget, real-data
+    acquisition scope, or the cheaper generalization check first), not
+    resolved unilaterally.
 11. ~~[New, small, scoped — from the literature review, `PHASE_2_RESEARCH_
     PLAN.md` §5 point 3] Verify UCLASS's exact annotation schema directly~~
     — **investigated, 2026-08-04; conclusion: inconclusive from every

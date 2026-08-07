@@ -3261,3 +3261,485 @@ pre-registration of whatever experiment comes next, before any code is
 written. This mirrors exactly how Phase 2 and direction (g) were both
 handled today: plan first, in writing, with a separate go-ahead before
 implementation begins.
+
+---
+
+## Research review (2026-08-07) and the decision it produced
+
+Opened today's session with the research-thinking-first pass the "Next
+Session Plan" above asked for, before any code — a full evidence/
+inference/speculation-separated review answering: what do we know with
+high confidence, what's strongly supported, what's uncertain, what's
+disproven, what's the strongest remaining hypothesis, have the cheap
+directions genuinely been exhausted, and is Stage D actually justified
+by the accumulated evidence (as opposed to being the only thing left on
+the original list).
+
+**Key finding, checked against this document's own pre-registered §9
+gate rather than asserted independently**: §9's second condition for
+concluding Stage D is necessary requires that richer-representation
+approaches have "been tried and genuinely isn't enough, *not merely
+untried*." Every signal this track has measured — CrisperWhisper's own
+encoder-distance (Stage C, d=0.894 but 4.7% precision at R>=0.5 alone),
+stock Whisper's representation (Arm 2), WavLM's representation (Arm 3),
+RMS/ZCR acoustic similarity (direction (g)), MFCC acoustic similarity
+(direction (g) escalation) — was tested **alone**, gated by a hand-set
+threshold. A **combination** of any of these signals, learned rather
+than hand-thresholded, has never been attempted. By the gate's own
+language, condition 2 is not yet satisfied — untested, not failed.
+
+**Decision (project owner, 2026-08-07)**: run exactly one more bounded,
+low-cost experiment — a combined-signal classifier over signals this
+track has already built — before moving to Stage D. Explicitly scoped
+as the **final** cheap experiment: if it fails, proceed directly to
+Stage D planning without further cheap variants, per the same
+discipline that closed out direction (g) after one pre-registered
+escalation rather than an open-ended feature search.
+
+### Combined-signal classifier — pre-registered protocol (2026-08-07, written before any code)
+
+**Hypothesis.** Individually, CrisperWhisper's encoder-distance signal
+(real, d=0.894, but only 4.7% precision at R>=0.5 alone — Stage C) and
+direction (g)'s acoustic candidate signal (real recall=0.824, but only
+~8-10% precision alone) are each too weak on precision to ship standalone.
+A classifier trained on both together — plus the acoustic candidate's
+own already-computed structural features (burst count, duration) — may
+separate true `sound_repetition` instances from false candidates better
+than either alone, since the two signal families are measuring
+genuinely different things (spectral/energy shape of the audio itself,
+vs. how anomalous the ASR encoder's internal representation is at that
+position) and their errors are not obviously correlated.
+
+**Signals combined, all already built by this track, no new signal
+sources**:
+1. **MFCC mean similarity** (direction (g)'s escalation — the
+   validated, better-performing of its two feature passes).
+2. **Burst count** (`n_bursts`) and **candidate duration** — free,
+   already computed alongside every acoustic candidate.
+3. **Encoder-distance** (Stage C's signal) — recomputed at each acoustic
+   candidate's own span (not at ASR-hypothesis-token positions the way
+   Stage B/C originally scoped it), using the identical primitives
+   (`profiling/encoder_embedding.py`'s `load_encoder`,
+   `extract_last_layer_states`, `pool_span`, `cosine_distance`, and the
+   same leave-one-out fluent-centroid construction Stage B/C used) — see
+   "Population" below for exactly how this candidate-anchored version
+   differs from Stage B/C's ASR-token-anchored one, and why that's a
+   deliberate, necessary adaptation, not a scope change to the signal
+   itself.
+
+**Model.** Plain L2-regularized logistic regression via the exact,
+already-built, already-tested infrastructure in `profiling/evaluation/
+compare_corroboration_mechanisms.py` (`_fit_logistic_regression`,
+`_standardize`, `_select_l2_by_nested_cv`, `_clip_folds`, `_prf1`) —
+this project's own established mechanism for exactly this kind of
+decision (it is what produced the shipped `word_repetition`/
+`sound_repetition` repetition-classifier gate, `ROADMAP.md` item 17).
+Reused directly, not reimplemented, and not extended with any other
+model family, per the explicit instruction to keep this simple. No
+hyperparameter search beyond the L2 grid this infrastructure already
+performs *inside* its nested cross-validation (a pre-existing, already-
+validated part of the reused code, not a new tuning surface opened for
+this experiment).
+
+**Population.** Every acoustic candidate `direction (g)`'s MFCC pass
+already generates across the same 120-clip LibriStutter sample (766
+candidates in that pass) is the unit of classification. Label = 1 if
+the candidate overlaps a ground-truth `sound_repetition` instance
+(identical `±200ms` tolerance direction (g) already used), else 0 — the
+same definition, not a redefinition.
+
+**A real, necessary adaptation, named explicitly rather than left
+implicit**: Stage B/C's encoder-distance signal was originally defined
+at *ASR-hypothesis-token* positions (it needs a CrisperWhisper `hyp_
+token` span to pool the encoder at). Acoustic candidates are defined at
+*waveform* positions with no guaranteed corresponding ASR token. For
+each candidate, the encoder-distance feature is computed if a cached
+CrisperWhisper `hyp_token` for that clip overlaps the candidate's span
+(pooling the encoder there, same leave-one-out centroid); if no such
+token exists (no ASR output at that position, or the clip has no cached
+Track B transcript), the feature is **missing**, not zero or an error —
+matching this project's own established "`None` means no extra evidence,
+never a failed check" convention (`profiling/acoustic.py`'s
+`vad_coverage`/praat-feature pattern). Missing values are imputed to the
+**median** of the candidates that do have the feature (a neutral
+placeholder, not one that pushes the classifier toward either label),
+with a paired binary "has-encoder-signal" indicator column so the model
+can weight imputed and real values differently rather than treating a
+median-imputed value as if it were a real measurement.
+
+**Evaluation.** 5-fold, clip-split cross-validation (`_clip_folds`,
+deterministic round-robin over sorted clip ids — this project's own
+established split, avoiding the control-group-independence leakage
+Stage B/C's own limitations section named). Report out-of-fold
+precision/recall/F1 for three arms, all under the identical CV
+procedure for a fair comparison:
+- **(A) MFCC-alone**, threshold selected per training fold
+  (`_best_threshold_by_f1`/`_cv_threshold`, already-built) — a
+  cross-validated re-statement of direction (g)'s own signal, used here
+  as a built-in sanity check as much as a baseline: direction (g)'s
+  originally-reported F1=0.170 came from a single in-sample threshold
+  sweep (not held out), so this CV'd number is expected to land somewhat
+  *lower* than 0.170 (a fairer, not contradictory, restatement) — a
+  large, unexplained gap would instead flag a population or logic
+  mismatch between this script and direction (g)'s original one, and
+  would be investigated before trusting anything else here.
+- **(B) Encoder-distance-alone**, same CV threshold procedure, restricted
+  to candidates where the feature is real (not imputed) — the fairest
+  single-signal comparison for this arm specifically.
+- **(C) The combined classifier**, all 5 features (MFCC similarity,
+  n_bursts, duration, encoder-distance, has-encoder-signal), via
+  `_cv_classifier`'s nested-CV logistic regression, unmodified.
+
+**Success criterion.** Arm (C)'s mean out-of-fold F1 is meaningfully
+(>=20% relative — the same bar direction (g)'s own escalation used, for
+methodological consistency across this track's decisions) above **both**
+(A) and (B) individually. Requiring improvement over both, not just the
+weaker one, directly tests the combination hypothesis rather than a
+weaker "beats the worse baseline" claim.
+
+**Failure criterion.** Arm (C) does not clear both (A) and (B)
+meaningfully — evidence that combining these specific signals, at this
+sample size, does not recover what neither provides alone. Per the
+project owner's explicit instruction, this is treated as the closing
+result for the cheap-direction search: no further feature or model
+variant will be tried in response — the next step becomes Stage D
+planning (not implementation), directly, without a new cheap-variant
+detour.
+
+**Confounders, named before running.**
+- **Extreme class imbalance carries over unchanged** (51 positives among
+  766 candidates, ~6.6%) — the same imbalance that limited every
+  single-signal arm's precision. A learned combination can in principle
+  do better than a hand-set threshold at this imbalance, but is not
+  guaranteed to; this is exactly the open question being tested, not an
+  assumption resolved in advance.
+- **Small positive count for 5-fold CV** (~10 positives per fold on
+  average) means fold-to-fold variance will be real and should be
+  reported (the range across folds, not just the mean), matching
+  `compare_corroboration_mechanisms.py`'s own `_summarize()` convention.
+- **The encoder-distance feature's missing-value rate is not yet known**
+  (depends on how often an acoustic candidate's span actually overlaps a
+  cached ASR token) — will be reported directly as part of the result,
+  not assumed to be small.
+- **This is still LibriStutter's synthetic sample** — the same
+  generalization caveat named for direction (g) applies unchanged here.
+
+**Cost.** The acoustic-candidate and MFCC-similarity computation is
+already fast (direction (g)'s own measured ~5 min for 120 clips). The
+new cost is the encoder-distance pass — one `extract_last_layer_states`
+forward pass per clip, at roughly the layer-sweep's own measured rate
+(~30s/clip) since the dominant cost is the same full encoder forward
+pass either way — estimated ~60 minutes for 120 clips, to be confirmed
+with a small dry run (2-3 clips) before committing to the full run,
+matching this track's own standing discipline for any new cost.
+
+**Not yet started** — pre-registration only, before any implementation.
+
+**Addendum (2026-08-07, written before seeing the corrected results below,
+after the first real run surfaced the issue) — a real deviation from
+"reused unmodified," recorded per rule 1 rather than silently absorbed.**
+The pre-registration above said `_cv_classifier` (`compare_corroboration_
+mechanisms.py`'s existing nested-CV logistic regression) would be
+"reused directly, not reimplemented." The first real run instead
+returned F1=0.000/0.000/0.000/0.000/0.000 — exactly 0 across all 5 folds
+with zero variance — while Arm (B) alone (one of Arm (C)'s own five input
+features) independently scored F1=0.244 on the identical data. That
+combination (a trained model scoring literally nothing while one of its
+own inputs alone scores real, non-trivial F1) is not a plausible "the
+combination provides no benefit" result — it was investigated before
+being trusted, per rule 3, exactly like both of direction (g)'s bug
+catches.
+
+**Root cause, confirmed directly, not assumed**: `_cv_classifier` uses a
+hardcoded `proba >= 0.5` decision rule. This population's positive rate
+is far more extreme (~8%, 62/766) than whatever population `compare_
+corroboration_mechanisms.py`'s original `_cv_classifier` was built and
+validated against — the training set of `evaluation.py`'s `compare_
+corroboration_mechanisms.py`, whose (S1,M3) arm did not exhibit this
+failure mode. Verified the mechanism with a synthetic check (not just
+inferred): fit the same `_fit_logistic_regression`/`_standardize`
+pipeline on synthetic data at this exact class balance, with a
+deliberately real, informative feature planted in it, and found every
+predicted probability on held-out data landed below 0.5 anyway (max
+observed: 0.234) — a textbook, well-documented property of standard
+logistic regression under severe class imbalance (the fitted intercept
+correctly reflects the low base rate), not a coding defect in
+`_fit_logistic_regression` or `_standardize` themselves.
+
+**The fix, and why it is a fairness correction, not new tuning**: added
+`_cv_classifier_optimal_threshold()` to this script — identical to
+`_cv_classifier` (same nested-CV L2 selection, same fit) except the
+classification threshold is selected on the *training* fold's own
+predicted probabilities via `_best_threshold_by_f1()`, the exact same
+function Arms (A) and (B) already use for their own thresholds, instead
+of a hardcoded 0.5. Reusing a fixed 0.5 cutoff for Arm (C) alone while
+Arms (A)/(B) get a train-fold-optimized threshold would have been an
+*inconsistent*, not merely simpler, comparison — not calibrated to this
+population's base rate at all. This is a methodological correctness fix
+required to make the three-arm comparison valid in the first place, not
+a new feature, model, or hyperparameter search — the pre-registration's
+"no hyperparameter tuning, no feature-engineering rabbit hole"
+instruction is about not chasing a better number by trying new inputs or
+model families; it does not extend to using an internally consistent
+evaluation rule across all three arms. Both the original fixed-0.5
+result and the corrected optimal-threshold result are reported below,
+not just the one that changed the outcome.
+
+### Combined-signal classifier results (2026-08-07) — Failure: the combination matches, but does not exceed, the stronger individual signal
+
+Implementation: `profiling/evaluation/stage_combined_classifier.py`
+(new), reusing `direction (g)`'s MFCC candidate generator, `profiling/
+encoder_embedding.py`'s Stage B/C primitives, and `compare_
+corroboration_mechanisms.py`'s logistic-regression/nested-CV
+infrastructure exactly as pre-registered. 6 self-tests (feature-matrix
+construction, imputation, the has-signal indicator) written and passing
+before any real audio ran.
+
+**Real dataset**: 766 acoustic candidates across the 120-clip sample (the
+identical population direction (g)'s MFCC pass generated), 62 positive
+(8.1%), 607/766 (79.2%) with a real (non-imputed) encoder-distance
+value — the missing-value rate named as unknown in the pre-registration
+turned out to be moderate, not small, confirming the has-signal
+indicator column was a necessary design choice, not defensive
+over-engineering.
+
+**The bug described in the addendum above reproduced identically on
+this full run** (F1=0.000/0.000/0.000/0.000/0.000 with the original
+fixed-0.5 threshold, exactly as the first run showed) — confirming it is
+a deterministic property of this population's class balance, not
+run-to-run noise. With the corrected train-fold-optimal threshold:
+
+| Arm | Mean F1 | Range | Precision | Recall |
+|---|---|---|---|---|
+| (A) MFCC-alone | 0.147 | 0.121-0.189 | 0.090 | 0.541 |
+| (B) Encoder-distance-alone | 0.244 | 0.125-0.300 | 0.343 | 0.234 |
+| (C) Combined classifier | 0.242 | 0.105-0.348 | 0.314 | 0.244 |
+
+**Verdict: Failure, exactly as pre-registered.** (C) clears the bar
+against (A) (0.242 > 0.177, the 20%-relative bar computed from (A)'s
+own mean) but does **not** clear the bar against (B) (0.242 < 0.293) —
+and the pre-registration required clearing *both*, specifically to test
+whether combination beats the *better* individual signal, not just the
+weaker one. In practical terms, the combined classifier's mean F1
+(0.242) is statistically indistinguishable from encoder-distance-alone's
+(0.244) — a 0.002 difference, well inside the fold-to-fold range both
+arms show. **The combination does not hurt, but it does not help
+either** — the model appears to have effectively learned to rely on the
+encoder-distance feature and treat the three acoustic-candidate features
+as close to uninformative on top of it, rather than finding
+complementary signal in their combination.
+
+**A real, useful side-finding, worth stating plainly**: encoder-distance
+alone (Arm B, precision=0.343) is a meaningfully stronger single signal
+at this population and threshold-selection convention than either
+acoustic feature. This is not directly comparable to Stage C's original
+number (that was scored against a much larger control population,
+19 targets vs 966 controls, at ASR-hypothesis-token positions
+specifically) — this run scores it at the 607 acoustic-candidate
+positions that happen to have a real encoder-distance value, a smaller,
+differently-selected population. Both numbers are real and correct for
+their own defined population; they answer related but distinct
+questions and should not be conflated.
+
+**What this does and does not establish**: it does **not** show that
+combining signals never helps, or that the underlying encoder-distance
+signal is illusory — Arm (B) alone remains the strongest single number
+this entire track has produced against real candidates at usable
+precision (0.343). What it shows is that this *specific* combination —
+one strong signal (encoder-distance) plus three comparatively weak,
+partially-redundant ones (MFCC similarity, burst count, duration, all
+three derived from the same acoustic-candidate mechanism and likely
+correlated with each other) — does not produce a better classifier than
+the strong signal alone, at this sample size (766 candidates, 62
+positive, 5-fold CV). A combination of encoder-distance with a
+*genuinely different, stronger* second signal remains untested; this
+result does not rule that out, it rules out this particular combination.
+
+**Per the project owner's explicit, standing instruction**: this is
+treated as the closing result of the cheap-direction search. No further
+feature, model, or combination variant will be tried in response — the
+next step is Stage D planning, directly, described below.
+
+## Stage D planning (2026-08-07) — design, requirements, risks, and a real infrastructure finding
+
+Per §9, Stage D (fine-tuning or a purpose-built representation) requires
+all three of: (1) broad information loss, (2) richer representations
+tried and genuinely insufficient, (3) a real, sufficient paired dataset
+and the infrastructure to use it, existing or acquirable. Conditions 1
+and 2 are now satisfied by this track's accumulated evidence (Stage A;
+and, as of today, eight independent single/combined-signal probes
+across two sessions — Stage C, Stage C2, the CrisperWhisper layer sweep,
+`num_beams`, Phase 2's three arms, direction (g)'s two feature passes,
+and today's combined-signal classifier). Condition 3 has never been
+checked against this project's actual environment before today — it is
+checked directly below, not assumed.
+
+### What Stage D is intended to achieve
+
+Every direction tested so far worked *around* the normalization problem
+— trying to recover, from a representation trained for a different
+objective, evidence that objective didn't reward preserving. Stage D's
+premise is different in kind: adapt a model's weights, via a loss
+function that directly rewards preserving `sound_repetition`/`word_
+repetition` evidence, so the resulting representation or decoded text
+is shaped around this project's own taxonomy rather than general
+transcription fluency. This targets the root cause Stage A identified
+(normalization is a property of what a model was trained to reward, not
+merely information genuinely lost in the audio) rather than extracting
+a weak signal from a model that was never asked to preserve it.
+
+### Why previous directions failed, and why Stage D might succeed where they didn't
+
+*(Inference, not proven — general ML priors, not evidence specific to
+this problem.)* Every representation tested — CrisperWhisper, stock
+Whisper, WavLM — was trained toward an objective that does not
+explicitly reward preserving these specific disfluency patterns:
+CrisperWhisper's own fine-tuning targeted verbatim transcription
+broadly, not this taxonomy specifically; general ASR training (stock
+Whisper) is documented to actively reward fluent, normalized output;
+WavLM's paralinguistic-sensitivity objective is real but untargeted at
+this specific taxonomy. A model fine-tuned with a loss function that
+directly penalizes normalizing these patterns away would, in principle
+(standard supervised-learning logic — a model optimized for an
+objective tends to do better at that objective than one that wasn't),
+learn a representation specifically shaped around it. **This is a
+reasoned hypothesis grounded in general ML priors, not something this
+track's evidence has tested or can currently confirm or refute** — Stage
+D would be the first real test of it.
+
+### Major engineering, computational, and data requirements
+
+- **Compute**: fine-tuning a Whisper-scale model (CrisperWhisper/
+  `whisper-large-v3`, ~1.5B parameters) requires GPU-scale compute for
+  any realistic training run — forward and backward passes across a
+  real dataset, likely multiple epochs. Not achievable in a practical
+  timeframe on CPU alone (see "A real infrastructure finding" below).
+- **Data**: a paired (audio, disfluency-preserving-verbatim-transcript-
+  or-label) dataset at real training volume. Real options, honestly
+  assessed:
+  - **LibriStutter** (already downloaded, this track's own working
+    sample): *synthetic* splices, not real disfluent speech. A model
+    fine-tuned on it risks learning to recognize splice artifacts
+    rather than genuine disfluency patterns — the same generalization
+    risk this track has named for direction (g), now more consequential
+    for a training target than for an evaluation set. Usable as a cheap
+    sanity-check/prototyping set, **not** trustworthy as the sole
+    fine-tuning data for a result meant to generalize.
+  - **SEP-28k** (real stuttered speech, clip-level labels, no reference
+    transcript): needs real audio acquisition — a podcast-URL download
+    pipeline, ~32GB raw (`ROADMAP.md` item 15), not yet done, and even
+    once acquired has no word-level transcript to fine-tune verbatim
+    transcription against directly (only clip-level presence labels).
+  - **FluencyBank Timestamped** (real people who stutter, word-level
+    timestamps): needs a CHAT-format parser this project doesn't have
+    (`ROADMAP.md` item 16), and possibly access-gated (unconfirmed).
+  - **A real, uncomfortable observation**: CrisperWhisper's own
+    (third-party, undisclosed) training data presumably already
+    attempted something like this, and it still normalizes ~45-50% of
+    these instances away (Stage A). This doesn't prove Stage D can't
+    improve on that — CrisperWhisper's training objective and data are
+    unknown to this project, and a taxonomy-specific loss is a different
+    intervention than whatever CrisperWhisper's own fine-tuning
+    optimized for — but it is a real, sobering prior worth stating
+    plainly, not glossed over.
+- **Engineering**: a training pipeline (data loading, loss function,
+  fine-tuning loop, checkpointing, evaluation-during-training) — this
+  project currently has an evaluation/inference harness, not a training
+  codebase. Real, non-trivial new infrastructure, not an extension of
+  anything that exists today.
+- **Evaluation**: reusing the existing Track B pipeline for the final
+  measurement is a real advantage (already built, already validated) —
+  but requires a held-out test set genuinely uncontaminated by whatever
+  data trains the model, which needs to be planned deliberately, not
+  assumed automatic.
+
+### A real infrastructure finding, checked directly (not assumed)
+
+Verified against this actual project environment before writing
+anything further: `torch.cuda.is_available()` is `False`; the installed
+`torch` build is CPU-only (`2.12.1+cpu`); no MPS (not a Mac); the only
+GPU present is integrated (Intel UHD Graphics 620, not CUDA-capable, not
+suitable for ML training); 17GB RAM; 91GB free disk. **There is no local
+GPU compute available for fine-tuning a Whisper-scale model.** This is
+not a soft risk — it is a hard, checkable fact about the actual
+environment this project runs in, and it directly determines whether
+§9's condition 3 is satisfied "as-is" (it is not) versus "acquirable"
+(a real, separate question — cloud GPU access — this document cannot
+answer unilaterally, since it involves cost and access decisions outside
+what's observable from this repository).
+
+### Biggest technical risks
+
+1. **No accessible large-scale, real (non-synthetic) paired training
+   data**, independent of the compute question — potentially blocking
+   on its own.
+2. **LibriStutter's synthetic nature risks training a model that
+   overfits to splice artifacts**, producing a result that looks like
+   success on this track's own synthetic evaluation set while not
+   generalizing to real disfluent speech — the single most insidious
+   risk, since it could produce a confidently-wrong positive result.
+3. **Catastrophic forgetting**: this track's own literature review
+   (Phase 2) already found Whisper fine-tuning on narrow objectives
+   documented to degrade general transcription accuracy — a real risk
+   of shipping a model that's better at this taxonomy but worse
+   overall.
+4. **No local compute**, meaning any real attempt depends on cloud GPU
+   access this project has not set up or budgeted, adding real cost and
+   setup work beyond anything this track has needed so far.
+5. **Generalization is unverified even after a nominally successful
+   fine-tune**, without real held-out data — the same caveat this track
+   has attached to every LibriStutter-based result, now attached to a
+   training target rather than an evaluation target, which is a more
+   consequential place for it to bite.
+
+### Expected payoff relative to required effort
+
+The scientific case for attempting Stage D is real: two full sessions
+and eight independent probes (single-signal and combined) all converge
+on the same conclusion that cheap, off-the-shelf, representation-only
+approaches are insufficient. But the cost is high and genuinely
+uncertain — real data-acquisition work (a multi-hour-to-multi-day
+undertaking for either SEP-28k or FluencyBank), a new training
+codebase, real cloud-compute cost, and no guarantee of success (Stage D
+tests a reasoned hypothesis, not a proven one). The LibriStutter-only
+"cheap" path specifically is not a low-risk shortcut here the way it
+has been for every evaluation-only stage in this track — for a
+*training* target, its synthetic-splice risk could produce a
+misleadingly confident false success, which is a materially worse
+outcome than a clean negative result. This tempers the "least expensive
+Stage D attempt" outcome that might otherwise seem available.
+
+### Simpler alternatives worth considering before committing further
+
+Applying the same discipline that led to today's combined-signal
+experiment (never skip a cheaper, still-untested option to jump to the
+expensive one): **acquiring a modest amount of real (non-synthetic)
+disfluent speech first, without training anything, to test whether
+today's combined-classifier signal (or direction (g)'s acoustic
+mechanism) generalizes beyond LibriStutter's synthetic splicing** is
+strictly cheaper than any Stage D attempt (no GPU, no training
+pipeline), directly addresses Stage D's own biggest named risk (data
+realism) before committing further effort to it, and would independently
+be valuable evidence regardless of which direction comes next. This was
+not part of today's authorized experiment and is not undertaken here —
+named as a real, credible option for a future decision, not decided
+unilaterally.
+
+### What this means for today
+
+**Condition 3 of this track's own §9 gate is not currently satisfied,
+and the honest, evidence-disciplined thing to do — exactly what §9
+itself anticipates — is to record that directly rather than attempt an
+implementation that cannot realistically run**: "otherwise this is a
+correct conclusion with no way to act on it yet, which should be
+recorded as exactly that (a validated future-work item, not a stalled
+implementation)." Stage D is now scientifically well-motivated (§9
+conditions 1 and 2 satisfied) but not currently actionable on this
+project's existing infrastructure (§9 condition 3 unmet) — a genuine
+engineering blocker, not a research dead end, and not something this
+document resolves by guessing at a workaround. This is recorded here as
+that exact, honest state, pending a decision the project owner needs to
+make (cloud GPU access and budget; real-data acquisition scope; or
+holding Stage D as validated future work while pursuing the cheaper
+real-data-generalization check named above) rather than proceeding
+further unilaterally.

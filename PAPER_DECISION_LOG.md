@@ -5900,3 +5900,210 @@ fixed first (cross-clip scoring pollution; MFCC coefficient-0 energy
 masking) — this is the most carefully verified negative result this
 track has produced for any single mechanism. No change to `main`,
 `profiling/acoustic.py`, or `profiling/detect.py`.
+
+## 2026-08-07 — Research review: Stage D not yet justified by this track's own §9 gate; one final bounded experiment authorized
+
+**What was done**
+Opened today's session with a full research-thinking-first pass, before
+any code, per the project owner's explicit request: reviewed the entire
+accumulated evidence base (Stage A through yesterday's direction (g))
+as an independent researcher would, answering seven questions with
+evidence/inference/speculation kept separate — what's known with high
+confidence, what's strongly supported, what's uncertain, what's
+disproven, the strongest remaining hypothesis, whether cheap directions
+are genuinely exhausted, and whether Stage D is scientifically
+justified now or just the only thing left on the original list.
+
+**Key finding, checked against this track's own pre-registered gate
+rather than asserted independently**: `ASR_RESEARCH_TRACK.md` §9's
+second condition for concluding Stage D is necessary requires richer-
+representation approaches to have been "tried and genuinely isn't
+enough, not merely untried." Every signal this track has measured
+(CrisperWhisper's encoder-distance, stock Whisper's representation,
+WavLM's representation, RMS/ZCR acoustic similarity, MFCC acoustic
+similarity) was tested *alone*, gated by a hand-set threshold — never
+combined, never trained together. By the gate's own language, that
+condition was not yet satisfied.
+
+**Alternatives considered**
+- Recommend Stage D anyway, since seven single-signal probes had all
+  failed and Stage D was "the only thing left" from the original
+  7-direction list. **Rejected, explicitly**: the project owner's own
+  framing for this review warned against exactly this reasoning
+  pattern, and the track's own §9 gate — written before any of today's
+  or yesterday's results existed — draws the same distinction between
+  "tried and failed" and "merely untried."
+
+**Why this choice**
+A combined-signal classifier over already-built signals (Stage C's
+encoder-distance, direction (g)'s acoustic candidate features) is real,
+concrete, and cheap — no new data, no new model integration — and had
+never been attempted, unlike every other direction in the original
+design space.
+
+**Decision (project owner, 2026-08-07)**: authorized exactly one final,
+explicitly bounded low-cost experiment — the combined-signal
+classifier — before moving to Stage D, with an explicit instruction not
+to let it become an open-ended optimization track: if it fails,
+document that honestly and proceed directly to Stage D planning without
+revisiting further cheap variants.
+
+**Measured result**
+Not a numeric result — a research review and a scoped decision. Full
+review recorded in `ASR_RESEARCH_TRACK.md`'s "Research review
+(2026-08-07)"; the combined-signal classifier's own pre-registration and
+results follow as separate entries below.
+
+## 2026-08-07 — Combined-signal classifier: a real bug caught (F1=0.000 despite a real input signal alone scoring 0.244), then a clean Failure
+
+**What was done**
+Built `profiling/evaluation/stage_combined_classifier.py`, reusing this
+track's own existing infrastructure exclusively, per the pre-
+registration's explicit "no new signal sources" scope: direction (g)'s
+MFCC candidate generator for acoustic features (similarity, burst count,
+duration), `profiling/encoder_embedding.py`'s Stage B/C primitives for
+encoder-distance (recomputed at each acoustic candidate's own span, with
+a documented, necessary adaptation from Stage B/C's original ASR-
+hypothesis-token anchoring — see the pre-registration for why), and
+`compare_corroboration_mechanisms.py`'s existing nested-CV logistic-
+regression infrastructure (the same mechanism that shipped this
+project's one other trained classifier, `ROADMAP.md` item 17) for the
+model itself. 6 self-tests (feature-matrix construction, median
+imputation, the has-signal indicator column) written and passing before
+any real audio ran. A pre-registered dry run (3 clips, 117s) confirmed
+the estimated cost (~78 min for 120 clips) before the full run was
+committed to.
+
+**A real bug caught before trusting the first real result, investigated
+per rule 3 rather than reported as-is**: the first full run (120 clips,
+~62 min) returned F1=0.000/0.000/0.000/0.000/0.000 for the combined
+classifier across all 5 folds — while the encoder-distance-alone
+baseline (one of the combined model's own five input features)
+independently scored F1=0.244 on the same data. A trained model scoring
+literally nothing, when one of its own inputs alone scores real,
+non-trivial F1, is not a plausible "no benefit from combining" result.
+Diagnosed directly: `compare_corroboration_mechanisms.py`'s reused
+`_cv_classifier` hardcodes a `proba>=0.5` decision rule. Confirmed the
+mechanism with a synthetic check (not just inferred) — fit the identical
+logistic-regression pipeline on synthetic data at this population's
+exact ~8% positive rate, with a deliberately real, informative feature
+planted in it, and found every held-out predicted probability landed
+below 0.5 anyway (max observed 0.234) — a well-documented property of
+logistic regression under severe class imbalance (the fitted intercept
+correctly reflects the low base rate), not a defect in the reused
+fitting code itself.
+
+**Alternatives considered**
+- Report the F1=0.000 result as-is. **Rejected**: exactly the kind of
+  implausible result rule 3 exists to catch before it's trusted,
+  especially given a direct, cheap synthetic check was available to
+  confirm or rule out the suspected mechanism before spending more real
+  compute re-running anything.
+- Leave `_cv_classifier`'s fixed 0.5 threshold as the reported Arm (C)
+  result, since it's the "unmodified, reused" version literally named
+  in the pre-registration. **Rejected**: Arms (A) and (B) both already
+  use a train-fold-optimal threshold (`_best_threshold_by_f1`) rather
+  than a fixed cutoff — keeping Arm (C) at a fixed 0.5 while (A)/(B) get
+  an optimized threshold would make the three-arm comparison internally
+  inconsistent, not simpler. Added `_cv_classifier_optimal_threshold()`
+  (same nested-CV L2 selection and fit, only the threshold-selection
+  step changed to match (A)/(B)'s own convention) and recorded this as
+  a dated pre-registration addendum, written before re-running, per
+  rule 1 — a fairness correction required to make the comparison valid,
+  not a new tuning surface.
+
+**Why this choice**
+Directly executes the pre-registered protocol's actual hypothesis (does
+combining these signals help) rather than an artifact of one reused
+function's threshold convention not matching this population's class
+balance.
+
+**Measured result**
+Re-ran the full pipeline with the fix (cost: 3068s/~51 min for the
+full data-collection pass, this time cached for reuse). The F1=0.000
+bug reproduced identically under the original fixed-0.5 rule (confirming
+it is deterministic, not run-to-run noise) — and with the corrected
+threshold: (A) MFCC-alone F1=0.147 (P=0.090, R=0.541); (B) encoder-
+distance-alone F1=0.244 (P=0.343, R=0.234, real values only, 607/766
+candidates = 79.2%); (C) combined classifier F1=0.242 (P=0.314,
+R=0.244). **Failure, exactly as pre-registered**: (C) clears the bar
+against (A) (0.242 > 0.177) but not against (B) (0.242 < 0.293), and
+both were required. In practical terms, (C)'s F1 (0.242) is
+statistically indistinguishable from (B) alone (0.244) — the
+combination neither helps nor hurts meaningfully; the model appears to
+lean almost entirely on the encoder-distance feature. A real
+side-finding worth recording: encoder-distance-alone (P=0.343) is the
+strongest single number this track has produced against real candidates
+at usable precision, though scored against a different (smaller,
+acoustic-candidate-anchored) population than Stage C's original number,
+so the two are not directly comparable.
+
+Per the project owner's explicit, standing instruction, this closes the
+cheap-direction search — no further feature, model, or combination
+variant will be tried in response. Next step: Stage D planning,
+directly, described in a following entry.
+
+## 2026-08-07 — Stage D planned: scientifically motivated, not currently actionable — a real infrastructure blocker
+
+**What was done**
+Wrote the complete Stage D planning deliverable requested: what it's
+intended to achieve, why previous directions failed and why Stage D
+might succeed where they didn't (clearly labeled as inference/reasoned
+hypothesis, not evidence), major engineering/computational/data
+requirements, biggest technical risks, expected payoff relative to
+effort, and simpler alternatives worth considering first — all in
+`ASR_RESEARCH_TRACK.md`'s "Stage D planning (2026-08-07)" section,
+before writing or attempting any training code.
+
+**Checked §9's third condition directly against this project's actual
+environment, rather than assumed** — the first time this track has done
+so: `torch.cuda.is_available()` is `False`; the installed `torch` build
+is CPU-only; the only GPU present is integrated (Intel UHD Graphics
+620), not CUDA-capable; 17GB RAM; 91GB free disk. No local GPU compute
+exists for fine-tuning a Whisper-scale model. Separately, no
+large-scale, real (non-synthetic) paired disfluent-speech dataset is
+currently accessible: SEP-28k needs real audio acquisition never
+attempted (`ROADMAP.md` item 15); FluencyBank needs a CHAT-format
+parser this project doesn't have (`ROADMAP.md` item 16); LibriStutter
+(already available) is synthetic splicing, and using it as the sole
+fine-tuning target risks training a model that learns to recognize
+splice artifacts rather than genuine disfluency patterns — a
+materially worse risk for a *training* target than it has been for an
+evaluation-only set throughout this track.
+
+**Alternatives considered**
+- Attempt a minimal or token Stage D implementation anyway (e.g., a
+  tiny LoRA fine-tune on CPU, or training on LibriStutter alone despite
+  its named risk), to have *something* running today. **Rejected**:
+  this project's own §9 explicitly names the correct handling for
+  exactly this situation — "a validated future-work item, not a stalled
+  implementation" — and a token implementation on inadequate compute
+  and unverified-generalization data would risk producing a
+  confidently-wrong result, the same failure mode named as Stage D's
+  single biggest risk in the planning write-up itself. Forcing an
+  implementation here would repeat that risk rather than avoid it.
+- Treat the infrastructure gap as something to silently work around
+  (e.g., assume cloud GPU access without confirming it, or scope down
+  Stage D's ambition without saying so). **Rejected**: per this
+  project's own standing rule 8 (evidence-constrained decisions,
+  reasoning recorded so a future reader can see why) and the explicit
+  instruction to stop at a genuine blocker requiring a new decision —
+  this is exactly that blocker, named plainly rather than smoothed over.
+
+**Why this choice**
+Directly follows §9's own pre-registered, three-part test (written
+before any of today's or the accumulated evidence existed) rather than
+either forcing an implementation the evidence doesn't yet support
+infrastructurally, or quietly declining to check condition 3 at all.
+
+**Measured result**
+Not a numeric result — a complete Stage D design document and a
+directly-verified, hard infrastructure fact (no local GPU; no
+accessible real training data at volume). Stage D is now scientifically
+well-motivated (conditions 1 and 2 of this track's own gate satisfied)
+but not currently actionable (condition 3 unmet) — recorded as exactly
+that, per §9's own guidance, pending the project owner's decision on
+how to proceed (cloud GPU/budget and real-data acquisition scope, the
+cheaper real-data-generalization check named in the planning document,
+or holding Stage D as validated future work). No code written for
+Stage D itself. No change to `main`.
