@@ -3376,6 +3376,26 @@ detector" -- named here, not resolved.
 
 ### 16.3 Part B results: end-to-end Track B effect, using the recall-targeted threshold
 
+**Superseded-in-place notice, 2026-08-08 (same day, follow-up
+validation)**: the threshold used to produce the numbers below was
+selected from each fold's own IN-SAMPLE train-set predictions
+(`_out_of_fold_scores_and_thresholds`'s `train_proba`), not from
+genuinely out-of-fold signal -- a real methodological error, not merely
+a naming issue. In-sample predictions from a ~1280-dim model on a few
+hundred rows are close to perfectly separated, so a "reach 30% recall"
+threshold selected against them lands at an unrealistically extreme
+value (confirmed directly in the follow-up: ~0.98, versus the properly
+out-of-fold-selected per-fold range of 0.66-0.80) that fires far less
+often than warranted. This was caught, and corrected, during the
+follow-up validation in section 17 below -- **the corrected end-to-end
+result is real recall=0.247/precision=0.559 (Any-label), materially
+larger than the 0.052/0.308 reported below, which should now be read as
+an understated result, superseded by section 17.6, not as the current
+finding.** The table below is preserved unedited as the historical
+record of what was originally measured and reported, per this
+document's own append-only convention -- do not delete or silently
+edit it.
+
 Rank 1's classifier (recall-floor>=0.3 threshold, not the original
 F1-optimal one) injected as an additional candidate-generation trigger
 into the existing Track B pipeline (gate-off baseline, matching Stage
@@ -3429,3 +3449,284 @@ loss.
   cascade's first stage), independent of sample size or annotation noise
   -- exactly the "category error" the external review named (section 5
   point 4) and this reanalysis now directly confirms with real numbers.
+
+## 17. Rank 1 re-thresholding follow-up validation -- pre-registered protocol (2026-08-08, before implementation)
+
+Per the project owner's explicit decision ("Rank 1 is sufficiently
+promising that its original Failure verdict should not be treated as
+final, but the evidence is not yet strong enough to adopt the
+recall-targeted threshold in production"), this section fixes the exact
+methodology for a focused, decision-closing follow-up **before** writing
+any code, per standing rule 1. No production code
+(`profiling/repetition_classifier.py`, `config.yaml`) is touched by this
+work, and Step 2 (Dysfluent-WFST) is explicitly out of scope here.
+
+### 17.1 Questions this follow-up answers
+
+1. **Fold stability**: are the recall-targeted thresholds (and the
+   performance they achieve) similar across the 5 folds, or is the
+   section-16 result driven by one or two atypical folds? Report the
+   actual per-fold threshold *values* (not just outcome P/R, which
+   section 16 already has), their dispersion, and a leave-one-fold-out
+   jackknife on mean precision/recall.
+2. **Does the operating point defensibly approach R>=0.3** without an
+   excessive precision cost? Report the honest per-fold P/R already in
+   section 16.2 alongside the dispersion from (1), and state plainly
+   whether precision is being traded away to reach recall, or whether
+   both improve simultaneously relative to the original F1-optimal point
+   (a real possibility on a small, noisy PR curve, not assumed either
+   way).
+3. **The Any-label/type issue in Part B (section 16.3) is corrected.**
+   The original Part B injection defaulted an unlabeled positive firing
+   (a false positive, where no ground-truth type exists to reference) to
+   `sound_repetition` -- an arbitrary, methodologically unjustified
+   choice that could not be checked from the printed table alone. This
+   follow-up separates: (a) true positives, where the *true* type is
+   known from ground truth and can be validly attributed; (b) false
+   positives, where no true type exists and none will be fabricated --
+   tracked as a separate "type-unattributable" count, not folded into
+   either type's own FP tally. The `ANY_LABEL` aggregate (which only
+   requires intersection with `scorable_types`, not a specific one) is
+   unaffected by this correction and remains the primary valid measure of
+   Rank 1's end-to-end effect; the previously-reported per-type FP split
+   is retracted as unreliable, not re-affirmed.
+4. **Re-run the end-to-end Part B measurement** with the corrected
+   type-handling from (3), using the same 55-clip matched population and
+   the same recall-targeted (>=0.3) threshold as section 16.3 -- no new
+   data, no new ASR/encoder pass.
+5. **Single deployable threshold vs. per-fold evaluation device.** The
+   5-fold procedure in section 16 exists to produce an honest,
+   non-leaky *estimate* of what a recall-targeted selection rule would
+   achieve out-of-sample -- it does not itself specify what to ship. This
+   follow-up separately fits ONE threshold using the identical
+   recall-targeted (>=0.3) rule on the FULL dataset (no held-out split)
+   and reports it explicitly labeled as **in-sample** (i.e., its own
+   precision/recall on the same data it was selected from is optimistic
+   and NOT a valid out-of-sample performance claim) -- reported only to
+   answer "what would the deployable threshold value actually be and how
+   does it compare to the 5 per-fold values," not as a new performance
+   number to trust.
+
+### 17.2 Data and method
+
+No new data collection, no new ASR run, no new encoder pass -- reuses
+`eval_results/_stage_h_rows_cache.npz` (Rank 1's cached embeddings/
+labels/clip_ids, "Any" population, n_pos=66/n_neg=1780) and the existing
+Track B cache, identical to section 16. Same 5-fold clip-split CV
+(`_clip_folds`), same nested-L2 logistic regression fitting
+(`_select_l2_by_nested_cv`/`_fit_logistic_regression`/`_standardize`),
+same recall-targeted threshold rule (`_best_threshold_for_recall_floor`,
+section 15/16's own code) -- all reused unmodified. New code only for:
+(a) surfacing per-fold threshold values (not just outcomes); (b) the
+leave-one-fold-out jackknife; (c) the single-full-dataset threshold fit;
+(d) the corrected type-attribution in the end-to-end re-scoring.
+
+### 17.3 Self-test requirement
+
+Per the explicit instruction (and Step 0's own process-gap finding,
+section 16.1 point 3): any new evaluation code is self-tested *before*
+its results on real data are trusted, not retroactively.
+
+### 17.4 What this follow-up does NOT do
+
+Does not touch `profiling/repetition_classifier.py` or `config.yaml`.
+Does not execute Step 2 or install any Dysfluent-WFST dependency. Does
+not itself decide to adopt or reject the re-threshold -- produces the
+evidence a decision requires, reported as measured/interpreted/unknown/
+required-next, per the project owner's own explicit framing.
+
+### 17.5 A real mistake found during this follow-up, and its consequence for section 16 itself
+
+Implemented in `profiling/evaluation/stage_m_rank1_rethreshold_validation.py`.
+Self-tested before trusting any real result (12 checks; see 17.9).
+
+**The mistake**: the first version of this follow-up's per-fold analysis
+selected the recall-targeted threshold from each fold's own IN-SAMPLE
+train-set predictions, not from genuinely out-of-fold signal. Caught
+immediately because the result (mean P=0.400, mean R=0.054) was
+drastically different from section 16's own already-published number
+(mean P=0.783, mean R=0.289) for what should have been the identical
+computation -- exactly the kind of surprising-result audit standing rule
+3 requires. Diagnosed directly: in-sample predictions from a ~1280-dim
+model fit on a few hundred rows are close to perfectly separated, so a
+"reach 30% recall" threshold selected against them lands at an extreme
+value (~0.98) that does not generalize.
+
+**Fixed** by reusing section 16's own exact two-stage procedure
+(`_out_of_fold_scores` then `_cv_threshold_for_recall_floor`, both
+unmodified in behavior -- a new `known_l2s` parameter was added to
+`_out_of_fold_scores` purely to skip redundant, already-known-
+deterministic L2 recomputation, verified to produce bit-identical
+results when given the L2 value that would have been recomputed anyway,
+self-tested directly). The corrected re-run reproduces section 16's
+own mean P=0.783/R=0.289 exactly, confirming the fix and giving section
+16 an independent replication it did not have before.
+
+**A second-order consequence, not originally anticipated**: `stage_l`'s
+Part B (section 16.3) selected its injection threshold via
+`_out_of_fold_scores_and_thresholds`, which has the **identical**
+in-sample-threshold pattern this follow-up first got wrong. This means
+**section 16.3's own end-to-end result was itself understated by the
+same bug**, independent of the denominator-dilution explanation 16.3
+already gave. Fixed here the same way (reusing the corrected two-stage
+procedure); see 17.7 for the corrected end-to-end numbers. Section 16.3
+is marked superseded-in-place above, not edited.
+
+### 17.6 Q1/Q2/Q5 results: fold stability, recall-floor approach, and the deployable-threshold question
+
+Reused section 16's exact procedure (verified to reproduce mean
+P=0.783/R=0.289 exactly), extended to surface the threshold VALUE per
+fold (not just the outcome) and a leave-one-fold-out jackknife:
+
+| Fold | Threshold | n_test (pos/neg) | Precision | Recall | F1 |
+|---|---|---|---|---|---|
+| 0 | 0.6625 | 14/389 | 0.667 | 0.429 | 0.522 |
+| 1 | 0.7061 | 12/374 | 1.000 | 0.333 | 0.500 |
+| 2 | 0.7961 | 15/406 | 0.500 | 0.200 | 0.286 |
+| 3 | 0.7214 | 12/298 | 0.750 | 0.250 | 0.375 |
+| 4 | 0.7961 | 13/313 | 1.000 | 0.231 | 0.375 |
+
+**Q1 (fold stability)**: threshold values range **[0.6625, 0.7961]**
+(std=0.0524) -- a moderate spread, all within a similar "requires high
+model confidence" regime, not wildly inconsistent. Recall ranges
+[0.200, 0.429] (std=0.083); precision ranges [0.500, 1.000] (std=0.194,
+the widest dispersion -- driven by small per-fold positive counts,
+12-15 each, where a single TP/FP shifts precision substantially).
+**Leave-one-fold-out jackknife**: excluding any single fold shifts the
+mean by at most **P=0.071, R=0.035** -- small relative to the full means
+(0.783, 0.289) -- **no single fold is disproportionately driving the
+result.**
+
+**Q2 (recall-floor approach)**: mean recall (0.289) falls just short of
+the pre-registered 0.3 floor, consistent with section 16.2's own
+characterization. Critically, this is **not a precision-for-recall
+trade-off** -- mean precision (0.783) is *higher* than the original
+F1-optimal point's precision (0.580), not lower. Both metrics improve
+simultaneously relative to the original operating point; the honest
+per-fold procedure is not sacrificing anything to reach recall.
+
+**Q5/Q6 (single deployable threshold vs. per-fold evaluation device)**:
+fitting one threshold on the full, unsplit dataset via the identical
+recall-targeted rule gives a **very different value: 0.9818** (in-sample
+P=1.000, R=0.303 -- explicitly optimistic, not a valid estimate) --
+**this falls OUTSIDE the validated per-fold range [0.6625, 0.7961]**.
+This is a real, decision-relevant finding: the naive "refit on
+everything, apply the same rule" approach does not produce a threshold
+consistent with what the honest, cross-validated analysis shows is
+actually achievable -- it is biased toward an unrealistically
+conservative value by the same in-sample-separation effect diagnosed in
+17.5. **No single number from this follow-up constitutes a validated,
+ready-to-ship threshold value** -- the 5 per-fold values are each a
+fold-specific *estimate of the achievable operating point*, not a
+deployment candidate individually, and the naive full-dataset fit is
+demonstrably unreliable. Determining an actual deployable value (e.g.
+via an aggregation rule over the 5 per-fold values, or a differently-
+regularized full-refit method) is unresolved and would need its own
+validation before shipping.
+
+### 17.7 Q3/Q4 results: type-corrected, threshold-corrected end-to-end effect
+
+Same 55/58-clip matched population as section 16.3, same gate-off
+baseline, with BOTH corrections applied (the out-of-fold threshold from
+17.5, and the type-attribution fix from 17.1 point 3): 26 new candidates
+fired (19 true positives, 7 false positives -- type-unattributable, not
+fabricated as a specific type).
+
+**Pass 1 (Any-label, the primary valid end-to-end measure -- doesn't
+require knowing which specific type fired)**:
+
+| | Baseline | Augmented |
+|---|---|---|
+| **Any** | TP=0, FP=8, FN=77, Recall=0.000 | TP=19, FP=15, FN=58, **P=0.559, R=0.247, F1=0.342** |
+
+**Pass 2 (per-type TP/FN, ground-truth-justified -- valid; per-type
+precision in this pass is NOT meaningful, since false positives are
+deliberately excluded from it by construction, not because none occur)**:
+
+| Type | Baseline Recall | Augmented TP/FN | Augmented Recall |
+|---|---|---|---|
+| `sound_repetition` | 0.000 | TP=13, FN=29 | **0.310** |
+| `word_repetition` | 0.000 | TP=6, FN=29 | **0.171** |
+
+**This is a substantially larger, real, corrected end-to-end effect than
+section 16.3's original (superseded) 0.052 recall / 0.308 precision** --
+recall is now **0.247** (nearly 5x larger) at **higher** precision
+(0.559 vs. 0.308). Internally consistent with 17.6: 19/77 = 0.247 (the
+Any-label recall here) sits close to, slightly below, the 0.289
+cross-validated mean from the full cached population (17.6) -- a
+sensible, expected gap, since this specific injection is restricted to
+the 55-clip matched subset, not the full cache.
+
+**Also newly established**: unlike the original (buggy-threshold) Part
+B run, which found literally zero `word_repetition` candidates fired at
+any threshold, the corrected threshold **does** recover real
+`word_repetition` positions (6 TPs, recall=0.171) -- the "Any" classifier
+is not purely a `sound_repetition` detector in practice, though it still
+recovers `sound_repetition` at a higher rate (0.310).
+
+**Still true, unchanged from section 16.3's own honest caveat**: the
+majority of total ground truth (58/77, ~75%) remains unrecovered even
+under this corrected, stronger estimate -- Rank 1's category-1-scoped
+improvement is real and larger than first measured, but still partial.
+
+### 17.8 Synthesis: established / new / unknown / required before production
+
+**Already established (before this follow-up, section 16, unaffected by
+anything here)**: Rank 1's classifier has real discrimination ability
+(AUPRC=0.556, far above chance); the original F1-optimal threshold
+understated its usable operating range; Rank 2 remains a real Failure;
+Rank 3's fold-instability question is separate and still unresolved.
+
+**This follow-up establishes**:
+- The recall-targeted threshold's fold-to-fold stability is moderate,
+  not fragile -- no single fold drives the result (17.6, jackknife).
+- The recall-floor approach is a simultaneous improvement over the
+  original point (both precision AND recall improve), not a trade-off
+  (17.6).
+- A real, previously-uncaught methodological bug (in-sample threshold
+  selection) affected BOTH this follow-up's first attempt AND, it turns
+  out, section 16.3's original Part B -- both corrected, both
+  self-tested and verified before trusting (17.5).
+- The corrected end-to-end effect is real and substantially larger than
+  first measured: Any-label recall 0.000->0.247 at precision 0.559
+  (17.7), though still recovering a minority (~25%) of total loss.
+- The Any-label/type issue is resolved for MEASUREMENT purposes (17.1
+  point 3, 17.7) -- true positives validly attributed by type, false
+  positives honestly tracked as type-unattributable rather than
+  fabricated.
+
+**Still unknown / unresolved**:
+- **No validated, ready-to-ship threshold VALUE exists** (17.6) -- the
+  per-fold values are evaluation artifacts, and the naive full-dataset
+  refit produces an unreliable, out-of-range value. A real deployable-
+  threshold-selection method is a genuinely open question, not merely
+  an implementation detail.
+- **The type-attribution problem is NOT resolved for deployment** -- on
+  new, real audio, the classifier still cannot say whether a fired
+  candidate is `sound_repetition` or `word_repetition`; this follow-up
+  only fixed how *evaluation* handles that ambiguity (ground-truth-based
+  attribution for TPs, honest non-attribution for FPs), which is not
+  available at inference time on unlabeled audio.
+- Nothing here was tested against real (non-synthetic) audio -- still
+  entirely LibriStutter-based, same limitation as every prior stage.
+- Rank 3's fold-instability question remains untouched.
+
+**What would still be required before changing production behavior**:
+1. A principled method for selecting the actual deployable threshold
+   value (not the naive full-dataset refit shown here to be unreliable),
+   itself validated with the same rigor as this section.
+2. A resolution (or an explicit, accepted design decision) for what the
+   product does when the classifier fires without knowing the specific
+   type -- e.g., a cheap secondary type-inference rule, treating it as a
+   generic "possible repetition" signal, or defaulting to one type with
+   a stated, accepted error cost.
+3. Validation against at least some real (non-synthetic) audio, given
+   every number in this entire track remains LibriStutter-only.
+
+### 17.9 Self-test summary
+
+`python -m profiling.evaluation.stage_m_rank1_rethreshold_validation --self-test`
+-- 12 checks, all pass, including a direct proof that the `known_l2s`
+reuse path reproduces bit-identical thresholds to a freshly-recomputed
+path (not merely "runs without crashing"), and a monkeypatch-based proof
+that the reuse path never calls the expensive nested search at all.

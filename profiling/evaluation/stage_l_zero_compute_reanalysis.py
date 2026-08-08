@@ -71,6 +71,7 @@ _RESULTS_DIR = _ROOT / "eval_results"
 
 def _out_of_fold_scores(
     X: np.ndarray, y: np.ndarray, fold_ids: np.ndarray, clip_ids: np.ndarray,
+    known_l2s: list[float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Identical fitting pipeline to `_cv_classifier_optimal_threshold`
     (same nested-L2 selection, same standardization, same fit) -- but
@@ -84,7 +85,18 @@ def _out_of_fold_scores(
     full sorted-unique-id list `_clip_folds` sees) even though, in every
     run so far, no row was actually filtered (valid was all-True) so it
     happened to be safe; returning the real fold_ids removes the
-    assumption entirely rather than relying on it staying true."""
+    assumption entirely rather than relying on it staying true.
+
+    `known_l2s` (added 2026-08-08, for the Rank 1 re-thresholding
+    follow-up, VALIDATION.md section 17): if given, reuses already-
+    published, exact L2 values per fold instead of recomputing the
+    expensive nested inner-CV search -- mathematically identical given
+    the fully deterministic pipeline (verified directly: a fresh
+    recompute for fold 0 on this exact data returned 0.5, matching the
+    published value). Does not change this function's output for a given
+    L2 -- only skips redundant, already-known-deterministic computation.
+    `None` (default) preserves the exact original behavior used to
+    produce every number in section 16."""
     n = len(y)
     proba = np.full(n, np.nan)
     for f in range(5):
@@ -92,7 +104,8 @@ def _out_of_fold_scores(
         train_mask = ~test_mask
         if test_mask.sum() == 0 or train_mask.sum() == 0:
             continue
-        l2 = _select_l2_by_nested_cv(X[train_mask], y[train_mask], clip_ids[train_mask])
+        l2 = known_l2s[f] if known_l2s is not None else _select_l2_by_nested_cv(
+            X[train_mask], y[train_mask], clip_ids[train_mask])
         X_train, X_test = _standardize(X[train_mask], X[test_mask])
         w, b = _fit_logistic_regression(X_train, y[train_mask], l2)
         proba[test_mask] = 1.0 / (1.0 + np.exp(-np.clip(X_test @ w + b, -30, 30)))
@@ -192,6 +205,32 @@ def _cv_threshold_for_recall_floor(
         t = _best_threshold_for_recall_floor(signal[train_mask], labels[train_mask], min_recall)
         pred = (signal[test_mask] >= t).astype(int)
         results.append(_prf1(pred, labels[test_mask]))
+    return results
+
+
+def _cv_threshold_for_recall_floor_with_values(
+    signal: np.ndarray, labels: np.ndarray, fold_ids: np.ndarray, min_recall: float,
+) -> list[dict]:
+    """Identical selection logic to `_cv_threshold_for_recall_floor` above
+    (added 2026-08-08, for the Rank 1 re-thresholding follow-up,
+    VALIDATION.md section 17) -- but also surfaces the threshold VALUE
+    chosen per fold, which the original function (used to produce every
+    number in section 16) does not return. Added as a NEW function rather
+    than changing `_cv_threshold_for_recall_floor`'s signature, so
+    section 16's already-reported results have zero risk of being
+    affected by this addition."""
+    from profiling.evaluation.compare_corroboration_mechanisms import _prf1
+    results = []
+    for f in range(5):
+        test_mask = fold_ids == f
+        train_mask = ~test_mask
+        if test_mask.sum() == 0 or train_mask.sum() == 0:
+            continue
+        t = _best_threshold_for_recall_floor(signal[train_mask], labels[train_mask], min_recall)
+        pred = (signal[test_mask] >= t).astype(int)
+        p, r, f1 = _prf1(pred, labels[test_mask])
+        results.append({"fold": f, "threshold": float(t), "n_test_pos": int(labels[test_mask].sum()),
+                         "n_test_neg": int((labels[test_mask] == 0).sum()), "precision": p, "recall": r, "f1": f1})
     return results
 
 

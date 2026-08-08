@@ -6,6 +6,41 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-08 (asr-research branch), Rank 1 re-thresholding follow-up: INSUFFICIENT EVIDENCE
+
+- **Focused follow-up validation closes with INSUFFICIENT EVIDENCE — MORE
+  VALIDATION REQUIRED, after finding and fixing a real bug that also
+  retroactively corrects Step 0's own original end-to-end number.**
+  Pre-registered in `VALIDATION.md` §17, implemented in new
+  `profiling/evaluation/stage_m_rank1_rethreshold_validation.py`,
+  self-tested (12 checks) before trusting real results. Diagnosed and
+  fixed a real performance anomaly by reusing already-published,
+  deterministic L2 values instead of recomputing them (~40min → ~10min,
+  proven bit-identical via self-test). Found and fixed a more
+  consequential bug: threshold selection was using in-sample rather than
+  out-of-fold predictions, caught because the result (mean R=0.054)
+  drastically disagreed with Step 0's own published number (mean
+  R=0.289) for the same computation. The corrected re-run reproduces
+  Step 0's numbers exactly — and reveals Step 0's *original* end-to-end
+  Part B measurement had the identical flaw, now corrected with a
+  superseded-in-place notice on `VALIDATION.md` §16.3 (not edited).
+  Results: fold-to-fold threshold stability is moderate, not fragile
+  (jackknife max shift ±0.07/±0.035); the recall-floor operating point
+  improves precision AND recall simultaneously, not a trade-off; the
+  corrected end-to-end effect is substantially larger than first
+  measured (Any-label recall 0.000→0.247, up from 0.052; precision
+  0.559, up from 0.308) but still recovers only ~25% of total loss; and
+  no validated, ready-to-ship threshold value exists — a naive
+  full-dataset refit produces an overfit value (0.982) outside the
+  validated per-fold range [0.66, 0.80]. **Verdict: INSUFFICIENT
+  EVIDENCE — MORE VALIDATION REQUIRED**, with three concrete named
+  requirements before any production change. No production code
+  touched; Step 2 not executed. → `PAPER_DECISION_LOG.md`, "Rank 1
+  re-thresholding follow-up: INSUFFICIENT EVIDENCE, MORE VALIDATION
+  REQUIRED"; full detail in `VALIDATION.md` §17 and
+  `ASR_RESEARCH_TRACK.md` "Rank 1 re-thresholding follow-up validation —
+  executed 2026-08-08."
+
 ## 2026-08-08 (asr-research branch), Step 0 executed + reviewed; Step 2 proposed (not started)
 
 - **Rank 1's original verdict substantially understated; end-to-end

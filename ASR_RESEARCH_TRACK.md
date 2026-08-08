@@ -9424,3 +9424,66 @@ repetition`'s pair-breaking mechanism Step 1 already tested and closed).
 
 **Nothing in this proposal has been executed.** This is a plan for
 review, exactly as instructed.
+
+---
+
+## Rank 1 re-thresholding follow-up validation — executed 2026-08-08 — INSUFFICIENT EVIDENCE, MORE VALIDATION REQUIRED
+
+Per the project owner's explicit decision (Rank 1's original Failure
+verdict should not be treated as final, but the evidence was not yet
+strong enough to adopt the recall-targeted threshold in production),
+ran a focused, decision-closing follow-up. Full pre-registration and
+results: `VALIDATION.md` §17. Step 2 was not executed; no production
+code (`profiling/repetition_classifier.py`, `config.yaml`) was touched,
+per explicit instruction.
+
+**A real methodological bug was found and fixed, with a retroactive
+consequence for Step 0 itself**: the first version of this follow-up
+selected its recall-targeted threshold from each fold's own in-sample
+training predictions rather than genuinely out-of-fold signal — caught
+immediately because the result (mean P=0.400, R=0.054) was drastically
+different from Step 0's own already-published number (mean P=0.783,
+R=0.289) for what should have been the identical computation. Fixed by
+reusing Step 0's exact two-stage procedure; the corrected re-run
+reproduces Step 0's numbers exactly. **The same bug, it turns out, was
+already present in Step 0's own original end-to-end Part B measurement**
+— fixed the same way, with a superseded-in-place notice added to
+`VALIDATION.md` §16.3 (not edited, per this track's own convention).
+
+**Results**:
+- **Fold stability (Q1)**: threshold values range [0.66, 0.80] — moderate,
+  not fragile. A leave-one-fold-out jackknife shows no single fold
+  drives the result (max shift ±0.07 precision, ±0.035 recall).
+- **Recall-floor approach (Q2)**: mean recall (0.289) falls just short of
+  the 0.3 floor, but this is not a precision-for-recall trade-off — mean
+  precision (0.783) is *higher* than the original F1-optimal point's
+  (0.580). Both metrics improve simultaneously.
+- **Any-label/type issue (Q3)**: corrected — true positives validly
+  attributed by ground-truth type; false positives honestly tracked as
+  type-unattributable rather than fabricated as a specific type.
+- **End-to-end effect (Q4), corrected for both the type issue and the
+  threshold bug**: substantially larger than Step 0's original (now-
+  superseded) finding — Any-label recall 0.000→**0.247** (was 0.052) at
+  precision **0.559** (was 0.308). Still recovers only a minority (~25%)
+  of total ground-truth loss in these clips.
+- **Single vs. per-fold threshold (Q5/Q6)**: naively refitting on the
+  full dataset produces a threshold (0.982) that **falls outside** the
+  validated per-fold range [0.66, 0.80] and is demonstrably an
+  overfitting artifact — **no validated, ready-to-ship threshold value
+  currently exists**; the per-fold procedure is confirmed to be an
+  evaluation device only, not a deployment specification.
+
+**Strict decision-oriented conclusion: INSUFFICIENT EVIDENCE — MORE
+VALIDATION REQUIRED.** Not ADOPT: no principled, validated method exists
+yet for choosing the actual value to ship (the one concrete attempt at
+this — naive full-dataset refit — is shown to be unreliable), and the
+type-attribution problem remains unresolved *for deployment* (only
+*measurement* was fixed here) — a fired candidate on new, real audio
+still doesn't say which type it is. Not DO NOT ADOPT: the underlying
+direction (recall-targeted beats F1-optimal) is now well-supported,
+simultaneously improving both precision and recall, with a real,
+substantially-larger-than-previously-known end-to-end product benefit.
+Three concrete, named requirements remain before a production change:
+(1) a validated deployable-threshold-selection method; (2) a resolution
+for what the product does when type is unknown; (3) validation against
+at least some real, non-synthetic audio.

@@ -1287,6 +1287,24 @@ list, not separate from it.
     (Dysfluent-WFST, prepared in full detail but **not started**, per
     explicit instruction).
 
+    **Rank 1 re-thresholding follow-up validation, same day: INSUFFICIENT
+    EVIDENCE -- MORE VALIDATION REQUIRED.** A focused follow-up found and
+    fixed a real in-sample-vs-out-of-fold threshold-selection bug that
+    also retroactively corrected Step 0's own end-to-end number (superseded-
+    in-place notice on `VALIDATION.md` section 16.3). Corrected end-to-end
+    effect is substantially larger than first measured: Any-label recall
+    0.000 -> **0.247** (was 0.052), precision **0.559** (was 0.308) --
+    but a naive full-dataset threshold refit (0.982) falls **outside**
+    the validated per-fold range [0.66, 0.80] and is an overfitting
+    artifact, so **no validated, ready-to-ship threshold value currently
+    exists**. Three concrete named requirements remain before any
+    production change: a validated deployable-threshold method; a
+    deployment-time resolution for unknown-type firings; validation
+    against real, non-synthetic audio. No production code touched; Step
+    2 still not executed. Full detail: `VALIDATION.md` section 17;
+    `ASR_RESEARCH_TRACK.md` "Rank 1 re-thresholding follow-up validation
+    -- executed 2026-08-08."
+
 21. **[New, 2026-08-05, small, detector-side, independent of the ASR
     research track — found while doing item 20's Stage A hand-trace]
     `word_repetition`'s exact-match candidate check appears to miss runs

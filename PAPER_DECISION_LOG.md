@@ -7392,3 +7392,114 @@ candidate for `ROADMAP.md`; a detailed, unexecuted Step 2 proposal in
 (`profiling/evaluation/stage_l_zero_compute_reanalysis.py`); no other
 production code changed. Nothing beyond Step 0 was executed. No change
 to `main` yet (uncommitted at time of writing).
+
+---
+
+## 2026-08-08 (same day) — Rank 1 re-thresholding follow-up: INSUFFICIENT EVIDENCE, MORE VALIDATION REQUIRED
+
+**What was done**
+Per the project owner's explicit decision (Rank 1's Failure verdict
+should not be treated as final, but production adoption was not yet
+warranted), ran a focused, decision-closing follow-up on six specific
+questions (fold stability, recall-floor approach, the Any-label/type
+issue, the corrected end-to-end effect, single-vs-per-fold threshold).
+Pre-registered the exact methodology in `VALIDATION.md` §17 before
+writing code. Implemented `profiling/evaluation/stage_m_rank1_
+rethreshold_validation.py`. Self-tested (12 checks) before trusting real
+data. Explicitly did NOT execute Step 2 and did NOT modify
+`profiling/repetition_classifier.py` or `config.yaml`.
+
+Diagnosed and fixed a genuine performance anomaly (a single classifier
+fit that should take seconds was taking 42+ seconds, making the naive
+plan ~40 minutes): the L2 regularization strength selected by nested CV
+is fully deterministic and was already published in the original Rank 1
+experiment's own saved JSON output; reused those exact values instead of
+recomputing them, verified this reuse produces bit-identical results via
+a monkeypatch-based self-test before trusting it, cutting runtime from
+~40 minutes to ~10.
+
+Found and fixed a second, more consequential mistake: the first version
+of the per-fold analysis selected its recall-targeted threshold from
+each fold's own in-sample training predictions, not genuinely
+out-of-fold signal. Caught because the result (mean P=0.400, R=0.054)
+was drastically different from Step 0's own already-published number
+(mean P=0.783, R=0.289) for what should have been the identical
+computation — audited per standing rule 3 rather than trusted at face
+value. Fixed by reusing Step 0's own exact two-stage procedure; the
+corrected re-run reproduces Step 0's published numbers exactly. This
+also revealed that Step 0's own original end-to-end Part B measurement
+(`VALIDATION.md` §16.3) used the identical flawed pattern — corrected
+the same way, with a superseded-in-place notice added to §16.3 (not
+edited, preserving the historical record).
+
+**Results** (full detail: `VALIDATION.md` §17.6-17.8): fold-to-fold
+threshold stability is moderate, not fragile (jackknife max shift
+±0.07/±0.035); the recall-floor operating point improves both precision
+AND recall simultaneously over the original F1-optimal point, not a
+trade-off; the Any-label/type attribution is corrected (ground-truth-
+justified for true positives, honestly untyped for false positives);
+the corrected end-to-end effect is substantially larger than first
+measured (Any-label recall 0.000→0.247, up from 0.052; precision 0.559,
+up from 0.308) but still recovers only ~25% of total ground-truth loss;
+and no validated, ready-to-ship threshold value currently exists — a
+naive full-dataset refit produces a threshold (0.982) that falls outside
+the validated per-fold range [0.66, 0.80] and is an overfitting artifact.
+
+**Alternatives considered**
+- Accept the first (buggy, in-sample-threshold) Q1/Q2/Q5 result at face
+  value since it completed without error. **Rejected** — a result
+  differing this drastically (mean R: 0.289 vs. 0.054) from an
+  already-published number for the same computation is exactly the kind
+  of surprising result standing rule 3 requires auditing before trust,
+  regardless of whether the code ran without raising an exception.
+- Silently fix the in-sample-threshold bug without checking whether it
+  also affected Step 0's own original Part B, since only this follow-up's
+  new code was directly implicated. **Rejected** — the bug pattern was
+  copied from `stage_l`'s existing `_out_of_fold_scores_and_thresholds`,
+  making it a real, specific question (not idle speculation) whether that
+  original function shared the flaw; checking confirmed it did, and this
+  is exactly the kind of retroactive consequence this project's own
+  "audit surprising results, mark superseded not edited" discipline is
+  built to catch.
+- Round the corrected mean recall (0.289) up to "clears the 0.3 floor"
+  given how close it is, or round the end-to-end result up to a clean
+  "ADOPT" given how much larger it is than first measured. **Rejected**
+  — reported both exactly as measured; the strict verdict is grounded in
+  a concrete, still-open gap (no validated deployable threshold value,
+  no deployment-time type resolution), not a subjective read of how
+  promising the numbers feel.
+- Optimize the expensive nested L2 search by simplifying the search grid
+  or epoch count instead of reusing already-published values. **Rejected**
+  — reusing exact, already-computed, deterministic values changes nothing
+  about the answer (proven via self-test); shrinking the grid/epochs
+  would have been a real, if small, change to the method requiring its
+  own justification and risking a different answer.
+
+**Why this choice**
+Per the project owner's explicit instruction to base the decision on
+measured evidence and pre-registered criteria, not intuition: the
+concrete gaps found here (no validated deployable threshold; deployment-
+time type ambiguity unresolved) are specific, nameable requirements, not
+a vague sense of "needs more work" — exactly what should separate
+INSUFFICIENT EVIDENCE from a judgment call in either direction. Standing
+rule 3 (audit surprising results) is what caught both the in-sample-
+threshold bug and its retroactive implication for Step 0; skipping that
+audit because the code "ran successfully" would have shipped a
+materially wrong number in both directions (first too pessimistic in
+this follow-up, then discovered to have also been too pessimistic in the
+already-published Step 0 result it was meant to validate).
+
+**Measured result**
+Real, self-tested, corrected numbers answering all six pre-registered
+questions (`VALIDATION.md` §17). Strict verdict: **INSUFFICIENT
+EVIDENCE — MORE VALIDATION REQUIRED**, with three concrete named
+requirements before any production change (a validated deployable-
+threshold method; a deployment-time type-ambiguity resolution;
+validation against real, non-synthetic audio). Two files changed:
+`profiling/evaluation/stage_l_zero_compute_reanalysis.py` (two new
+functions added, `known_l2s` parameter added to an existing one — no
+existing behavior changed, verified via self-test) and the new
+`profiling/evaluation/stage_m_rank1_rethreshold_validation.py`. No
+production code (`profiling/repetition_classifier.py`, `config.yaml`)
+touched. Step 2 not executed. No change to `main` yet (uncommitted at
+time of writing).
