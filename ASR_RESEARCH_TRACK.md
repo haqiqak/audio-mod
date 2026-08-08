@@ -9225,23 +9225,42 @@ decision tree above (section 5) was pre-registered
 self-tested first — 9/9 checks pass), and run against the existing
 Track B cache (189/499 clips cached, **no new ASR inference**).
 
-**Result: clean FAILURE, not inconclusive.** n=29 `word_repetition`
-category-1 targets, 941 controls. Cohen's d=-0.209 (wrong direction —
-target positions had slightly *lower* residual, not higher). AUC=0.485,
-95% clip-level bootstrap CI [0.396, 0.566] — comfortably includes chance
-and rules out even a modest hidden effect at this sample size. Full
-detail, including the honest interpretation of *why* (CrisperWhisper's
-own accurate-timestamp design property may mean a deleted repetition's
-audio simply doesn't leave a duration/silence residual on the surviving
-word) and what was deliberately not chased (a gap-after or multi-token-
-window variant, named as a possible future direction, not attempted this
-pass, per standing rule 4): `VALIDATION.md` §15.8.
+**Result: clean FAILURE, not inconclusive — but scoped precisely, not to
+the whole mechanism class.** n=29 `word_repetition` category-1 targets,
+941 controls. Cohen's d=-0.209 (wrong direction — target positions had
+slightly *lower* residual, not higher). AUC=0.485, 95% clip-level
+bootstrap CI [0.396, 0.566] — comfortably includes chance and rules out
+even a modest hidden effect at this sample size.
 
-**This closes `word_repetition` candidate generation via this specific
-mechanism as a real, tested negative result** — the first result this
-track has produced with a clip-level bootstrap CI computed from the
-start, directly addressing the external review's own critique that no
-confidence interval had ever been computed anywhere in this track.
+**Exactly what was tested, read from the code
+(`stage_k_alignment_gap_word_repetition.py`'s `_residual` function), not
+inferred from the title**: a single, specific operationalization —
+`residual(h) = duration(h) + gap_before(h)`, i.e. the word's *own*
+CrisperWhisper-reported duration **plus** the silence gap immediately
+*before* it (not gap-after; not a multi-token window; not a *ratio* of
+duration to any baseline/expected value — an additive sum), z-scored
+against that clip's own mean/SD. This is the ONLY variant tested. The
+**FAILURE verdict applies to this exact additive, gap-before,
+own-duration, z-scored operationalization — not to "the alignment-gap/
+duration-residual mechanism" as a general class.** Explicitly,
+**untested, not rejected**: a gap-*after* variant; a multi-token window
+spanning more than the one candidate token; and a **duration-ratio**
+formulation (e.g. duration(h) normalized as a ratio to a baseline/
+expected duration rather than an additive z-scored sum) — none of these
+were implemented or run. Full detail, including the honest
+interpretation of *why* this one variant failed (CrisperWhisper's own
+accurate-timestamp design property may mean a deleted repetition's audio
+simply doesn't leave this particular kind of residual on the surviving
+word): `VALIDATION.md` §15.8.
+
+**This closes `word_repetition` candidate generation via this one
+specific, precisely-defined operationalization as a real, tested
+negative result — it does NOT establish that the alignment-gap/
+duration-residual mechanism in general is exhausted**, and must not be
+read or cited that way. This is the first result this track has produced
+with a clip-level bootstrap CI computed from the start, directly
+addressing the external review's own critique that no confidence
+interval had ever been computed anywhere in this track.
 
 **Decision tree update**: per Step 1's own failure branch (section 5
 above), proceeding to Step 2 (Dysfluent-WFST, for `sound_repetition`) —
@@ -9331,10 +9350,20 @@ end-to-end lift is real but small. Steps 1 (FAILURE) and 2
 
 ---
 
-## Step 2 proposal — Dysfluent-WFST for `sound_repetition` (NOT YET EXECUTED)
+## Step 2 proposal — Dysfluent-WFST (NOT YET EXECUTED)
 
 Per the project owner's explicit instruction: prepared for review, **not
 started**. Nothing below has been run.
+
+**Revised 2026-08-08 (checkpoint pass)** to incorporate four corrections
+from review before anything is executed: real-data validation is made
+mandatory rather than an optional appendix; the timing fallback is
+decided now rather than left to be discovered at run time; scope is
+widened to both disfluency types the mechanism could plausibly address,
+not narrowed to one without justification; and a specific, known G2P
+failure mode is named as something to measure explicitly rather than
+let become an unexplained ceiling later. Nothing in this revision
+executes anything — it changes the plan, not the repo.
 
 ### What this step is
 
@@ -9345,10 +9374,68 @@ before any of it is executed, so it can be reviewed first.
 **Objective**: test whether Dysfluent-WFST (Guo, Lian, Zhou et al.,
 Interspeech 2025, arXiv:2505.16351,
 `github.com/Berkeley-Speech-Group/DysfluentWFST`) recovers usable
-`sound_repetition` candidates at exactly the positions CrisperWhisper's
-decoded text normalizes away (Stage A's category 1 for `sound_
-repetition` — the fragment-loss mechanism, distinct from `word_
-repetition`'s pair-breaking mechanism Step 1 already tested and closed).
+candidates at exactly the positions CrisperWhisper's decoded text
+normalizes away — Stage A's category 1 — for **both** `sound_
+repetition` (the fragment-loss mechanism) and, contingent on point 5
+below, `word_repetition` (the pair-breaking mechanism Step 1's one
+tested variant already found FAILURE for, but which is a categorically
+different mechanism from what Step 2 tests).
+
+**Scope correction (was: `sound_repetition` only)**: the original
+version of this proposal scoped Step 2 to `sound_repetition` alone,
+reasoning that Dysfluent-WFST's own worked example is sound-level. That
+scoping was never actually justified against the mechanism itself. The
+WFST's "return arc" (revisit a previously-visited state in the reference
+phoneme graph) is generic to *any* span of the reference phoneme
+sequence being revisited — a single phoneme (matching `sound_
+repetition`) or a whole word's multi-phoneme span (matching `word_
+repetition`) are both, in principle, states the decoding graph can
+revisit. There is no stated mechanism-level reason this would only work
+for one granularity. **Step 2 must therefore score against both types**,
+not assume `word_repetition` is out of scope by default.
+
+### Mandatory prerequisites (must be satisfied before the main run, not optional extras)
+
+1. **Real, non-synthetic stuttering audio acquisition is part of Step 2
+   preparation itself, not an optional "if acquired by then" appendix.**
+   The prior version of this proposal listed real audio as something to
+   include "if acquired by then, not required to start" — that framing
+   is corrected here: given Dysfluent-WFST's *only* real-world validation
+   anywhere is aphasia (nfvPPA), not stuttering, and its own documented
+   severe noise sensitivity, evaluating it on synthetic LibriStutter
+   splices alone would be structurally uninformative about the actual
+   question (does it transfer to real stuttering audio) — a synthetic-
+   only result could not distinguish "the mechanism works" from "it
+   works on clean, spliced-real-narration audio specifically." Acquiring
+   Boli (CC-BY-4.0, real, open, downloadable today) is therefore a
+   **required** preparation step before the main evaluation run, not an
+   optional enrichment of it.
+2. **The frame-synchronicity/timing fallback is decided now, in advance,
+   not left to be interpreted after seeing the result.** The runtime
+   check is `len(shortest_path.labels) == T` (number of frames) on a
+   known clip. **Pre-registered decision rule, fixed before running**:
+   if this check passes (`==`), timing is recovered from the frame-
+   aligned path as originally planned. **If it fails (`!=`), detection
+   is still evaluated in full (event occurred: yes/no, and type), but
+   localization/timing is explicitly marked deferred/not-provided for
+   this run** — not silently guessed at, not treated as a reason to
+   abandon the whole experiment, and not decided after looking at how
+   the numbers came out. This exact branching rule is what gets executed
+   when Step 2 runs; it is not to be revised after seeing which branch
+   the real check lands in.
+3. **CMUdict/G2P coverage must be measured and reported explicitly, not
+   allowed to become a silent, unexplained recall ceiling.** Standard
+   G2P pipelines built on CMUdict-style dictionaries commonly skip
+   out-of-vocabulary words silently (continue past them rather than
+   erroring) — if this project's own future G2P step does the same,
+   any word CrisperWhisper transcribes that isn't in the dictionary
+   would silently vanish from the phoneme reference sequence, and any
+   resulting recall shortfall would look like a Dysfluent-WFST failure
+   when it was actually a G2P coverage gap. **Required**: report, for
+   the actual evaluation corpus used, the fraction of reference words
+   successfully mapped to a phoneme sequence vs. silently skipped/OOV,
+   as its own explicit number — before attributing any recall shortfall
+   to the WFST mechanism itself.
 
 ### Concrete steps, in order
 
@@ -9360,67 +9447,74 @@ repetition`'s pair-breaking mechanism Step 1 already tested and closed).
    posterior model (wav2vec2 or WavLM-CTC, per the paper); add a
    grapheme-to-phoneme (G2P) step to convert CrisperWhisper's word-level
    transcript into the phoneme reference sequence the WFST decoder
-   requires (not currently part of this project's pipeline at all).
-2. **Mandatory first sub-step, before any real evaluation** (round 3
-   §6.2/§6.5): the frame-synchronicity runtime check —
-   `len(shortest_path.labels) == T` (number of frames) on a known clip.
-   This resolves the currently-genuinely-unresolved timestamp question
-   (two independent code-reading passes disagreed with each other on
-   what the decoder's special transition arcs mean) in minutes, before
-   committing further engineering effort to a timing solution that may
-   not be needed in the assumed form.
-3. **Pre-register the exact evaluation methodology** in `VALIDATION.md`
+   requires (not currently part of this project's pipeline at all) —
+   with OOV/coverage measurement built in from the start, per
+   prerequisite 3 above, not added after the fact.
+2. **Acquire Boli** (prerequisite 1 above) before the main run.
+3. **Run the frame-synchronicity check** (prerequisite 2 above) and take
+   the pre-registered branch it lands in — do not re-decide the fallback
+   after seeing the result.
+4. **Pre-register the exact evaluation methodology** in `VALIDATION.md`
    (matching every prior stage's discipline) before running the real
-   test: scoring against the *existing* Stage A baseline (45.2% loss
-   rate) and Rank 1's own numbers (this reconciliation's revised
-   understanding of them, section 16 above) — not a fresh, incomparable
-   metric set.
-4. **Run against two explicit, separately-scored audio conditions**, per
+   test: scoring against the *existing* Stage A baseline (45.2%/40.5%
+   loss rates for `sound_repetition`/`word_repetition` respectively) and
+   Rank 1's own numbers (section 16/17's corrected understanding of
+   them) — not a fresh, incomparable metric set — and covering **both**
+   `sound_repetition` and `word_repetition` per the scope correction
+   above.
+5. **Run against two explicit, separately-scored audio conditions**, per
    the paper's own documented severe noise sensitivity (round 1 §1: WPER
    10% → ~30-74% under modest synthetic noise): (a) the existing
    120-clip Track B real-ASR sample (LibriStutter's spliced-real-audio
-   condition); (b) real, non-synthetic stuttering audio, if the small
-   real-stuttering set (Boli + FluencyBank Timestamped + Sep-28k-SW,
-   evaluation-only per the CC BY-NC 4.0 finding) has been acquired by
-   then — not required to start (2), but named as part of what a
-   complete Step 2 run would include.
-5. **Score using this project's own localization/candidate-generation
+   condition); (b) the acquired real Boli audio (now mandatory, not
+   optional, per prerequisite 1).
+6. **Score using this project's own localization/candidate-generation
    convention** (event position + type, not the paper's own phoneme-
    sequence-accuracy metrics), reusing `score_clip`/Track B machinery
-   where possible, same as every other stage in this track.
+   where possible, same as every other stage in this track — with
+   localization explicitly marked deferred wherever the timing fallback
+   (prerequisite 2) landed in that branch.
 
 ### Named risks, not smoothed over
 
 - **No confirmed CPU feasibility.** The paper never states a GPU
   requirement, but this is an inference (round 1 §1), not confirmed.
-- **Timing is genuinely unresolved**, not merely "needs engineering" —
-  step 2 above exists specifically because two independent attempts to
-  resolve this by reading code disagreed with each other.
-- **Only real-world validation anywhere is aphasia (nfvPPA), not
-  stuttering** — a real, untested population-transfer gap, compounded by
-  documented severe noise sensitivity.
+- **Timing may be unavailable for this run** — the fallback in
+  prerequisite 2 is a pre-registered way to still get a detection-only
+  result if so, not a claim that timing is actually recoverable.
+- **Only real-world validation anywhere ELSE (i.e. in the paper itself)
+  is aphasia (nfvPPA), not stuttering** — exactly why real Boli audio is
+  now a mandatory prerequisite rather than an optional extra.
 - **Repo maturity is uncertain** (thin README, no confirmed install
   path) — nontrivial integration engineering, not "clone and run."
 - **G2P is a new pipeline component** this project has never needed
-  before — its own accuracy/failure modes on CrisperWhisper's output are
-  unverified.
-- **This targets `sound_repetition` only.** `word_repetition`'s own
-  candidate-generation gap remains open (Step 1: Failure) — Step 2 does
-  not address it, matching the decision tree's own scoping.
+  before — its coverage/OOV behavior is measured explicitly (prerequisite
+  3), not assumed complete.
+- **`word_repetition` inclusion is untested territory even for this
+  mechanism** — the scope correction above is a reasoned argument for why
+  it should be in scope, not a claim that it has been shown to work;
+  Step 1's FAILURE was for a *different* mechanism (duration/gap
+  residual) and says nothing about whether Dysfluent-WFST specifically
+  would recover `word_repetition` positions.
 
-### Success/failure criteria (restated from round 3 §6.5, unchanged)
+### Success/failure criteria (extended from round 3 §6.5 to cover both types)
 
-- **Success**: stable, bootstrapped-CI-supported improvement over Rank
-  1's own now-better-understood operating point (section 16 above),
-  holding up on real audio if acquired, with a working timing solution
-  or an accepted coarser fallback (CrisperWhisper's own word-level
-  timing). → integrate as a third fusion signal; `sound_repetition`'s
-  gap closed; Stage D not needed for this gap.
-- **Failure**: does not transfer to real audio, or timing recovery
-  proves infeasible at reasonable effort. → proceeds to the Stage D
-  precondition (both Steps 1 and 2 failed, and a power analysis on the
-  assembled real evaluation data confirms Stage D's own gate is
-  resolvable) named in the decision tree above.
+- **Success (per type, evaluated separately for `sound_repetition` and
+  `word_repetition`)**: stable, bootstrapped-CI-supported improvement
+  over Rank 1's own now-better-understood operating point (sections
+  16-17 above), holding up on the real Boli audio condition specifically
+  (not synthetic-only), with either working timing or the pre-registered
+  detection-only fallback explicitly reported as such. → integrate as a
+  third fusion signal for that type; Stage D not needed for it.
+- **Failure (per type)**: does not transfer to real audio, or the
+  detection-only result itself does not clear the bar. → that type
+  proceeds to the Stage D precondition (both Steps 1 and 2 failed for
+  that type, and a power analysis on the assembled real evaluation data
+  confirms Stage D's own gate is resolvable) named in the decision tree
+  above. Note `word_repetition`'s Step 1 result was for a different
+  mechanism — a `word_repetition` Failure here would be the first real
+  test of *this* mechanism for that type, not a second confirmation of
+  Step 1's finding.
 
 **Nothing in this proposal has been executed.** This is a plan for
 review, exactly as instructed.
@@ -9487,3 +9581,36 @@ Three concrete, named requirements remain before a production change:
 (1) a validated deployable-threshold-selection method; (2) a resolution
 for what the product does when type is unknown; (3) validation against
 at least some real, non-synthetic audio.
+
+**Scope correction, 2026-08-08 (same day, checkpoint pass): what the
+"threshold work" is and is not.** This entire follow-up must not be read
+as a production/shipping experiment, and the item it leaves open (a
+validated deployable threshold) must not be read as an invitation to an
+open-ended threshold-optimization thread. Precisely:
+
+- **What it is**: a *prerequisite* for evaluating Rank 1 on real
+  (non-synthetic) audio at all — a classifier needs some operating point
+  before it can be run on anything, real or synthetic, and the whole
+  point of this follow-up was determining whether the *existing*,
+  already-fitted classifier's operating point could be trusted, not
+  designing a new one.
+- **What it is not**: not a decision to change `config.yaml` or
+  `profiling/repetition_classifier.py` (unchanged, confirmed); not a
+  license to keep iterating on threshold-selection variants looking for
+  a better number.
+- **The next threshold task, if and when picked up, is bounded and
+  deterministic, not exploratory**: obtain genuine out-of-fold
+  predictions across the full cached "Any" dataset (reusing
+  `_out_of_fold_scores`, unmodified logic, exactly as this follow-up
+  already does), apply the single pre-specified recall-targeting rule
+  (`_best_threshold_for_recall_floor`, `min_recall=0.3`, already fixed
+  and unchanged since section 15/16), and report the resulting
+  cross-validated operating point. That is the entire task — not a
+  search over rules, targets, or feature sets.
+- **If a future validated result falls outside the previously observed
+  per-fold range [0.66, 0.80], that is itself a finding to record**
+  (e.g., "the range shifted because X changed") **— not a trigger to
+  automatically launch another optimization cycle** looking for a
+  "better" threshold. The 0.982 naive-full-refit value already found
+  (17.6) stays recorded as an overfitting artifact, not a rejected
+  candidate to keep re-trying variations of.

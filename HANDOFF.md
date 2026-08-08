@@ -81,23 +81,29 @@ anything is untested or undecided:
 
 **A separate research track (`ASR_RESEARCH_TRACK.md`, its own
 `asr-research` branch, `main` untouched) opened directly from that
-finding, and is where the actual investigative work now lives — read it,
-specifically its end-of-session handoff section, before assuming item 20
-is still "the open item."** As of this session's close (2026-08-05):
-Stage A (systematic information-loss audit), Stage B (encoder
-representation-level probe), and Stage C (encoder-vs-duration-baseline
-comparison) are all **done**. The headline, evidence-backed conclusion:
-CrisperWhisper's encoder carries a genuine, duration-confound-refuted
-`sound_repetition` signal (Cohen's d=0.894, AUC=0.723 vs. a chance-level
-duration-only baseline) — but that signal's *absolute* precision at a
-useful recall is too low (4.7% at 52.6% recall) to ship as a standalone
-candidate generator, given realistic class imbalance. `word_repetition`
-remains genuinely inconclusive, not extended to Stage C. No production
-code has changed as a result of any of this — `main` still reflects only
-the Track B validation above. The evidence-justified next step (a
-fusion-style signal combination, not fine-tuning) is scoped, not yet
-started — see `ASR_RESEARCH_TRACK.md`'s handoff section for the exact
-plan.
+finding, and is where the actual investigative work now lives — read its
+own last few dated sections (do not trust this paragraph as current; it
+is a stale pointer, kept here as history, superseded the same way every
+other conclusion in that track is — in place, not deleted).** As of
+2026-08-08 (the track's own latest dated sections — read them directly,
+this is a pointer, not a substitute): Stages A/B/C, a full Phase 2
+investigation, and three learned-classifier experiments (Ranks 1-3) are
+done; an external-review reconciliation (3 rounds) then re-anchored the
+whole track to the application objective and produced a concrete
+two-step decision tree. **Step 1** (an alignment-gap candidate generator
+for `word_repetition`) **has run: FAILURE**, scoped to the one specific
+residual definition actually tested, not the mechanism in general.
+**Step 0** (a zero-compute reanalysis of Ranks 1-3) and a follow-up
+validation found Rank 1's original "Failure" verdict was substantially
+understated by bad threshold selection, with a real but partial
+end-to-end product benefit — but concluded **INSUFFICIENT EVIDENCE, MORE
+VALIDATION REQUIRED** for production adoption (no validated deployable
+threshold exists yet; the classifier can't say which type fired).
+**Step 2** (Dysfluent-WFST) is prepared as a detailed proposal but **not
+yet executed**. **Stage D is classified as premature, not rejected** —
+conditional on Step 2 also failing plus a power analysis. No production
+code has changed as a result of any of this. `profiling/repetition_
+classifier.py` and `config.yaml` remain unmodified by this entire track.
 
 **If you are about to suggest "what should we do next," don't guess —
 read `ROADMAP.md` first.** It is very likely already there, in priority

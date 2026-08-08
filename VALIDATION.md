@@ -3253,12 +3253,31 @@ if it is doing its job well, the one surviving instance of a deleted
 repeated pair may simply get an accurate, unremarkable timestamp for
 itself, with the deleted repetition's audio duration absorbed
 elsewhere (or not measurably absorbed at all) rather than smearing into
-the surviving word's own span or the silence immediately before it. A
-different residual definition (e.g. gap *after* the word, or a
-window spanning multiple adjacent tokens) might behave differently, but
-is explicitly **not tested here** — naming it as a possible future
-variant, not treating this single, cheap, pre-registered pass as having
-exhausted every possible operationalization of "alignment gap."
+the surviving word's own span or the silence immediately before it.
+
+**Precisely what remains untested, named individually rather than as a
+single "other variants" bucket (2026-08-08 sharpening, prompted by an
+explicit request to verify this section describes the tested variant
+exactly rather than by title)**: only the additive, own-duration +
+gap-*before*, per-clip-z-scored operationalization in 15.4 was
+implemented and run. Each of the following is a **distinct, untested**
+alternative, not rejected by this result and not implied to behave the
+same way:
+- a **gap-after** variant (silence following the word, instead of/in
+  addition to preceding it);
+- a **multi-token window** variant (aggregating residual across more
+  than the single candidate token, e.g. the candidate plus its
+  immediate neighbors);
+- a **duration-ratio** variant (e.g. `duration(h)` expressed as a ratio
+  to a baseline/expected duration for that word or position, rather than
+  an additive z-scored sum) — this is a materially different
+  normalization, not a rescaling of the same signal, and was never
+  implemented.
+
+None of these is treated as "probably also fails" by extension — this
+result speaks only to the one operationalization actually run. Per
+standing rule 4 and this track's own "cheapest first, name don't chase"
+discipline, none is chased in this pass.
 
 **Verdict for the decision tree**: per `ASR_RESEARCH_TRACK.md`'s Step 1
 failure branch — this specific, cheap, well-motivated mechanism is

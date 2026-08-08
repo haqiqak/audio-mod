@@ -6,6 +6,32 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-08 (asr-research branch), clean checkpoint: doc audit + staleness fixes
+
+- **Documentation-only audit before Step 2**: verified git state clean
+  and pushed; re-read Step 1's actual code (not its title) and sharpened
+  `ASR_RESEARCH_TRACK.md`/`VALIDATION.md` §15.8 to name the exact tested
+  residual (`duration(h) + gap_before(h)`) and explicitly mark gap-after,
+  multi-token-window, and duration-ratio as untested variants, not
+  rejected by extension. Added an explicit scope bound to the threshold-
+  work follow-up (prerequisite for real-audio validation, not a
+  production commitment; any next task is one bounded, deterministic
+  computation, not an optimization thread). Revised the Step 2 proposal:
+  Boli acquisition now mandatory (not optional); the frame-synchronicity
+  timing fallback now a pre-registered, fixed-before-running rule; scope
+  widened to both `sound_repetition` and `word_repetition`; CMUdict/G2P
+  coverage measurement now an explicit requirement. **Found and fixed
+  stale top-level summaries in `CLAUDE.md` and `HANDOFF.md`** that still
+  said Stage D "is now judged the evidence-justified next step" —
+  predating the entire external-review reconciliation and directly
+  contradicting the current "premature, not rejected" state. Added
+  `CLAUDE.md` standing rule 10 (implementation failure ≠ mechanism
+  disproof; fix ambiguous-result interpretation before running; prefer
+  real data where synthetic is structurally uninformative). No new
+  experiment run; no production code touched. → `PAPER_DECISION_LOG.md`,
+  "Clean checkpoint: doc audit, staleness fixes, Step 1/Step 2 scoping
+  corrections."
+
 ## 2026-08-08 (asr-research branch), Rank 1 re-thresholding follow-up: INSUFFICIENT EVIDENCE
 
 - **Focused follow-up validation closes with INSUFFICIENT EVIDENCE — MORE

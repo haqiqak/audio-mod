@@ -7503,3 +7503,100 @@ existing behavior changed, verified via self-test) and the new
 production code (`profiling/repetition_classifier.py`, `config.yaml`)
 touched. Step 2 not executed. No change to `main` yet (uncommitted at
 time of writing).
+
+---
+
+## 2026-08-08 (same day) — Clean checkpoint: doc audit, staleness fixes, Step 1/Step 2 scoping corrections
+
+**What was done**
+Per the project owner's explicit request for a clean, auditable
+checkpoint before Step 2, ran a documentation-only audit (no new
+experiment, no production code touched): verified git state (working
+tree clean, local HEAD matched `origin/asr-research` exactly before this
+checkpoint's own changes); re-read the actual Step 1 implementation
+(`stage_k_alignment_gap_word_repetition.py`) line-by-line rather than
+inferring its scope from its title; scanned all docs for specific
+overclaim patterns (production-ready, validated threshold, Step 2
+executed, Stage D required, mechanism exhausted).
+
+Found and fixed:
+- **Step 1's documented scope was looser than the actual code.**
+  Sharpened `ASR_RESEARCH_TRACK.md` and `VALIDATION.md` §15.8 to state
+  precisely what was tested — an additive `duration(h) + gap_before(h)`
+  residual, z-scored per clip — and to name gap-after, multi-token-
+  window, and **duration-ratio** (not previously named explicitly) as
+  distinct, untested variants, not rejected by extension.
+- **The threshold-work follow-up lacked an explicit bound.** Added a
+  scope-correction note to `ASR_RESEARCH_TRACK.md` stating plainly that
+  this work is a prerequisite for real-audio Rank 1 validation, not a
+  production commitment, and that any future threshold task is a single
+  bounded, deterministic computation (out-of-fold predictions + the
+  already-fixed recall rule + report the operating point) — not an
+  open-ended optimization thread, and that a future result outside the
+  observed [0.66, 0.80] range is itself a finding to record, not a
+  trigger for another optimization cycle.
+- **The Step 2 proposal treated real-data validation as optional and
+  scoped out `word_repetition` without justification.** Revised the
+  proposal: Boli acquisition is now a mandatory prerequisite, not an
+  "if acquired by then" appendix; the frame-synchronicity timing
+  fallback is now a pre-registered, fixed-before-running decision rule
+  (detection still evaluated, localization explicitly deferred, if the
+  check fails) rather than something to interpret after the fact; scope
+  widened to both `sound_repetition` and `word_repetition` since the
+  WFST return-arc mechanism is generic to any revisited span, not
+  sound-level-specific by construction; and CMUdict/G2P coverage
+  measurement is now an explicit, required, up-front metric rather than
+  a risk that could silently masquerade as a WFST recall ceiling later.
+- **`CLAUDE.md`'s and `HANDOFF.md`'s own top-level "where the track
+  stands" summaries were stale**, predating the entire external-review
+  reconciliation, Step 0, Step 1, and the Rank 1 follow-up — both still
+  said Stage D "is now judged the evidence-justified next step," directly
+  contradicting the actual current state ("premature, not rejected").
+  Both rewritten to reflect 2026-08-08's actual state, with the old text
+  preserved as marked history, not deleted.
+- **Added `CLAUDE.md` standing rule 10**: a failed implementation is not
+  the same claim as a disproven mechanism; interpretation of an ambiguous
+  or edge-case result must be fixed before running, not after seeing it;
+  prefer real data over synthetic-only validation whenever the synthetic
+  data's own construction could structurally fail to represent the
+  phenomenon a claim depends on. Also enriched standing rule 3's own
+  citation list with this session's two newly-found bugs (the gate-
+  config bug, the in-sample-threshold bug).
+
+**Alternatives considered**
+- Treat this as "just" a git-status check since the prior turn's own
+  work was already committed and pushed. **Rejected** — the project
+  owner's request was explicitly broader: verify documentation accuracy
+  and internal consistency against the actual evidence, not merely
+  confirm nothing was lost. Several real staleness/precision gaps were
+  found this way that a pure git check would have missed entirely.
+- Leave the older, now-inaccurate CLAUDE.md/HANDOFF.md summaries in
+  place on the reasoning that later sections in `ASR_RESEARCH_TRACK.md`
+  already supersede them. **Rejected** — both files are explicitly
+  positioned as the first things a new, cold session reads; a stale
+  top-level claim that contradicts the actual current state is exactly
+  the kind of drift standing rule 5 exists to catch, regardless of
+  whether a correct answer exists further down in a different file.
+- Infer Step 1's tested scope from its own title/docstring summary
+  ("alignment-gap / duration-residual") rather than reading the actual
+  `_residual()` function. **Rejected**, per explicit instruction — doing
+  so is exactly how a title-level description ends up overstating what
+  a specific implementation actually covers.
+
+**Why this choice**
+Per the project owner's explicit framing: truth and methodological
+correctness take priority over preserving a conclusion merely because it
+was already written down. A checkpoint's entire value is in being
+trustworthy enough to build the next step on; a checkpoint that still
+contained a stale Stage D claim or an imprecisely-scoped Step 1 result
+would not have been clean, regardless of git being tidy.
+
+**Measured result**
+Not a numeric result — a documentation-integrity correction. No new
+experiment run, no production code touched
+(`profiling/repetition_classifier.py`, `config.yaml`,
+`profiling/detect.py` all unmodified, confirmed via `git status`/`git
+diff --stat` before committing). Four files changed: `ASR_RESEARCH_
+TRACK.md`, `CLAUDE.md`, `HANDOFF.md`, `VALIDATION.md`. All changes
+append-only or explicitly-marked corrections to prose framing/scoping —
+no historical result, number, or verdict was deleted or silently edited.
