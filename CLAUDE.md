@@ -90,25 +90,62 @@ should update it, not silently diverge from it.
 **A new, separate research track opened 2026-08-05: `ASR_RESEARCH_
 TRACK.md`, on its own `asr-research` branch (kept separate so `main`
 stays stable and shippable — nothing from this track has merged to
-`main`).** Track B validation (`VALIDATION.md` §14/§14.1) found real
-ASR output essentially never produces the literal sub-word fragment
-tokens `sound_repetition` detection depends on — even at positions
-transcribed correctly — evidence that the ASR stage's own output
-representation may be discarding information this project's downstream
-objective needs, independent of any detector-side fix. **Stages A, B,
-and C are done** (systematic information-loss audit; an encoder
-representation-level probe finding a real, duration-confound-refuted
-signal for `sound_repetition`, Cohen's d=0.894/AUC=0.723; and a
-duration-baseline comparison confirming that signal is genuine but not
-yet precise enough to ship standalone) — real experiments, real bugs
-caught and fixed, real (sometimes mixed or inconclusive) results, all on
-the `asr-research` branch. **No production code has changed as a result
-— this is evidence-gathering, not yet a shipped decision.** The
-evidence-justified next step (a fusion-style revision, not fine-tuning)
-is scoped but not started. **Read `ASR_RESEARCH_TRACK.md` before
-proposing anything about ASR representation richness, fine-tuning, or
-decoding changes** — read its end-of-session handoff section first for
-exactly where this stands and what comes next.
+`main`).** If you are working on this branch, or about to propose
+anything touching ASR representation richness, fine-tuning, decoding
+changes, or the encoder/acoustic evidence pipeline: **read
+`ASR_RESEARCH_TRACK.md` end-to-end before proposing anything.** It is
+long (thousands of lines) by design — this is a pre-registered,
+evidence-audited research log, and skimming it risks missing a bug that
+was caught and fixed, a result that was later revised, or a conclusion
+that was superseded (marked in place, never silently deleted — see that
+file's own preservation discipline). Do not rely on a summary of it,
+including the one below or the one at its own end — read the primary
+source. The single fastest orientation point, to read *first* and then
+use as a map for the rest, is the file's own final section, **"Current
+Project State — 2026-08-07 EOD"** — it is the authoritative, current
+summary and points back into every earlier section for full detail, but
+it is not a substitute for reading those sections when your task touches
+them.
+
+**Where that track stands as of 2026-08-07 EOD** (see the file's own
+"Current Project State" section for the complete version — this is a
+pointer, not the full picture): Track B validation found real ASR output
+essentially never produces the literal sub-word fragment tokens
+`sound_repetition` detection depends on, even at correctly-transcribed
+positions. Stages A/B/C, a full Phase 2 ASR/representation/decoding
+investigation, an acoustic-native candidate generator (direction (g),
+RMS/ZCR then MFCC), a combined weak-signal classifier, and three ranked
+learned-classifier experiments (Rank 1: full encoder embedding; Rank 2:
+full raw acoustic features; Rank 3: both combined) are all done — every
+one pre-registered before running, self-tested, and honestly reported
+whether the result was Success, Failure, or Inconclusive. **Cumulative
+verdict**: three independent, cheap, no-GPU, no-new-data
+representation-side approaches each found real but insufficient signal,
+and combining them made the fit less stable, not more powerful —
+evidence of a small-sample ceiling, not an unexplored feature space.
+**Stage D (fine-tuning an existing ASR checkpoint, re-scoped to L2 —
+stop deleting disfluency evidence during decoding, not preserve the
+literal repeated fragment's content, which is the stronger and
+currently-unnecessary L4 objective) is now judged the evidence-justified
+next step — but has not been started.** This machine has no CUDA GPU
+(confirmed directly, not assumed), which blocks it; real English-language
+disfluent-speech training data is also not yet in hand. **No production
+code has changed as a result of any of this — it is still
+evidence-gathering, not a shipped decision**, and nothing from this
+track has merged to `main`.
+
+**The objective that governs this entire track, restated because it is
+easy to lose sight of amid the ASR detail**: this research exists to
+serve one application — take a speaker's audio, reliably extract the
+disfluencies actually occurring in it, and make that available for
+downstream localization, classification, and assistance (rephrasing,
+synonym substitution). Proving novelty, finding an unexplored research
+gap, or building a better ASR are never the goal in themselves — they
+only matter to the extent they serve that application. `ASR_RESEARCH_
+TRACK.md`'s own "PROJECT OBJECTIVE" section (near its top) and
+"Application-Objective Decision Analysis" section state this at length;
+do not propose or evaluate any ASR-track work without that framing in
+view.
 
 ## Standing rules for working in this repo
 
@@ -172,6 +209,25 @@ run, not aspirational — follow them by default:
    about who has standing to make a *considered, evidenced* architecture
    call once real evidence exists — see `PHASE_3_ARCHITECTURE_REVIEW.md`
    and `VALIDATION.md` §12 for the standard this was first applied to.
+9. **For any claim that gates a decision, read the primary source
+   directly — never accept a secondary paper's characterization of
+   another work, a search-result snippet, or a summarizing tool's report
+   of a fetched page as verified fact.** (project owner, 2026-08-08,
+   after an external-review reconciliation on `asr-research`). Established
+   after this project's own verification pass produced a wrong verdict
+   on a dataset (Sep-28k-SW) by reading a paper's prose summary of
+   another paper instead of fetching that other paper directly — caught
+   only because an outside reviewer pushed on it, not by this project's
+   own process. `WebFetch`-based verification in particular routes
+   through a summarizing intermediary; treat its "confirmed" results as
+   good enough to act on day-to-day, but for anything that will appear in
+   a paper, gate a resource commitment, or resolve a real factual dispute,
+   go back to the actual PDF/table/code, not a paraphrase of it. This
+   applies symmetrically to claims made *by* an external reviewer and
+   claims already recorded *in* this project's own docs — neither gets a
+   pass for being already-written-down or already-cited. See
+   `ASR_RESEARCH_TRACK.md`'s "External Review Reconciliation" sections
+   (2026-08-08) for the incident and the full correction.
 
 ## Where to look for what
 

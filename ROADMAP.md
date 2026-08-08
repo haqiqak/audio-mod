@@ -1167,6 +1167,95 @@ list, not separate from it.
     `ASR_RESEARCH_TRACK.md` §8 (Stage A results). Stage B (representation
     probe) is next.
 
+    **Sequencing update, 2026-08-08 -- external review reconciliation.**
+    The track (through Stage A/B/C, Phase 2, direction (g), and Rank
+    1/2/3) reached a "Stage D fine-tune is the evidence-justified next
+    step" decision on 2026-08-07, on the premise that every cheap,
+    no-GPU, no-new-data direction had been tried. An external adversarial
+    review challenged that premise; independent primary-source
+    verification (papers fetched directly, not taken on the review's
+    word) confirmed the premise was false -- a cheaper, untried mechanism
+    (Dysfluent-WFST, a reference-text-conditioned WFST/CTC phonetic
+    realignment decoder, arXiv:2505.16351) exists, targets this exact
+    gap, and was never considered. **Stage D is now re-classified as
+    premature, not rejected.** Two zero-compute reanalyses (PR/AUPRC +
+    bootstrap CIs on already-saved Rank 1-3 predictions; the end-to-end
+    Track B effect of Rank 1, never yet measured) and one cheap
+    never-tried experiment (Dysfluent-WFST against the existing 120-clip
+    Track B sample) now sit ahead of Stage D in priority. Full
+    verification detail, reconciliation, and the revised decision tree:
+    `ASR_RESEARCH_TRACK.md`'s "External Review Reconciliation --
+    2026-08-08" (end of document). See also
+    `EXTERNAL_REVIEW_2026-08-07.md` for the original review.
+
+    **Round 2, same day.** A second review pass corrected one of round
+    1's own dataset verdicts (Sep-28k-SW does add real, sub-word-
+    annotated stuttering data via Sridhar & Wu's verbatim transcripts --
+    round 1's "does not" verdict was wrong), reality-checked a claim that
+    Dysfluent-WFST's missing timestamps are "an afternoon of work" to add
+    (structurally plausible but unverified and likely optimistic -- the
+    shipped decoder discards the frame-synchronous axis), and
+    incorporated a primary-source read of "Kordt et al." (arXiv:2606.14391,
+    previously cited only secondhand) -- which corrects a LoRA/continual-
+    learning conflation in Stage D's design, adds a third independent
+    population-mismatch data point, and supplies a reusable mechanistic-
+    verification method (cross-attention head ablation) for any future
+    Stage D attempt. Revised decision tree, data strategy, and a new
+    zero-cost Rank 1 diagnostic (re-run at Libri-Dys's ~10x scale):
+    `ASR_RESEARCH_TRACK.md` section 5 of the reconciliation ("Second-pass
+    reconciliation -- 2026-08-08 (round 2)").
+
+    **Round 3, same day.** Confirmed directly from its own README:
+    Sep-28k (and therefore Sep-28k-SW, an annotation layer over it) is
+    CC BY-NC 4.0 -- non-commercial. Since `audio-mod` is half of a
+    commercial product, Sep-28k-SW is now fixed as evaluation-only, never
+    a training source, without separate permission. The WFST timestamp
+    question was found NOT resolvable by further code reading -- two
+    independent reading passes disagreed with each other about what the
+    decoder's special transition arcs actually mean -- so the concrete
+    runtime check needed to settle it (`len(shortest[0].labels) == T`) is
+    now the mandatory first step of that experiment's pre-registration,
+    not something to keep arguing from reading. Reconciled an apparent
+    contradiction between two Kordt et al. marker-F1 figures cited in
+    round 2 (they're different tables/stages, not in tension -- see
+    detail in the track doc). Added two new queued items: a cheap
+    CrisperWhisper cross-attention probe (using Kordt et al.'s own
+    head-attribution method to test this track's central decoder-vs-
+    encoder inference directly, for the first time with real positive-
+    evidence potential rather than only the weaker `num_beams` proxy),
+    and a required power analysis on the assembled real evaluation data
+    before any Stage D pre-registration (confirm the planned success/
+    failure gate is actually resolvable given the small n and the
+    documented kappa=0.40 annotation-noise ceiling, before committing to
+    a fine-tune). Full detail and the revised decision tree:
+    `ASR_RESEARCH_TRACK.md` section 6 ("Third-pass reconciliation --
+    2026-08-08 (round 3)"). A new standing rule (`CLAUDE.md` rule 9) was
+    also added: read primary sources directly for any claim that gates a
+    decision, prompted by round 2 catching this project's own wrong
+    verdict on Sep-28k-SW.
+
+    **Final decision-oriented reconciliation, same day.** Re-anchored
+    everything to the application objective and re-ordered rounds 1-3's
+    own sequencing: the single highest-value next step is now judged to
+    be a cheap, zero-new-dependency **alignment-gap/duration-residual
+    test for `word_repetition`** (built entirely from CrisperWhisper's
+    own already-computed word timestamps, no new data, testable today on
+    the existing 120-clip Track B sample) -- placed *ahead of*
+    Dysfluent-WFST, reasoned explicitly against the project's own
+    priority order (application fit -> reliability -> implementability
+    -> evidence -> novelty last), not accepted merely because the
+    external review ranked WFST first. Dysfluent-WFST remains the
+    correct next step after that, for `sound_repetition` specifically.
+    Stage D's justification condition is now precise: only after both
+    of those tests fail to produce a real, end-to-end improvement, *and*
+    a power analysis confirms the available real evaluation data can
+    resolve Stage D's own success/failure gate. Full architecture
+    comparison (A-F), the Rank 1-3 reconciliation (what's established vs.
+    withdrawn), and the finite decision tree with hard stop conditions:
+    `ASR_RESEARCH_TRACK.md`, "Final Decision-Oriented Reconciliation --
+    2026-08-08" (end of document, its own top-level section, following
+    the three reconciliation rounds it re-orders).
+
 21. **[New, 2026-08-05, small, detector-side, independent of the ASR
     research track — found while doing item 20's Stage A hand-trace]
     `word_repetition`'s exact-match candidate check appears to miss runs

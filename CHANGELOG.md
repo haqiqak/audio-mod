@@ -6,6 +6,101 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-08 (asr-research branch), final decision-oriented reconciliation
+
+- **Alignment-gap test for `word_repetition` ranked ahead of
+  Dysfluent-WFST as the single next step; Stage D's justification
+  condition made precise.** Re-anchored rounds 1-3's own decision tree to
+  the application objective rather than inheriting it, and built an
+  explicit architecture comparison (current pipeline / CrisperWhisper+
+  Dysfluent-WFST / an English stutter-aware ASR, found not to exist /
+  acoustic-detector fusion / Stage D / other mechanisms), scored on
+  application fit, reliability, and implementability with novelty
+  deliberately last. Reconciled Ranks 1-3 (what's established, what
+  isn't, what's withdrawn vs. narrowed). Concluded the highest-value next
+  step is a cheap, zero-new-dependency alignment-gap/duration-residual
+  test for `word_repetition` (reuses CrisperWhisper's own existing word
+  timestamps) — ahead of Dysfluent-WFST, which is next after it for
+  `sound_repetition`. Stage D becomes justified only if both fail *and*
+  a power analysis confirms the real evaluation data can resolve its own
+  gate. No code/experiment run. No change to `main`. →
+  *`PAPER_DECISION_LOG.md`, "Final decision-oriented reconciliation:
+  alignment-gap test for `word_repetition` ranked ahead of
+  Dysfluent-WFST"*; full detail in `ASR_RESEARCH_TRACK.md`, "Final
+  Decision-Oriented Reconciliation — 2026-08-08".
+
+## 2026-08-08 (asr-research branch), round 3
+
+- **Sep-28k-SW licence confirmed (CC BY-NC 4.0, non-commercial); WFST
+  timing question left honestly unresolved; marker-F1 figures
+  reconciled; two new items queued; new standing rule added.**
+  Confirmed directly from its own README that Sep-28k (and therefore
+  Sep-28k-SW) is non-commercially licensed — fixed as evaluation-only in
+  the data strategy, given `audio-mod`'s place in a commercial product.
+  Re-checked the Dysfluent-WFST timestamp question and found this
+  round's own code-reading disagreed with round 2's — concluded the
+  question needs a concrete runtime check
+  (`len(shortest[0].labels) == T`), not more reading, and made that the
+  mandatory first step of that experiment's future pre-registration.
+  Resolved an apparent contradiction between two Kordt et al. marker-F1
+  figures directly from the paper's own text (different tables/training
+  stages, not in tension). Queued two new items: a cheap CrisperWhisper
+  cross-attention probe (Kordt et al.'s own head-attribution method,
+  applied to this project's own decoder for the first time) and a
+  required power analysis on the assembled real evaluation data before
+  any Stage D pre-registration. Added `CLAUDE.md` rule 9: read primary
+  sources directly for any decision-gating claim, prompted by round 2
+  catching this project's own wrong verdict on Sep-28k-SW. No code/
+  experiment run. No change to `main`. → *`PAPER_DECISION_LOG.md`,
+  "Sep-28k-SW licence, WFST timing left genuinely unresolved, marker-F1
+  reconciled, two new queued items"*; full detail in
+  `ASR_RESEARCH_TRACK.md` section 6 of the reconciliation.
+
+## 2026-08-08 (asr-research branch), round 2
+
+- **Correcting round 1's own SEP-28k-SW verdict; primary-source read of
+  Kordt et al.** A second AI review of round 1's reconciliation disputed
+  one factual claim and made one unverified technical claim; both were
+  independently re-checked rather than accepted. Result: round 1's own
+  "Sep-28k-SW adds no sub-word annotation" verdict was **wrong** —
+  Sridhar & Wu's own paper (fetched directly) confirms real, sub-word-
+  annotated, English clinical-stuttering transcripts exist for ~2,621
+  clips (public-availability still unconfirmed). Separately, "Dysfluent-
+  WFST's missing timestamps are an afternoon of work" does not hold up
+  against the actual repo code — plausible in principle, unverified in
+  effort. Also incorporated a direct read of "Kordt et al."
+  (arXiv:2606.14391), previously cited only secondhand: corrects a
+  LoRA+continual-learning conflation in Stage D's design (nobody has
+  combined them), adds a third population-mismatch data point, and
+  supplies a reusable head-ablation verification method. Revised data
+  strategy and decision tree recorded. No code/experiment run. No change
+  to `main`. → *`PAPER_DECISION_LOG.md`, "Correcting round 1's own
+  SEP-28k-SW verdict; primary-source read of Kordt et al."*; full detail
+  in `ASR_RESEARCH_TRACK.md` section 5 of the reconciliation.
+
+## 2026-08-08 (asr-research branch)
+
+- **External review reconciliation: Stage D re-classified premature, not
+  rejected.** Independently verified `EXTERNAL_REVIEW_2026-08-07.md`'s
+  claims against primary sources (Dysfluent-WFST paper/repo, disputed
+  datasets, disputed statistics, current cloud-GPU pricing) before
+  acting on any of them. Confirmed: the 2026-08-07 Stage D decision
+  rested on a false exhaustion premise (a cheaper, untried mechanism —
+  Dysfluent-WFST — targets the same gap); the StutterFuse citation was
+  factually wrong (it's retrieval-augmented, not text/acoustic fusion);
+  the "quantity of labeled examples" bottleneck framing should read
+  "quantity and annotation reliability" (SEP-28k `sound_repetition`
+  inter-annotator kappa=0.40, independently confirmed). Also found
+  several of the review's own claims did not survive verification (no
+  timestamps from the WFST decoder as released; SEP-28k-SW does not add
+  fragment annotation; "no English data gap" is an overstatement).
+  Stage D is now premature, not rejected; two zero-compute reanalyses
+  plus one cheap Dysfluent-WFST trial are sequenced ahead of it. No
+  code/experiment run. No change to `main`. → *`PAPER_DECISION_LOG.md`,
+  "External review reconciliation: Stage D re-classified premature, not
+  rejected"*; full detail in `ASR_RESEARCH_TRACK.md`'s "External Review
+  Reconciliation — 2026-08-08"; sequencing update in `ROADMAP.md` item 20.
+
 ## 2026-08-07 (asr-research branch)
 
 - **End-of-day research consolidation: additive synthesis, no new

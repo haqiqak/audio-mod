@@ -6907,3 +6907,325 @@ EOD") and one superseded-marker addition to an existing section; no
 existing section's own text was edited, shortened, or removed.
 `ROADMAP.md` item 10 and `CHANGELOG.md` gain matching pointer entries. No
 code, experiment, or dataset touched. No change to `main`.
+
+---
+
+## 2026-08-08 — External review reconciliation: Stage D re-classified premature, not rejected
+
+**What was done**
+Received `EXTERNAL_REVIEW_2026-08-07.md`, an independent adversarial
+review of the `asr-research` track arguing its 2026-08-07 "Stage D is
+the evidence-justified next step" decision rested on an incomplete
+literature map (centrally, a missed paper/system, Dysfluent-WFST,
+arXiv:2505.16351). Per the project owner's explicit instruction, neither
+document was taken at face value. Ran four independent primary-source
+verification passes (as parallel research agents, no code written):
+(1) fetched the Dysfluent-WFST paper and GitHub repo directly; (2)
+verified every disputed dataset claim (Switchboard/MsState, SEP-28k-SW,
+Boli, Buckeye, FluencyBank Timestamped, LibriStutter's construction,
+AS-70, Libri-Dys/VCTK-Stutter) against primary sources; (3) verified
+every disputed statistical/citation claim (Zayats et al.'s human
+transcription-error rates, SEP-28k inter-annotator kappa by type, the
+StutterFuse characterization, Gulzar et al.'s LibriStutter non-verbatim
+finding, Shih et al.'s F1 baseline, the alignment-gap classifier's
+coverage figure); (4) verified current cloud-GPU pricing/free-tier
+availability against the review's cost claims. Findings recorded as a
+new, dated, additive section in `ASR_RESEARCH_TRACK.md` ("External
+Review Reconciliation — 2026-08-08"), a correction annotation on the
+StutterFuse citation (previously mischaracterized as text/acoustic
+fusion; it is a retrieval-augmented classifier), superseded-in-place
+notices on the prior Stage D decision and next-session plan, and a
+matching sequencing update to `ROADMAP.md` item 20.
+
+**Alternatives considered**
+- Accept the external review's conclusions directly and start
+  implementing Dysfluent-WFST. **Rejected** — the project owner
+  explicitly required independent verification before acting on either
+  document; several of the review's claims (Dysfluent-WFST's output
+  including timestamps; SEP-28k-SW adding fragment annotation; "the
+  English data gap is not real") did not survive verification intact.
+- Dismiss the external review because the internal track's process was
+  already rigorous. **Rejected** — rigor in execution does not imply
+  completeness of the literature map searched; the review's central
+  factual claim (a relevant, on-target paper/system existed and was
+  missed) verified true.
+- Silently revise the 2026-08-07 Stage D decision to "premature" without
+  a dated record of why. **Rejected**, same append-and-supersede
+  discipline this track has used throughout: the original decision
+  remains fully intact and readable, with a pointer to what changed it.
+- Re-run Ranks 1-3's zero-compute reanalysis (PR/AUPRC + bootstrap CIs;
+  end-to-end Track B effect of Rank 1) or clone/run Dysfluent-WFST as
+  part of this same pass. **Rejected for this pass, explicitly deferred**
+  — the project owner's instructions were analysis/decision-making only
+  ("do not implement anything until that answer is established"); both
+  are now the top two items in the revised decision tree.
+
+**Why this choice**
+The external review's own most consequential claim — that a cheaper,
+better-matched, previously-untried mechanism (reference-text-conditioned
+phonetic realignment against a WFST/CTC emission lattice) exists and
+targets this track's exact `sound_repetition` gap — held up under
+independent verification of the primary source, and this track's own
+document already records (RQ-E, named and never run) that its own
+"every cheap lever tried" language was not literally true. Per standing
+rule 8 (architectural decisions are evidence-constrained, not
+preservation-constrained), a decision reached under a since-falsified
+premise does not get protected just because it was already recorded —
+it gets re-opened, with the reasoning for both the original call and the
+revision kept visible. At the same time, several of the review's own
+claims did not survive independent verification (no timestamps from the
+WFST decoder as released; SEP-28k-SW does not add fragment annotation;
+the English-data-gap correction is real but narrower than claimed — see
+the reconciliation section for the full list) — accepting the review
+uncritically would have repeated the same error in the opposite
+direction.
+
+**Measured result**
+Not a numeric result — a documentation reconciliation following a
+completed, four-pass, primary-source verification exercise. Stage D
+moves from "evidence-justified next step" to "premature, not rejected."
+Two zero-compute reanalyses and one cheap, never-tried experiment
+(Dysfluent-WFST against the existing 120-clip Track B sample) are now
+sequenced ahead of it. No code, experiment, or dataset touched this
+session. No change to `main`.
+
+---
+
+## 2026-08-08 (same day, round 2) — Correcting round 1's own SEP-28k-SW verdict; primary-source read of Kordt et al.
+
+**What was done**
+A second AI reviewer, external to this repo, independently re-checked
+the round-1 reconciliation above: conceded most of it without further
+verification needed, disputed one specific factual claim (whether
+Sep-28k-SW adds sub-word annotation), made one unverified technical claim
+(Dysfluent-WFST timestamps being "an afternoon of work" to recover), and
+proposed three design refinements (move real-audio acquisition earlier;
+promote Buckeye to a training-corpus role under an explicit train/eval
+split; use Libri-Dys as a scale diagnostic for Rank 1's open question).
+Separately, the project owner supplied the full text of "Kordt et al."
+(arXiv:2606.14391, "Learning to Hear Hesitation"), previously cited in
+this track only secondhand as `[B11]`. Ran two more independent
+primary-source verification passes (the SEP-28k-SW table-vs-prose
+discrepancy, traced to Sridhar & Wu's own Interspeech 2025 paper; the
+Dysfluent-WFST timestamp claim, checked against the actual repo code and
+k2/icefall documentation) and read the new Kordt et al. paper directly.
+Recorded all of this as a new, dated, additive "Second-pass reconciliation
+— 2026-08-08 (round 2)" section in `ASR_RESEARCH_TRACK.md`, with a
+superseded-in-place notice on round 1's decision tree, plus matching
+pointers in `ROADMAP.md` item 20 and `CHANGELOG.md`.
+
+**Alternatives considered**
+- Accept the second reviewer's SEP-28k-SW and timestamp claims without
+  independent re-verification, since round 1 had already done one
+  verification pass. **Rejected** — the whole point of this reconciliation
+  exercise is not accepting either side's claims at face value; a claim
+  surviving one AI's scrutiny is not the same as being independently
+  re-verified against the primary source, and in fact round 1's own
+  SEP-28k-SW verdict turned out to be wrong.
+- Quietly fix round 1's SEP-28k-SW verdict in place without flagging that
+  it was wrong. **Rejected**, same append-and-supersede discipline as
+  every other correction in this track — the error is recorded, with why
+  it happened (a verification pass that read a paper's prose but missed
+  its own table, and stopped at a citation instead of fetching the
+  underlying paper), because that failure mode is exactly what this
+  reconciliation process exists to guard against, in either direction.
+- Accept "an afternoon of work" for WFST timestamp recovery since the
+  underlying structural claim (frame-indexed emission, k2 preserves
+  frame correspondence) checked out. **Rejected** — checked the actual
+  shipped repo code, not just the paper, and found the decoder discards
+  the one tensor axis that would carry timing and composes a non-trivial
+  graph (CTC topology + annotation arcs) that no existing documented
+  recipe (icefall's own forced-alignment doc page is an empty stub)
+  covers. The structural premise is correct; the effort estimate is not
+  verified.
+- Treat Kordt et al.'s CL-methods-on-full-fine-tune recipe and
+  StammerTalk's LoRA recipe as the same, already-combined approach, since
+  Stage D's design section already cited both together. **Rejected** —
+  reading Kordt et al. directly shows no LoRA anywhere in it; the two
+  recipes have never been demonstrated combined by anyone, and Stage D's
+  design text is corrected to say so explicitly rather than implying an
+  already-proven combination.
+
+**Why this choice**
+Per standing rule 8, a decision (or a verification finding) does not get
+protected from revision just because it was already recorded earlier the
+same day — it gets re-opened the moment better evidence exists, with both
+the original and the correction kept visible. The SEP-28k-SW correction
+in particular is a useful, humbling data point about this reconciliation
+process's own failure mode (secondhand citations and prose-only reads
+miss things a table or a primary source would have caught) and is worth
+keeping visible for exactly that reason, not just for its factual content.
+
+**Measured result**
+Not a numeric result. One dataset verdict corrected (Sep-28k-SW: real,
+sub-word-annotated stuttering data likely exists, pending a public-
+availability check); one technical estimate downgraded from "trivial" to
+"plausible but unverified, budget as its own sub-task"; one citation
+corrected (Stage D's LoRA+CL framing is an untested combination, not a
+proven recipe); one new zero-cost diagnostic identified (Rank 1 re-run at
+Libri-Dys's ~10x scale); one new limitation recorded (LibriStutter's
+zero-annotation-noise ground truth makes every precision figure this
+track has produced optimistic relative to real deployment); revised data
+strategy (train on general-disfluency corpora, evaluate on the small real
+stuttering sets) and decision tree recorded. No code, experiment, or
+dataset touched this session. No change to `main`.
+
+---
+
+## 2026-08-08 (same day, round 3) — Sep-28k-SW licence, WFST timing left genuinely unresolved, marker-F1 reconciled, two new queued items
+
+**What was done**
+The second reviewer's own follow-up accepted round 2 in full (including
+the correction made against its own earlier claim) and raised five
+further points. Checked each independently rather than accepting any of
+them, including the one round 2 had already flagged as unresolved
+(Sep-28k's licence): fetched `apple/ml-stuttering-events-dataset`'s own
+README directly and confirmed CC BY-NC 4.0 (non-commercial) — a real
+constraint given `audio-mod`'s place in a two-repo commercial product.
+Re-fetched the Dysfluent-WFST decoder code specifically to test the
+reviewer's counter-argument that the special transition arcs might use
+the CTC blank symbol (frame-consuming) rather than a true epsilon
+(non-frame-consuming); found this round's own reading disagreed with
+round 2's reading about what the arcs' label actually means — concluded
+this is not resolvable by further static reading and requires the
+concrete runtime check the reviewer proposed. Resolved an apparent
+contradiction between two Kordt et al. marker-F1 figures cited in round 2
+directly from the paper's own text already in hand (different tables,
+different training stages — not a contradiction). Accepted two new
+queued items: a CrisperWhisper cross-attention probe (reusing Kordt et
+al.'s head-attribution method) and a required power analysis on the
+assembled real evaluation data before any Stage D pre-registration.
+Recorded all of this as "Third-pass reconciliation — 2026-08-08
+(round 3)" in `ASR_RESEARCH_TRACK.md`, with matching pointers in
+`ROADMAP.md` item 20 and `CHANGELOG.md`. Also added a new standing rule
+to `CLAUDE.md` (rule 9): read primary sources directly for any claim
+that gates a decision — prompted by round 2 catching this project's own
+wrong verdict on Sep-28k-SW, which had been reached from a paper's prose
+summary of another paper rather than that paper itself.
+
+**Alternatives considered**
+- Accept the Sep-28k-NC license claim from the reviewer's assertion
+  without an independent fetch, since round 1/2 had already verified
+  several other claims from this same reviewer accurately. **Rejected**
+  — a claim's source having been reliable before is not the same as this
+  specific claim being verified, and this one gates a real legal/product
+  constraint, not just a research interpretation.
+- Try to resolve the WFST blank-vs-epsilon question with one more,
+  more careful code-reading pass. **Rejected** — attempted exactly this,
+  and it produced a reading that disagreed with the previous round's own
+  reading of the same code. Two AI-generated characterizations of the
+  same source disagreeing with each other is itself sufficient evidence
+  that more reading will not settle this; recorded as genuinely
+  unresolved and deferred to the concrete runtime check instead, per the
+  new standing rule (rule 9) this round also added.
+- Silently pick one of the two marker-F1 figures as authoritative rather
+  than reconciling both. **Rejected** — both are real numbers from the
+  same real paper; the resolution (different tables, different stages)
+  is more informative than picking one, and is itself a decision-relevant
+  finding about marker retention degrading under continued adaptation.
+- Add the CrisperWhisper cross-attention probe or run the power analysis
+  in this same session. **Rejected, deferred** — this remains a
+  documentation/decision-analysis session; both are now queued, correctly
+  sequenced, in the revised decision tree.
+
+**Why this choice**
+The pattern across all three rounds of this reconciliation is the same:
+every claim that gates a real decision — whether it originated inside
+this project or from an external reviewer — gets checked against its
+actual primary source before being acted on, and a claim's earlier
+reliability does not exempt a new claim from the same check. Round 2's
+own Sep-28k-SW mistake is the clearest demonstration available that this
+discipline has to be procedural, not judgment-based, which is why it is
+now a numbered standing rule rather than an implicit practice.
+
+**Measured result**
+Not a numeric result. One licensing constraint confirmed and applied
+(Sep-28k-SW: evaluation-only); one technical question correctly
+downgraded from "plausible engineering guess" to "genuinely unresolved,
+needs a runtime check" after this round's own attempt to resolve it by
+reading failed to agree with the prior round's reading; one apparent
+data contradiction resolved directly from primary text (not a
+contradiction — different tables/stages); two new items queued
+(CrisperWhisper cross-attention probe; pre-Stage-D power analysis); one
+new standing rule added to `CLAUDE.md`. No code, experiment, or dataset
+touched this session. No change to `main`.
+
+---
+
+## 2026-08-08 (same day) — Final decision-oriented reconciliation: alignment-gap test for `word_repetition` ranked ahead of Dysfluent-WFST
+
+**What was done**
+Per the project owner's explicit instruction, treated rounds 1-3's own
+decision tree as an input to re-examine, not a conclusion to inherit —
+re-anchored the entire reconciliation to `CLAUDE.md`'s stated application
+objective and built an explicit architecture comparison (current
+pipeline; CrisperWhisper+Dysfluent-WFST; an existing stutter-aware ASR,
+found not to exist for English; acoustic/audio-native detector fusion;
+Stage D; and other mechanisms found this session) scored strictly
+against information gained/lost, taxonomy coverage, timing, data,
+compute, testability, and biggest uncertainty — novelty deliberately
+excluded as a ranking factor. Reconciled Ranks 1-3 explicitly: what they
+established (frozen-representation classification insufficient, real
+result), what they did not (that no mechanism can work, or that a
+different mechanism — WFST or alignment-gap — would fail too), and what
+must be withdrawn (the exhaustion claim) vs. narrowed (the
+quantity-of-labels bottleneck, now quantity-and-reliability, scoped to
+one mechanism class only). Concluded the single highest-value next step
+is an **alignment-gap/duration-residual candidate generator for
+`word_repetition`** — reusing CrisperWhisper's own already-computed word
+timestamps, no new data or dependencies — placed ahead of Dysfluent-WFST
+in priority, which becomes the immediate next step after it (for
+`sound_repetition` specifically). Recorded a precise Stage D
+justification condition (both tests fail *and* a power analysis confirms
+the available real evaluation data can resolve Stage D's own gate).
+Wrote this as a new, dated, top-level "Final Decision-Oriented
+Reconciliation" section in `ASR_RESEARCH_TRACK.md`, with a claim
+classification (experimentally demonstrated / primary-source supported /
+inferred / unresolved / proposed) closing it out.
+
+**Alternatives considered**
+- Accept rounds 1-3's own sequencing (Dysfluent-WFST as the immediate
+  next step) since it had already been through three rounds of
+  verification. **Rejected**, per explicit instruction — verification of
+  individual *claims* is not the same as verification of the
+  *sequencing decision* built from them; the sequencing itself was never
+  re-examined against the application objective until this pass, and
+  doing so surfaced a cheaper, lower-risk, equally-real alternative
+  (the alignment-gap test) that had been present in the evidence the
+  whole time but ranked lower by the external review's own novelty-
+  weighted ordering.
+- Treat the external review's "Dysfluent-WFST is the experiment" framing
+  as authoritative since it was the review's own top-ranked item.
+  **Rejected** — re-scored against this project's own stated priority
+  order (application fit, reliability, implementability, evidence,
+  novelty last, in that order) rather than the review's implicit
+  novelty-first ordering.
+- Propose parallel branches for both `word_repetition` and
+  `sound_repetition` simultaneously. **Rejected**, per explicit
+  instruction to avoid a speculative multi-branch tree — sequenced
+  instead, with each branch's own hard stop condition.
+- Run the alignment-gap test, or check YOLO-Stutter/SSDM checkpoint
+  availability, in this same session. **Rejected, deferred** — this
+  remains a decision-only session; nothing was implemented or executed.
+
+**Why this choice**
+The project's own standing rule 8 (evidence-constrained, not
+preservation-constrained architecture decisions) applies as much to this
+track's own sequencing choices as to its architecture choices — a
+decision tree already written down and already verified in its parts
+does not thereby become correct in its ordering. Scoring honestly against
+application fit, reliability, and implementability before novelty is the
+only way to avoid quietly re-adopting "prove something interesting" as
+the real objective, which is precisely the failure mode `ASR_RESEARCH_
+TRACK.md`'s own "PROJECT OBJECTIVE" section and this reconciliation's
+opening section exist to prevent.
+
+**Measured result**
+Not a numeric result. A finite, two-step, hard-stop-conditioned decision
+tree replaces the three-round reconciliation's own more open-ended
+sequencing. `word_repetition`'s alignment-gap test is now the single
+next action item; Dysfluent-WFST remains next after it for
+`sound_repetition`; Stage D's justification condition is now precise
+and falsifiable rather than "premature, not rejected" without a stated
+resolution path. No code, experiment, or dataset touched this session.
+No change to `main`.

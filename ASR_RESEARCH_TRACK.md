@@ -1849,6 +1849,28 @@ other's signal — directly relevant to how this project's own weighted
 token/acoustic fusion (`ARCHITECTURE.md` §4) already works, and a
 possible source of design ideas for making that fusion more principled.
 
+**Correction, 2026-08-08, from `EXTERNAL_REVIEW_2026-08-07.md` §4.5,
+independently re-verified against the paper's own abstract before
+accepting the correction**: the characterization above is wrong on
+substance, preserved here rather than silently edited per this track's
+own convention. StutterFuse is a **retrieval-augmented classifier** — a
+Conformer encoder conditioned on a non-parametric memory bank of clinical
+examples ("classify by reference rather than memorization"), not a
+text+acoustic gated fusion model. "Modality Collapse" / "Echo Chamber" in
+the paper's own abstract refers to naive retrieval boosting recall while
+degrading precision — an effect between acoustic evidence and *retrieved
+neighbors*, not between text and audio. Confirmed F1=0.65 on SEP-28k,
+with the paper's own body text stating this "is approaching the limit of
+human agreement (Kappa ~= 0.7)" — directly relevant to this document's
+own "Current Project State" discussion of the sound_repetition
+inter-annotator ceiling (kappa=0.40, a *different*, lower figure for that
+specific type — see the 2026-08-08 reconciliation section at the end of
+this document). This paper is not a source of fusion-design ideas for
+`ARCHITECTURE.md` §4 as originally claimed; it remains relevant only as a
+field-baseline F1 number and as a second, independent confirmation that
+SEP-28k's own annotation noise is a real, load-bearing ceiling on
+achievable scores in this domain.
+
 **One title-relevant paper not independently deep-verified this
 session, flagged honestly rather than cited with unearned confidence**:
 "On the Difficulty of Token-Level Modeling of Dysfluency and Fluency
@@ -8090,6 +8112,18 @@ remain the fuller treatment:
 
 ## E. Stage D — retrieved and updated, not reinvented
 
+**Superseded-in-place notice, 2026-08-08**: this section's conclusion
+that Stage D is "the evidence-justified next step" rested on an
+exhaustion premise (section F below) that a 2026-08-07 external review
+falsified — a cheaper, untried, better-matched mechanism
+(reference-text-conditioned phonetic realignment, e.g. Dysfluent-WFST)
+existed and was never considered. Stage D is now judged **premature, not
+rejected** — see "External Review Reconciliation — 2026-08-08" at the
+end of this document for the full re-analysis and the current decision
+tree. Everything below in this section remains intact and still
+describes what Stage D *would be* if/when it becomes justified; only the
+"is it justified now" verdict changed.
+
 **Everything Stage D means in this project was already developed across
 two sections earlier today**: "Stage D planning (2026-08-07) — design,
 requirements, risks, and a real infrastructure finding" (line 3622) and
@@ -8221,6 +8255,13 @@ cleared), not another round of frozen-representation experimentation.
 
 ## G. Decision for next session — supersedes the stale one above
 
+**Superseded-in-place notice, 2026-08-08**: this plan (steps 1-10 below)
+assumed Stage D was the right next focus. See "External Review
+Reconciliation — 2026-08-08" at the end of this document for the current
+plan, which inserts a cheaper, evidence-gap-closing step (a
+Dysfluent-WFST trial) before any of steps 4-10 below. Steps 1-3 remain
+useful groundwork and are not contradicted.
+
 The "Decision for Next Session" section earlier in this document (line
 6731) was written before Rank 1/2/3 existed and is now marked superseded
 in place (not deleted). **This is the current plan:**
@@ -8295,3 +8336,880 @@ Per the project owner's explicit preservation rule, stated precisely:
 - **Deleted**: nothing. No section, citation, number, or piece of
   reasoning was removed from this document during this consolidation
   pass.
+
+---
+
+# External Review Reconciliation — 2026-08-08
+
+**What this section is.** On 2026-08-07 an independent, adversarial
+external review (`EXTERNAL_REVIEW_2026-08-07.md`, commissioned by the
+project owner) was received, arguing that the "Current Project State"
+consolidation above reached its Stage D decision on an incomplete
+literature map, and specifically that an off-the-shelf system
+(Dysfluent-WFST) had been missed. Per the project owner's explicit
+instruction, this section does **not** accept either document at face
+value: every consequential claim in the external review was independently
+re-verified against primary sources (the actual papers, the actual
+GitHub repo, current cloud-GPU pricing) before being used to revise
+anything here. Full verification detail (per-claim VERIFIED /
+PARTIALLY VERIFIED / CONTRADICTS labels) lives in the session that
+produced this section; this section records the reconciled conclusions
+and the resulting decision, not the raw verification transcript.
+Nothing above this section is edited or deleted — this is an additive,
+dated correction, exactly this document's own established convention.
+
+## 1. Verification outcome, by claim
+
+**Confirmed accurate** (independently re-verified against primary
+sources, not just re-quoted from the review):
+- Dysfluent WFST (Guo, Lian, Zhou et al., Interspeech 2025,
+  arXiv:2505.16351) is real, requires a **reference transcript** at
+  inference (confirmed from the paper's own Algorithm 1 and its
+  `data/gt_text/` input directory — "zero-shot" means no additional
+  *training*, not no reference text), decodes audio against it via a
+  WFST over a wav2vec2/WavLM-CTC emission lattice, and detects
+  repetition/insertion/deletion as distinct path behaviors
+  (revisit-state / skip-state / lower-index-state) at the
+  **phoneme level** — i.e., sub-word, directly on-target for
+  `sound_repetition`.
+- The paper's own results: 100% repetition-detection accuracy is a
+  **simulated-data, count-level** figure; the only **real-speech**
+  evaluation is **nfvPPA (aphasia)**, not stuttering (PER 44.75% vs.
+  10.71% simulated — a large sim-to-real gap on a *different*
+  population than this project's target). The paper states directly
+  that WFST decoding "lacks robustness" and is "highly sensitive" to
+  emission noise (WPER 10.19% -> 29.77% at a modest synthetic noise
+  level in their own ablation).
+- This track's own prior characterization of StutterFuse (arXiv:2512.13632)
+  was wrong (corrected in §5 above, 2026-08-08 annotation): it is a
+  retrieval-augmented classifier, not a text/acoustic fusion model.
+- Zayats et al. 2019's human fragment miss/insert rates (12.4%/7.2%),
+  the CHI 2026 SEP-28k inter-annotator kappa-by-type figures (sound
+  repetitions **0.40**, word repetitions 0.62, blocks 0.25,
+  prolongations 0.11), Gulzar et al.'s confirmation that LibriStutter's
+  ground truth is a non-verbatim `STUTTER` placeholder token (not the
+  literal fragment content — Section II of that paper, read directly),
+  and Shih et al.'s F1=0.554 word-level baseline are all confirmed
+  accurate at the primary source.
+- Current cloud-GPU economics confirm a `whisper-small`-scale LoRA pilot
+  (Stage D's own minimum-viable scope, per section E above) costs
+  **approximately $0 to ~$20** (Kaggle's free ~30h/week GPU quota,
+  Colab's free tier, or ~$0.10-0.70/hr spot rental) — not a
+  budget-gated commitment.
+- Switchboard's MsState transcripts + the open
+  `vickyzayats/switchboard_corrected_reannotated` reannotation genuinely
+  mark sub-word fragments (trailing-hyphen convention, e.g. "you kn-")
+  with real word-level time alignment, at ~260h scale — a real English
+  data point this track had not surfaced.
+- RQ-E (Phase 2's own decoding-entropy proposal) was indeed proposed and
+  never run (confirmed by this document's own text, line ~745/825) —
+  the "every cheap lever has been tried" language in section F above is
+  literally false on this track's own record, independent of anything
+  external.
+
+**Confirmed overstated by the external review** (independently
+re-verified, and found to disagree with the review's framing):
+- **Dysfluent-WFST does not output timestamps.** Read directly: timing
+  was a feature of the *prior* work (UDM), not this WFST decoder. The
+  review's own architecture diagram (§1) shows "... + timings ->
+  detect.py" flowing out of the WFST step — that is not supported by
+  what the paper describes as output. Timing would need to be recovered
+  as separate engineering from the underlying frame-aligned lattice, not
+  assumed as a free capability.
+- **"Off-the-shelf" overstates integration readiness.** The GitHub repo
+  is real (genuine code, an inference notebook, a WPER metric utility,
+  the `data/audio` + `data/gt_text` input structure) but its README is
+  thin, with no confirmed install/dependency-pinning path verified.
+- **SEP-28k-SW does not add sub-word fragment annotation** — confirmed
+  directly from its own paper (arXiv:2602.10403): it only relabels
+  whole-clip stutter-type categories (>25% of 2,621 clips adjusted).
+  Listing it among datasets that close the fragment-annotation gap is
+  wrong.
+- **"The English data gap is not real" is too strong.** Switchboard
+  MsState's underlying audio/transcripts remain LDC-license-gated
+  (unverified whether this project has institutional access), and it is
+  general conversational-repair disfluency, not clinical stuttering — a
+  real, unresolved distribution-transfer risk for a fine-tune targeting
+  stuttering specifically. Boli (2.8h, 28 speakers) and FluencyBank
+  Timestamped (5.3h, 37 speakers) are real, open, and stuttering-specific,
+  but combined (~8h) sit well under Kordt et al.'s own 10-20h/corpus
+  precedent. The corrected framing: **the gap is narrower than this
+  track previously believed, but it is not closed.**
+- **Shih et al.'s F1=0.554** is a general word-level stuttering F1 across
+  five combined disfluency types on a smaller, separately-curated
+  dataset — not a `sound_repetition`-specific number. Using it as a
+  direct ceiling comparison for this track's own `sound_repetition` work
+  overstates comparability; it remains a legitimate general field
+  baseline this project has never benchmarked against, just not a
+  narrowly-scoped one.
+
+## 2. What this changes
+
+- **The exhaustion premise behind "Stage D is the evidence-justified next
+  step" (section E/F above) is false.** A cheaper, never-tried,
+  better-matched mechanism class (reference-text-conditioned phonetic
+  realignment — Dysfluent-WFST or equivalent) exists and was not
+  considered before that decision was made. Per this track's own
+  standing "cheapest first" discipline (already applied to every prior
+  stage), that mechanism must be tried before Stage D, not after.
+- **Stage D's status changes from "evidence-justified next step" to
+  "premature, not rejected."** Nothing about Stage D's own design (L2
+  scope, LoRA on an existing checkpoint, per section E above) was found
+  to be wrong — only its *sequencing* relative to a cheaper untried
+  alternative.
+- **The "bottleneck is quantity of labeled examples" conclusion (Final
+  synthesis, section A of the Current Project State) needs revising to
+  "quantity *and* annotation reliability."** The now-confirmed
+  `sound_repetition` inter-annotator kappa=0.40 means trained human
+  experts agree only "fair" on this category — Ranks 1-3's F1=0.17-0.25
+  results sit closer to a real, human-annotation-noise-bounded ceiling
+  than the original framing implied, independent of representation
+  choice or sample size.
+- **Ranks 1-3 remain valid, unchanged negative/inconclusive results
+  about one specific mechanism class** — post-hoc classification over
+  frozen, general-purpose representations. They say nothing about a
+  categorically different mechanism (reference-text-conditioned
+  phonetic re-decoding) that was never tested. This is not a reason to
+  discard Ranks 1-3; it is a reason not to treat them as having closed
+  off that different mechanism class too.
+- **The Stage D "budget approval" gate (section E above, "Compute
+  required") should be removed** — confirmed near-zero actual cost, not
+  a categorically different resource commitment from this track's other
+  CPU-only experiments.
+
+## 3. Revised decision tree (supersedes section G's 10-step plan above
+for near-term sequencing; that plan's steps 1-3 remain useful groundwork)
+
+**Superseded-in-place notice, 2026-08-08 (round 2)**: a second review
+pass (section 5 below) refined several of the specifics in this tree
+(real-audio acquisition moved earlier and made parallel rather than
+gated behind two failures; the timestamp-recovery assumption in step 2
+downgraded from "decide how" to "budget as a real, separately-scoped
+sub-task of unverified size"; a new Libri-Dys diagnostic step added; the
+Stage D data strategy in step 5 revised). The tree below remains a
+correct *first-pass* plan and is not wrong, only superseded by the more
+complete one in section 5.
+
+1. **Today, zero compute.** Recompute PR/AUPRC curves and clip-level
+   bootstrap CIs for Ranks 1-3 from already-saved predictions. Separately
+   measure the actual end-to-end Track B detection-F1 effect of
+   deploying Rank 1 as a candidate generator (never yet computed, despite
+   being the single most product-relevant number available). Either
+   could already change a Failure/Inconclusive verdict.
+2. **If step 1 does not resolve the gap to a shippable bar**: clone
+   `Berkeley-Speech-Group/DysfluentWFST`, pre-register an experiment
+   exactly as every prior stage in this track has, and run it against
+   the existing 120-clip real-ASR (Track B) sample, using
+   CrisperWhisper's own clean transcript as the required reference text.
+   Score against the *existing* baselines (Stage A's 45.2%/40.5%, Rank
+   1's F1=0.230) — not a fresh, incomparable metric set. Explicitly test
+   robustness on this project's own actual audio quality, given the
+   paper's own documented noise sensitivity, not just on clean input.
+   Explicitly decide and pre-register how (if at all) approximate timing
+   will be recovered, since the base system does not provide it.
+3. **If Dysfluent-WFST transfers** (meets a pre-registered bar: stable,
+   bootstrapped-CI-supported precision/recall improvement over Rank 1 on
+   real ASR output): integrate as a third fusion signal alongside the
+   existing encoder-distance corroboration, matching `detect.py`'s
+   existing block/prolongation fusion pattern. Stop — Stage D is not
+   needed for this gap.
+4. **If Dysfluent-WFST does not transfer** (fails on real audio quality,
+   or its only-real-validation-is-aphasia limitation turns out to apply
+   to stuttering too): acquire Boli + FluencyBank Timestamped (~8h
+   combined, real, open, stuttering-specific) as a real-audio
+   generalization check for whichever signal (Rank 1, the WFST arm, or
+   both) looked most promising, before any fine-tuning commitment.
+5. **Only after 1-4**: Stage D becomes the evidence-justified next step,
+   using the same L2-scoped design as section E above, Switchboard
+   MsState (LDC access permitting) and/or Boli/FluencyBank as training
+   data, at the now-confirmed near-zero compute cost — no budget
+   approval gate required.
+
+## 4. What is unchanged
+
+The two-stage ASR + fusion-detector architecture
+(`PHASE_3_ARCHITECTURE_REVIEW.md`), the L2-vs-L4 scoping of Stage D
+(section E above), Stage A's core finding, and this track's own process
+discipline (pre-registration, rule 3 auditing, superseded-not-deleted)
+are all unaffected by this reconciliation — nothing found during
+verification argues against any of them.
+
+**No production code has changed as a result of this reconciliation.**
+This section is analysis and decision-state only, exactly as every prior
+stage in this track has been before code was written.
+
+---
+
+## 5. Second-pass reconciliation — 2026-08-08 (round 2)
+
+**What prompted this round.** After section 1-4 above were written, a
+second AI reviewer (external to this repo) independently re-checked this
+reconciliation, conceded most of it, pushed back on one specific factual
+claim (SEP-28k-SW's granularity), made one unverified technical claim
+(Dysfluent-WFST timestamp recovery being "an afternoon of work"), and
+proposed three design refinements. None of the pushback was accepted at
+face value — each checkable claim was independently re-verified against
+primary sources before being folded in here, same discipline as round 1.
+Separately, the project owner supplied the full text of the paper this
+track has only ever cited secondhand as "Kordt et al. [B11]" —
+Kordt, Pekarek Rosin, Lee & Wermter, "Learning to Hear Hesitation:
+Continual Learning for Disfluency-Aware ASR" (arXiv:2606.14391) — now
+read directly for the first time.
+
+### 5.1 Conceded without further verification needed
+
+The second reviewer's self-corrections matched what section 1-2 above
+already concluded independently (timestamps not free, "off-the-shelf"
+overstated, Shih et al.'s F1 not sound-repetition-specific, the English
+data gap being narrower-not-absent) — no new information, cross-checked
+and consistent.
+
+### 5.2 A real correction to round 1's own SEP-28k-SW verdict
+
+Round 1's dataset-verification pass (drawing only on the CHI 2026
+paper's prose) concluded Sep-28k-SW "does NOT add sub-word fragment
+annotation... only relabels whole-clip stutter-type categories." **This
+was wrong**, caught only because the second reviewer flagged a
+table-vs-prose discrepancy in the same CHI paper and this was chased
+down to its actual primary source (Sridhar & Wu, Interspeech 2025, read
+in full, not summarized). The real situation: Sep-28k-SW is **both**
+things at once — a clip-level relabeling (the >25%-of-2,621-clips figure,
+which the CHI paper's prose describes) **and** a set of manually-produced
+verbatim transcripts with inline sub-word dysfluency markup (`/b` block,
+`/p` prolongation, `/i` interjection, `/r` sound repetition, `[]` word
+repetition — e.g. `"o/pne"`, `"a/rll"`, `"It[It]"`), which the CHI paper's
+own Table 1 correctly records and its prose simply omits. **SEP-28k
+itself has no transcripts at all**; Sridhar & Wu produced these from
+scratch. This is real, English, clinical-stuttering (PWS podcast
+speech), sub-word-annotated data using almost exactly this project's own
+five-type taxonomy including the sound-repetition-vs-word-repetition
+distinction that is the actual target gap — at ~2,621 clips (roughly 2h
+at SEP-28k's ~3s/clip format), smaller than Boli+FluencyBank combined but
+plausibly the best taxonomy-match found in this entire exercise. **Not
+yet confirmed**: whether the annotations are publicly downloadable (a
+GitHub repo, `aimpowered/stuttered-speech-benchmark`, was referenced in
+Sridhar & Wu's paper but its public availability was not independently
+checked) — this is the next thing to verify, not to assume, before
+counting on it.
+
+This error is recorded here, not smoothed over, because it demonstrates
+exactly the failure mode this whole reconciliation exists to guard
+against: a verification pass that reads a source's prose but not its own
+table, or that stops at a paper's *citation* of another paper instead of
+fetching that paper directly, will reproduce the same kind of
+incompleteness this track is correcting the original decision for.
+
+### 5.3 Dysfluent-WFST timestamps: structurally plausible, "an afternoon" is unverified optimism
+
+Independently re-checked, including the actual repo code (`utils/decoder.py`),
+not just the paper. Confirmed true: the emission is a genuine per-frame
+CTC posterior lattice (`Ξx ∈ R^(T×C)`), and k2's `DenseFsaVec` does
+preserve frame correspondence as a structural property — the second
+reviewer's underlying premise is correct, not a guess. But the shipped
+decoder (`_decode_lattice`) extracts only `shortest[0].aux_labels` — the
+reference-phoneme-sequence axis — and never touches `shortest[0].labels`,
+the frame-synchronous axis that would carry timing; recovering it means
+re-deriving alignment from a track the current pipeline actively
+discards. The decoding graph is also not a plain CTC lattice — it is
+`ctc_topo` composed with a reference FSA that injects extra
+epsilon-labeled `<trans>` arcs for repetition/insertion/deletion
+annotation, which do not consume a frame, making path-position-to-frame
+mapping materially harder than standard forced alignment. The closest
+official precedent (`icefall`'s own "k2-based forced alignment" doc page)
+is an empty stub, not a documented recipe. **Verdict: timing recovery is
+real, structurally plausible engineering, not a fundamental blocker — but
+"an afternoon" is an unverified, likely-optimistic estimate with no
+existing recipe to adapt.** Any pre-registration of a Dysfluent-WFST
+experiment must budget this as its own separately-scoped, effort-uncapped
+sub-task, with a named fallback (using CrisperWhisper's own existing
+word-level timestamps as a coarser substitute) if it proves large.
+
+### 5.4 The new Kordt et al. paper (arXiv:2606.14391) — primary source for `[B11]`, read directly for the first time
+
+This is the actual paper behind this track's `[B11]` citation, previously
+only known secondhand. Its general shape was already cited accurately
+(TalkBank CHAT-format data, EWC/Experience-Replay/A-GEM/Weight-Averaging,
+~10-20h/corpus scale, 10 epochs / batch 16 / lr 2e-5 — all confirmed
+exact matches). One real correction and several new, decision-relevant
+findings:
+
+- **Correction**: section E above describes Stage D as "most plausibly
+  LoRA-style parameter-efficient adaptation (matching StammerTalk's own
+  real, published recipe) combined with a continual-learning method...
+  per Kordt et al." This conflates two techniques that have never been
+  combined by anyone. Kordt et al. do **full-parameter** fine-tuning of
+  `whisper-small.en` — no LoRA. LoRA is StammerTalk's technique, on a
+  different (Mandarin, AS-70) checkpoint and dataset. **If Stage D
+  combines LoRA with a continual-learning method, that combination is
+  this project's own untested step, not a replication of an existing
+  recipe** — must be stated as such, not implied as already-proven.
+- **A real, causally-confirmed marker-learning-vs-general-ASR trade-off**:
+  Weight Averaging gets the best clean-speech retention but *completely
+  fails to emit disfluency markers* (F1=0.00); the methods that reliably
+  emit markers (FT/A-GEM/ER, F1=0.73-0.75) pay a measurably larger pWER
+  cost. This is a hard Pareto frontier, not a minor caveat, for any
+  Stage D design that needs both properties at once.
+- **A transferable mechanistic-verification method**: marker emission
+  concentrates in a small, consistent set of decoder cross-attention
+  heads across every CL method tested; ablating the top-5 heads removes
+  ~57-62% of FILLER markers while barely moving pWER (+0.42-0.44%) — a
+  real causal check, not a correlation. Worth adopting in any future
+  Stage D evaluation to verify a genuine learned mechanism rather than
+  trusting an aggregate F1 alone.
+- **A third, independent population-mismatch data point**: SME (L2
+  English learners), Pitt (dementia/Alzheimer's), and Delaware (mild
+  cognitive impairment) are none of them clinical stuttering — general-
+  or cognitive-impairment-related disfluency, the same category of
+  mismatch already found in Switchboard (conversational repair) and
+  Buckeye (ordinary cutoffs). This independently reinforces (from a
+  completely separate primary source) the train-on-general-disfluency /
+  evaluate-on-real-stuttering split named in 5.5 below.
+- **Even this closest real precedent doesn't test this project's actual
+  taxonomy granularity**: its REP token collapses word- and phoneme-level
+  repetition into one marker type — no sound-repetition-vs-word-
+  repetition split, same gap found in every other source this track has
+  checked. A real Stage D attempt at that specific split would be
+  testing something nobody has published, not adapting a proven method.
+- **Marker-F1 is bag-of-words**, not position-localized — not directly
+  comparable to this project's own event-localization metric; any future
+  Stage D evaluation should reuse this project's own localization
+  approach, not adopt this metric as-is.
+- **Compute confirmed even cheaper than assumed**: full fine-tune of
+  `whisper-small` (244M params, no LoRA needed) on ~34h combined data, 10
+  epochs — a smaller, cheaper, and now fully-precedented pilot scope than
+  the LoRA-on-CrisperWhisper design section E assumed.
+
+### 5.5 Revised data strategy, incorporating 5.2 and 5.4
+
+Train/evaluate role split (independently motivated by both the second
+reviewer's Buckeye argument and Kordt et al.'s own real population
+mismatch, section 5.4): use abundant, open, general-disfluency corpora
+(Buckeye — free, real, ~300k words, literal `<CUTOFF>` fragment-content
+tags with phone alignment; Switchboard MsState if institutional LDC
+access exists; TalkBank-style CL adaptation per Kordt et al.'s own proven
+recipe) for the "don't delete disfluency evidence" (L2) skill itself, and
+reserve the small, real, stuttering-specific sets — Boli (2.8h) +
+FluencyBank Timestamped (5.3h) + Sep-28k-SW (~2h, pending public-
+availability confirmation, section 5.2) — for evaluation and final
+calibration, not primary training volume. This resolves the "8h is under
+Kordt's 10-20h/corpus precedent" objection: 8-10h is thin for training,
+adequate for evaluation.
+
+### 5.6 A new, free diagnostic for Rank 1's own open question
+
+Section B of the Current Project State lists as UNRESOLVED whether
+Rank 1's low recall (0.147) reflects a genuine encoder-representation
+ceiling or is an artifact of too few positive examples (66). Libri-Dys
+(from the SSDM line of work, ~3,983h, public, no licensing, ~200x
+LibriStutter's scale) is large enough to re-run Rank 1 at roughly 10x
+its original sample size. This settles a currently-open question at zero
+new compute and no data-acquisition cost — it is a diagnostic for an
+existing unresolved question, not a claim that Libri-Dys's synthetic
+data closes the real-data gap (it does not; section 2 above already
+established Libri-Dys/VCTK-Stutter remain synthetic regardless of scale).
+
+### 5.7 A limitation that applies to every LibriStutter-scored result in this track
+
+LibriStutter's ground truth is synthetic and therefore has, by
+construction, zero annotation noise — unlike SEP-28k's real human
+annotations (kappa=0.40 for `sound_repetition`, section 1 above). This
+means **every precision/recall figure this track has produced on
+LibriStutter (direction (g), the MFCC escalation, the combined
+classifier, Ranks 1-3) is optimistic relative to any real deployment** —
+the gap between LibriStutter numbers and real-audio numbers should be
+expected to exceed what sampling variation alone predicts. This belongs
+in this track's own limitations framing going forward, and in any future
+paper draft, alongside the kappa=0.40 finding it compounds.
+
+### 5.8 Revised decision tree (supersedes section 3 above for near-term sequencing)
+
+1. **Today, zero compute, and in parallel (not sequential)**: (a)
+   recompute PR/AUPRC + bootstrap CIs for Ranks 1-3 from already-saved
+   predictions, and measure the end-to-end Track B effect of Rank 1
+   (unchanged from section 3); (b) acquire the small real-audio set now,
+   since it is cheap and fast and should not gate behind two experiment
+   failures — download Boli (CC-BY-4.0) and FluencyBank Timestamped
+   (CSV, no CHAT parser needed) today, and separately verify whether
+   Sep-28k-SW's annotations (section 5.2) are actually publicly
+   downloadable; (c) re-run Rank 1 at Libri-Dys's ~10x-larger scale
+   (section 5.6) to resolve its own open representation-ceiling-vs-
+   sample-size question, at zero new cost.
+2. **Pre-register and run Dysfluent-WFST** against the existing 120-clip
+   Track B sample **and**, in the same pre-registration, against
+   whichever real-audio set from step 1(b) is confirmed available —
+   two explicit audio conditions (clean/synthetic vs. real), scored
+   separately, per the paper's own documented noise sensitivity. Budget
+   timestamp recovery (section 5.3) as its own separately-scoped,
+   effort-uncapped sub-task with a named fallback (CrisperWhisper's
+   existing word-level timestamps as a coarser substitute) rather than
+   assuming it is quick.
+3. **If it transfers** (stable, bootstrapped-CI-supported improvement
+   over Rank 1, holding up on real audio, not just synthetic): integrate
+   as a third fusion signal. Stop — Stage D not needed for this gap.
+4. **If it does not transfer**: Stage D becomes the evidence-justified
+   next step, using the revised data strategy (5.5) and an explicit,
+   honest choice between LoRA (StammerTalk's proven recipe) and full
+   fine-tune + continual learning (Kordt et al.'s proven recipe, now
+   confirmed even cheaper) rather than assuming their untested
+   combination — adopting Kordt et al.'s cross-attention head-ablation
+   method (5.4) as the mechanistic-verification check regardless of
+   which is chosen, and explicitly pre-registering the sound-repetition-
+   vs-word-repetition granularity split as its own open research question,
+   since no source found anywhere in this track has demonstrated it.
+
+### 5.9 What is still unchanged
+
+Everything in section 4 above remains true after this round. Nothing in
+5.1-5.8 argues against the two-stage architecture, the L2 scope, Stage
+A's finding, or this track's process discipline — it only sharpens the
+data strategy, corrects one dataset verdict, calibrates one technical
+estimate, and adds one free diagnostic and one limitations note.
+
+**No production code has changed as a result of this round either.**
+
+---
+
+## 6. Third-pass reconciliation — 2026-08-08 (round 3)
+
+**What prompted this round.** The second reviewer's own follow-up
+accepted round 2's corrections (including the one made against its own
+earlier claim) and raised five further points: a licensing constraint on
+the newly-found Sep-28k-SW data; a concrete, checkable way to settle the
+WFST timestamp question rather than arguing it further from reading; a
+risk this project should name explicitly in Stage D's pre-registration;
+a proposed new experiment (probing CrisperWhisper's own cross-attention);
+and an apparent contradiction between two marker-F1 figures cited in
+round 2. Each was independently checked before being accepted — including
+one, the Sep-28k license, checked against the dataset's own README
+directly, not a search snippet.
+
+### 6.1 Sep-28k-SW's licence is a real, verified constraint — VERIFIED
+
+Confirmed directly from `apple/ml-stuttering-events-dataset`'s own
+README: "The SEP-28k dataset is licensed under the Creative Commons
+Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)."
+Sep-28k-SW (section 5.2 above) is an annotation layer over Sep-28k's own
+audio and inherits this restriction. Per this project's own two-repo
+commercial-product context (`audio-mod` is one half of a shipped
+product, not a research-only artifact), this is not a footnote — **Sep-
+28k-SW may be used to evaluate a model, but must not be used to train,
+fine-tune, or derive features for any model shipped in the product
+without separately negotiated permission.** This resolves cleanly into
+the train/evaluate split already adopted in 5.5: Sep-28k-SW joins Boli
+and FluencyBank Timestamped as an evaluation-only real-stuttering set;
+Buckeye (free, no such restriction) and any accessible Switchboard/
+TalkBank-style data remain the training-side candidates. Still open,
+unchanged from 5.2: whether Sep-28k-SW's annotations are actually
+publicly hosted (the referenced `aimpowered/stuttered-speech-benchmark`
+repo was not independently confirmed).
+
+### 6.2 WFST timestamps: the question is not resolvable by more reading — confirmed by this round's own attempt to resolve it
+
+Round 2 (section 5.3) found the shipped decoder keeps only the
+reference-sequence axis (`aux_labels`), not the frame-synchronous axis
+(`labels`), and characterized the special repetition/insertion/deletion
+transition arcs as "epsilon-labeled." This round re-fetched the same
+code specifically to check whether those arcs use a true FSA epsilon
+(free transition, does not consume an input frame) or the numeric label
+`0` doing double duty as the CTC blank phone (a real, frame-consuming
+symbol) — because if it's the latter, paths through the lattice may in
+fact be frame-synchronous after all, and timing would be a much smaller
+mapping problem than round 2 implied. The result: the arcs are
+confirmed, directly from the code, to carry input label `0` literally —
+but **this round's own reading disagreed with round 2's reading about
+what that means** (round 2 called it "epsilon"; this round's fetch
+initially called it "the blank symbol in CTC," a real frame-consuming
+label, before its own summary contradicted itself about whether the
+system is therefore frame-synchronous). Two independent reading passes
+producing two different characterizations of the same code is itself the
+finding: **this is not resolvable by further static reading, and no more
+of it should be attempted.** The correct next step is the concrete
+runtime check the second reviewer proposed — comparing
+`len(shortest[0].labels)` against the true frame count `T` for a known
+clip — which settles the question in minutes rather than arguably
+indefinitely. This is now folded into the Dysfluent-WFST pre-registration
+(6.5 below) as its mandatory first step, before any evaluation run, not
+executed in this documentation-only session.
+
+### 6.3 Reconciling the two Kordt et al. marker-F1 figures — resolved directly from the primary text already in hand, no further fetch needed
+
+Round 2 cited two REP-related figures without cross-referencing them:
+"FT/A-GEM/ER, F1=0.73-0.75" (used to illustrate the marker-learning/
+pWER trade-off) and, separately, "REP markers... ranging from 0.35 to
+0.63" (used to illustrate per-type difficulty). These are **not the same
+measurement and are not in tension** — re-reading the paper's own text
+resolves this precisely:
+- **0.73-0.75 is Table 1's micro-F1**, combining FILLER+REP together
+  (the only two marker types SME predominantly contains), computed only
+  on the SME dataset, at the initial disfluency-token-introduction
+  checkpoint — *before* any further continual adaptation.
+- **0.35-0.63 is Table 4's REP-specific column**, computed on the
+  combination of all three datasets, *after* sequential continual
+  adaptation on Pitt and Delaware (which also introduces two further
+  marker types, DISRUPT and PAUSE, that the model must learn without
+  forgetting FILLER/REP).
+These are different scopes (combined-2-type vs. per-type-of-4), different
+data (SME-only vs. all three combined), and different training stages
+(initial introduction vs. after further sequential adaptation) — a stage
+progression, not a contradiction. The corrected, more precise reading is
+itself decision-relevant and slightly *strengthens* (not weakens) this
+track's point: initial marker introduction looks easy (0.73-0.75), but
+**sustained retention of that same marker type through continual
+adaptation on more difficult, differently-distributed data is
+measurably harder and highly method-dependent (0.35-0.63)** — a real risk
+for any Stage D design that expects one round of marker training to be
+durable.
+
+### 6.4 Two new items accepted for the queue
+
+- **A CrisperWhisper cross-attention probe**, using Kordt et al.'s own
+  head-attribution method (Section 2.3 of that paper): check whether
+  CrisperWhisper's *existing*, already-trained decoder has cross-
+  attention heads that attend to a disfluent span's audio even when the
+  decoded text drops it, and whether ablating/inspecting those heads
+  shows the information was there but overruled downstream. This is
+  cheap (no training, no new data), directly tests this track's own
+  central decoder-vs-encoder mechanistic inference — currently resting
+  only on the `num_beams` experiment, a weaker proxy that could only ever
+  produce a null result — and gives that inference its first real
+  positive-evidence test. Added to the decision tree (6.5) between the
+  zero-compute reanalysis and the WFST run.
+- **A power analysis before any Stage D commitment.** The assembled
+  real-stuttering evaluation data (Boli 2.8h + FluencyBank 5.3h +
+  Sep-28k-SW ~2h, evaluation-only per 6.1) totals roughly 10h with a few
+  hundred `sound_repetition`-type events, against a documented human
+  inter-annotator kappa of 0.40 for that type (section 1 above). Small n
+  combined with substantial label noise can produce a confidence interval
+  on any Stage D success/failure verdict wide enough to swallow the
+  effect being measured — pre-registering a criterion the available data
+  cannot resolve would waste a fine-tune. **Before committing to Stage D,
+  compute the minimum detectable effect on the assembled real evaluation
+  set(s), accounting for annotation-noise-inflated effective variance,
+  and confirm the planned success/failure gate is resolvable at that
+  power.** If it is not, decide in advance — not after seeing results —
+  whether to acquire more evaluation data or fall back to a coarser,
+  more measurable endpoint (the L2-level deletion-rate reduction already
+  named in section E, rather than event-level P/R).
+
+### 6.5 Revised decision tree (supersedes section 5.8 above)
+
+1. **Step 0, today, zero compute, fully parallel** (not sequential with
+   anything else): (a) recompute PR/AUPRC + bootstrap CIs for Ranks 1-3
+   from already-saved predictions, and measure the end-to-end Track B
+   effect of Rank 1 (unchanged); (b) acquire the real-audio evaluation
+   set now — Boli (CC-BY-4.0), FluencyBank Timestamped (CSV), and verify
+   Sep-28k-SW's actual public availability (evaluation-only, per 6.1's
+   licence finding); (c) **rescore Rank 1's and Rank 2's already-trained,
+   frozen classifiers on this real audio** — pure inference, no training,
+   no GPU needed beyond what's already used — to directly settle this
+   track's single largest UNRESOLVED item (does any signal generalize
+   past LibriStutter's synthetic splices) without waiting on any other
+   experiment's outcome; (d) re-run Rank 1 at Libri-Dys's ~10x-larger
+   scale to resolve its own representation-ceiling-vs-sample-size
+   question, at zero new cost.
+2. **CrisperWhisper cross-attention probe** (6.4): cheap, no training,
+   direct test of the decoder-vs-encoder mechanism this track has relied
+   on inferring indirectly since Stage B/C.
+3. **Pre-register and run Dysfluent-WFST**, with the blank-vs-epsilon
+   frame-synchronicity check (6.2) as its mandatory first step, against
+   both the existing 120-clip Track B sample and the real-audio set from
+   step 1(b), as two explicit, separately-scored conditions.
+4. **If it transfers**: integrate as a third fusion signal. Stop — Stage
+   D not needed for this gap.
+5. **If it does not transfer**: before pre-registering Stage D, run the
+   power analysis (6.4) on the assembled real evaluation data and confirm
+   the planned success/failure gate is actually resolvable at that power.
+   Only then pre-register Stage D, using the revised data strategy (5.5,
+   6.1) and an explicit, honest choice between LoRA and full-fine-tune-
+   plus-continual-learning (5.4) rather than assuming their untested
+   combination, adopting Kordt et al.'s head-ablation method as the
+   mechanistic-verification check, and naming the LoRA+CL combination
+   itself (if attempted) as this project's own untested methodological
+   step, not a replication of a published recipe.
+
+### 6.6 What this round changes in the overall assessment
+
+Nothing here changes the round-2 classification (Stage D premature, not
+rejected) or the two-stage architecture. It sharpens three things: a real
+licensing constraint on the best-matched dataset found so far, an honest
+"unresolved, needs a runtime check" status (rather than a confident
+either-direction claim) on WFST timing, and two new queued items (the
+CrisperWhisper probe, the power analysis) that make the remaining path to
+Stage D — if it is ever reached — actually decidable rather than
+optimistically scoped.
+
+**No production code has changed as a result of this round.**
+
+---
+
+# Final Decision-Oriented Reconciliation — 2026-08-08
+
+**What this section is, and is not.** Rounds 1-3 above (the "External
+Review Reconciliation" and its two follow-ups) verified individual
+claims against primary sources. This section does something different,
+per the project owner's explicit instruction: it treats rounds 1-3
+themselves, this project's own prior conclusions, and the external
+review's own framing all as **inputs to be weighed, not conclusions to
+be inherited** — re-anchored purely to the application objective stated
+in `CLAUDE.md`'s "The objective, stated precisely" section, restated
+here because it governs everything below: *reliably extract the actual
+speech problems occurring in a speaker's audio, so they can be
+localized, classified, and used downstream — not prove novelty, not
+build an ASR for its own sake.* Nothing above this section is edited or
+superseded in substance; several of its decision-tree recommendations
+are superseded here because a cheaper, better-fitting option was found
+by applying the objective more strictly than the sequencing logic in
+rounds 1-3 did.
+
+## 1. Re-anchoring: what actually still matters after three rounds of verification
+
+Stripped of research-momentum framing, exactly two real, quantified gaps
+remain in this project's own pipeline, and nothing else:
+
+- **`sound_repetition` candidate generation from real ASR output** — 45.2%
+  of ground-truth instances lost even at "correctly transcribed"
+  positions (Stage A), zero candidates generated across the entire
+  120-clip Track B real-ASR sample (item 19/20), and three independent
+  frozen-representation classifier attempts (Ranks 1-3, see section 3
+  below) each found real-but-insufficient signal.
+- **`word_repetition` candidate generation from real ASR output** — 40.5%
+  lost at correctly-transcribed positions, but by a **different
+  mechanism**: Stage A's own hand-check (22/23 cases) found the loss is
+  not a missing fragment but the *entire other half of the repeated
+  pair* being deleted or displaced by the ASR.
+
+Everything else in the taxonomy — `prolongation`, `block`, `interjection`
+— is **already solved and shipped** (`PHASE_3_ARCHITECTURE_REVIEW.md`,
+Application-Objective Decision Analysis §2) and untouched by any of this
+research track. No architecture comparison below revisits these; they
+are not part of the remaining gap.
+
+## 2. Architecture comparison, scored against the application's actual requirement
+
+| | **A. Current (CrisperWhisper + shipped detectors)** | **B. CrisperWhisper + Dysfluent-WFST** | **C. Existing stutter-aware ASR + downstream detection** | **D. Acoustic/audio-native detector + ASR fusion (YOLO-Stutter/SSDM-class, or this track's own Rank 2/direction-(g))** | **E. Stage D (fine-tune existing ASR)** | **F. Other existing mechanisms found this session** |
+|---|---|---|---|---|---|---|
+| Information gained | Clean transcript + word timing (shipped, good); `block`/`prolongation`/`interjection` fully solved | Phoneme-level repetition/insertion/deletion labels at exactly the normalized-away positions | N/A for English — **does not currently exist** (see below) | Audio-native region + type, no transcript dependency for detection itself | Whatever the fine-tune learns to preserve, in principle across the whole taxonomy | Alignment-gap: an unexplained duration/silence residual where ASR output doesn't match audio timing |
+| Information lost | `sound_repetition`/`word_repetition` surface evidence (Stage A, quantified) | No timestamps as shipped (verified, code-level); real-world validation is aphasia only | — | Historically weak precision at this project's own data scale (Rank 2: F1=0.163) | Unknown until tried; general-ASR WER at risk (mitigated by CL, per Kordt et al.) | Only targets `word_repetition`'s specific loss mechanism, not `sound_repetition`'s |
+| Detects `sound_repetition`? | **No** (0 real candidates, Track B) | Yes, by design — but only demonstrated on simulated data + aphasia, never stuttering | N/A | Yes, by taxonomy, but this project's own CPU-feasible approximation (Rank 2) fell short of a usable bar | Untested at this taxonomy granularity by anyone | No (different mechanism, targets `word_repetition`) |
+| Detects `word_repetition`? | Partially, candidate-starved (~7x below ground-truth rate) | Plausible, not specifically demonstrated (paper's own example is sound-level) | N/A | Yes, by taxonomy, untested on this project's own data | Untested at this granularity | **Yes, by design — directly targets the diagnosed "other half deleted" mechanism** |
+| Prolongation / block / interjection | **Already solved, shipped** | Not the design target | — | Would duplicate, not clearly improve, the existing solution | Could in principle (Kordt et al.'s FILLER/DISRUPT/PAUSE tokens: F1 0.68-0.75) but redundant with what's shipped | N/A |
+| Timing/localization | Yes, word-level, already good | **Unresolved** — genuinely unresolved by two rounds of code reading (round 3, §6.2); needs a runtime check | N/A | Yes, natively frame/region-level | Needs redesign — Kordt et al.'s own marker-F1 is bag-of-words, not localized | Yes, this *is* a timing-based signal by construction |
+| Intended vs. actual disfluent realization | Intended content usually recoverable already (Stage A); actual realization lost for the two gap types | Structurally distinguishes them (reference text = intended, decode path = actual) — the right shape in principle | N/A | Detection only; still needs ASR for intended content (already this project's own fusion shape) | Design intent (L2 scope), unproven at this granularity | Detection only, same as D |
+| Downstream usefulness | High for 3/5 types, near-zero for the 2 real gaps | Potentially high for `sound_repetition` *if* it transfers and timing resolves — two open ifs | None — not an available option today | Real but historically insufficient signal at this project's data scale | Most complete *if* successful; longest, least certain timeline | Directly closes a specifically-diagnosed, real mechanism at low cost |
+| Data required | None (already shipped) | None to test (zero-shot); reference text already produced by existing pipeline | N/A | None to test a pretrained checkpoint (if one exists — **unconfirmed**, not yet checked); real training data for retraining | Buckeye (free) for volume + Boli/FluencyBank/Sep-28k-SW (eval-only, licence-gated) for real-stuttering validation | **None new — reuses CrisperWhisper's own already-computed word timestamps** |
+| Compute required | Already running in production | Plausibly CPU-feasible for inference (not confirmed by the paper itself); new dependencies (k2, wav2vec2/WavLM-CTC, a grapheme-to-phoneme step) | N/A | Unconfirmed for a pretrained checkpoint; GPU + real training data to build one from scratch | Confirmed near-zero (Kaggle/Colab/spot rental) | **Zero new compute — an analysis over already-computed alignments** |
+| Testable on current machine? | Yes, already is | Plausible, unconfirmed | N/A | Unconfirmed (checkpoint availability unknown) | Inference yes; training needs cloud (cheap, confirmed) | **Yes, today, on the existing 120-clip Track B sample, no new dependencies** |
+| Biggest uncertainty | None new — this is the precisely-characterized status quo | Whether it transfers from aphasia/clean-audio validation to real, non-clean stuttering audio — a real, undemonstrated, and non-trivial generalization gap, compounded by the paper's own documented severe noise sensitivity | Whether anyone will publish one — not this project's decision to make | Whether a pretrained checkpoint is even publicly available (not yet checked) | Whether the specific sound-vs-word repetition granularity split is learnable at all at the available real-data scale (~10h, kappa=0.40) — untested by anyone anywhere | Whether the 74.13%-coverage precedent (a *different* task — general untranscribed-word recovery) actually transfers to `word_repetition` specifically — real but comparatively small uncertainty |
+
+**Column C does not currently exist as an available option.** No English,
+clinical-stuttering ASR checkpoint at this taxonomy's granularity was
+found anywhere in three rounds of literature verification — StammerTalk
+(the closest real precedent) is Mandarin-only. For English, "C" and "E"
+(Stage D) are the same option: if it's wanted, this project would have
+to build it.
+
+## 3. Rank 1 / Rank 2 / Rank 3, reconciled against everything found since
+
+**What they actually established** (unchanged, still trustworthy —
+measured, bug-audited, cross-validated): post-hoc classification over
+*frozen, general-purpose representations* — the full CrisperWhisper
+encoder embedding alone (Rank 1), full raw acoustic MFCC statistics
+alone (Rank 2), and both concatenated (Rank 3) — does not reach a
+pre-registered deployable operating point for `sound_repetition`
+candidate generation, at this project's available real-ASR sample scale
+(62-245 positives depending on population). This is a real, three-way
+convergent negative/inconclusive result about **one specific mechanism
+class**, not a general claim.
+
+**What they did not establish, and must not be read as establishing**:
+that no method can solve this problem; that representation *choice*
+specifically (as opposed to *mechanism*) is the exhausted axis; that a
+categorically different mechanism — reference-text-conditioned phonetic
+re-decoding (Dysfluent-WFST), or alignment-gap/duration-residual
+detection (never tested by Ranks 1-3, which only ever scored spans
+against a similarity/distance threshold, never against timing-residual
+signal) — would fail too. Neither was tested by Ranks 1-3, and both
+target `sound_repetition`/`word_repetition` through a mechanism outside
+what "frozen representation + classifier" covers.
+
+**What must now be withdrawn or narrowed**, dated and reasoned, not
+silently corrected: the "every cheap, no-GPU, no-new-data direction has
+been tried" / exhaustion framing (Current Project State §F, 2026-08-07)
+is **withdrawn** — it was already self-contradicted by this track's own
+record (RQ-E named, never run) before the external review even arrived,
+and is further narrowed by the existence of at least two more cheap,
+untried, differently-mechanistic candidates (below). The "bottleneck is
+quantity of labeled examples" conclusion (Final synthesis, 2026-08-07) is
+**narrowed**, not withdrawn, to: quantity *and* annotation reliability
+(kappa=0.40, round 1 §1) are both real limits **on this specific
+mechanism class** — this says nothing about whether a mechanism that
+does not require fitting a decision boundary from scarce positives at
+all (WFST's zero-training decode; an alignment-gap rule, also
+zero-training) faces the same ceiling.
+
+## 4. The single highest-value next technical question
+
+Not Dysfluent-WFST. **The evidence, read strictly against application
+fit, reliability, and implementability — in that order, novelty last —
+points to a cheaper, lower-risk, equally-real mechanism that has been
+sitting cited-and-untried since before the external review arrived**
+(named in `EXTERNAL_REVIEW_2026-08-07.md` section 6, item 4, as "likely
+the fastest available win for `word_repetition` ... cited and never
+tried," ranked *below* Dysfluent-WFST in that review's own
+value-per-cost list — a ranking this reconciliation disagrees with,
+reasoned explicitly below, not accepted merely because the review
+proposed a different order).
+
+**The question**: *Does an alignment-gap / duration-residual signal —
+built entirely from CrisperWhisper's own already-computed word-level
+timestamps, no new dependencies, no new data — recover usable
+`word_repetition` candidates at exactly the positions Stage A already
+diagnosed (the "other half of the pair" being deleted or displaced),
+when fed into this project's existing candidate-generation/fusion
+pipeline?*
+
+**Why this, and not Dysfluent-WFST, first**, scored against the
+project's own stated priority order (truth -> application fit ->
+reliability -> implementability -> evidence -> novelty last):
+- **Application fit**: identical tier to `sound_repetition` — both are
+  named taxonomy types with a real, quantified loss rate (45.2% vs.
+  40.5%). No principled reason to prioritize one over the other from the
+  application's perspective; the tie-break falls to whichever fix is
+  more reliable and implementable.
+- **Reliability**: this mechanism is a general timing/duration-residual
+  signal, not a model trained on a different population — it carries
+  **no cross-population transfer risk**, unlike Dysfluent-WFST, whose
+  only real-world validation is aphasia, a population this project has
+  no evidence generalizes to stuttering, compounded by the paper's own
+  documented severe noise sensitivity (round 1 §1: WPER 10%->~30-74%
+  under modest synthetic noise).
+- **Implementability**: reuses data this project's pipeline **already
+  computes** (CrisperWhisper's own word-level timestamps — literally
+  that model's headline contribution, per its own paper title,
+  "Accurate Timestamps on Verbatim Speech Transcriptions"). Dysfluent-
+  WFST requires cloning a new repo, installing `k2` (a nontrivial
+  build dependency), downloading a separate phone-posterior model
+  (wav2vec2/WavLM-CTC), and adding a grapheme-to-phoneme step this
+  project does not currently have — a meaningfully heavier setup, before
+  even reaching its own genuinely unresolved timestamp question
+  (round 3 §6.2).
+- **Evidence**: a real, cited, correctly-verified precedent exists (the
+  alignment-gap classifier, [B26]/arXiv:2409.10177, 74.13% coverage on a
+  related — not identical — task, verified round 1 §1) *and* this
+  project has its own, independently hand-checked confirmation that the
+  targeted mechanism is real (22/23 cases, Stage A). Dysfluent-WFST's
+  evidence base for *this project's specific use case* (stuttering, not
+  aphasia; realistic, not clean-studio, audio) is currently zero.
+- **Novelty, deliberately last**: Dysfluent-WFST is the more novel,
+  more interesting finding. That is exactly the criterion this
+  reconciliation is instructed not to optimize for.
+
+This is not a rejection of Dysfluent-WFST — it remains the correct
+**second** step, for `sound_repetition` specifically, once the
+independent `word_repetition` question is resolved. It is a re-ordering,
+made explicitly and for stated reasons, of a value-per-cost ranking this
+reconciliation found to be reasoned from novelty and mechanism-interest
+rather than strictly from application fit, reliability, and
+implementability.
+
+## 5. Finite decision tree with hard stop conditions
+
+**Step 0 (do regardless, zero cost, not a branch)**: recompute PR/AUPRC
++ bootstrap CIs on Ranks 1-3's already-saved predictions; measure the
+end-to-end Track B effect of deploying Rank 1 as a candidate generator.
+This is data hygiene on results already in hand, not a new experimental
+branch, and should happen before or alongside step 1 regardless of its
+outcome.
+
+**Step 1 — `word_repetition`, alignment-gap/duration-residual test**,
+against the existing 120-clip Track B sample (no new data, no new
+dependencies):
+- **SUCCESS** (end-to-end Track B `word_repetition` recall improves by a
+  pre-registered, non-trivial margin, without a precision collapse in
+  the existing fusion pipeline — reusing the same category-error
+  correction already adopted in round 1 §5: judge this as a candidate
+  generator feeding the existing corroboration/fusion layer, not by a
+  standalone deployability floor): **integrate into `detect.py`'s
+  existing fusion architecture as a new `word_repetition`
+  candidate-generation signal.** `word_repetition`'s gap is closed. Move
+  to Step 2.
+- **FAILURE** (no meaningful end-to-end improvement): this specific,
+  cheap, well-motivated mechanism is closed as a real, tested negative
+  result for `word_repetition` — recorded, not silently dropped. Move to
+  Step 2 regardless; `sound_repetition` is an independent problem and
+  does not wait on this outcome.
+
+**Step 2 — `sound_repetition`, Dysfluent-WFST**, pre-registered, with
+the mandatory first sub-step being the runtime frame-synchronicity check
+(`len(shortest[0].labels) == T`, round 3 §6.2) before any further
+engineering effort, against both the existing 120-clip Track B sample
+and the small real-stuttering evaluation set (Boli + FluencyBank +
+Sep-28k-SW, evaluation-only per round 3 §6.1's licence finding):
+- **SUCCESS** (stable, bootstrapped-CI-supported improvement over the
+  current near-zero real detection, holding up on real audio and not
+  just synthetic, with a working timing solution or an accepted coarser
+  fallback using CrisperWhisper's own word-level timing): **integrate as
+  a new `sound_repetition` fusion signal.** `sound_repetition`'s gap is
+  closed. **Stop researching this problem — Stage D is not needed.** Move
+  into application engineering (hardening, testing, latency, UI) per
+  this project's own evidence-driven-not-preservation-driven discipline
+  (standing rule 8): do not keep chasing further marginal gains once
+  both real gaps are closed.
+- **FAILURE** (does not transfer to real audio, or timing recovery
+  proves infeasible at reasonable effort): proceed to the Stage D
+  precondition below — this is the condition under which Stage D becomes
+  justified for `sound_repetition`.
+
+**When Stage D becomes justified — precise condition**: only after
+**both** Step 1 and Step 2 have been run and shown insufficient to reach
+a real, end-to-end, product-meaningful improvement, **and** a power
+analysis on the assembled real evaluation data (round 3 §6.4: ~10h
+across Boli/FluencyBank/Sep-28k-SW, a few hundred `sound_repetition`-type
+events, kappa=0.40 annotation noise) confirms the fine-tune's own
+planned success/failure gate is actually statistically resolvable at
+that scale. If underpowered, the decision (more real data, or a coarser
+L2 deletion-rate endpoint) must be made in advance, not discovered in
+the results.
+
+**Stopping condition for moving into application engineering entirely**:
+once both `word_repetition` and `sound_repetition` candidate generation
+produce a measured, real (not synthetic-only) improvement in this
+project's own Track B / production pipeline — at that point this
+research track's job is done; further effort belongs in shipping, not
+in chasing incremental research gains on an already-adequate detector.
+
+## 6. Claim classification for everything in this section
+
+- **Experimentally demonstrated** (this project's own measured results):
+  Stage A's 45.2%/40.5% normalization rates and the two distinct loss
+  mechanisms (fragment loss vs. pair-half deletion); Ranks 1-3's own
+  F1/precision/recall numbers and Rank 3's fold-instability signature;
+  Track B's zero-`sound_repetition`-candidate finding.
+- **Primary-source supported** (independently fetched and read, not
+  taken secondhand): Dysfluent-WFST's actual input/output/limitations
+  (rounds 1 and 3); the alignment-gap classifier's 74.13% coverage
+  figure on its own (different) task; Sep-28k's CC BY-NC 4.0 licence;
+  the dataset landscape findings in round 1 §2; Kordt et al.'s actual
+  method and results (round 2 §5.4).
+- **Inferred** (reasoned from the above, not directly measured): that
+  the alignment-gap mechanism will transfer from its published task to
+  `word_repetition` specifically; that Dysfluent-WFST's severe noise
+  sensitivity on its own reported ablation predicts a similar problem on
+  this project's own non-clean audio.
+- **Unresolved** (explicitly not decided either way): whether Dysfluent-
+  WFST's timestamps are cheaply recoverable (needs the runtime check,
+  round 3 §6.2); whether a pretrained YOLO-Stutter/SSDM checkpoint is
+  even publicly available (not yet checked — named honestly as a gap,
+  not assumed either way); whether the sound-vs-word repetition
+  granularity split is learnable by any fine-tuning approach at the
+  available real-data scale.
+- **Proposed, not yet run**: the Step 1 alignment-gap test; the Step 2
+  Dysfluent-WFST pre-registration; the pre-Stage-D power analysis; the
+  CrisperWhisper cross-attention probe (round 3 §6.4) — still queued,
+  positioned after Step 1/Step 2 in priority since it tests a
+  mechanistic question rather than closing either remaining gap
+  directly.
+
+**No production code has changed as a result of this reconciliation.**
+This section is a decision, not an implementation — per explicit
+instruction, nothing above is executed yet.
