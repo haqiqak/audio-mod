@@ -9213,3 +9213,42 @@ in chasing incremental research gains on an already-adequate detector.
 **No production code has changed as a result of this reconciliation.**
 This section is a decision, not an implementation — per explicit
 instruction, nothing above is executed yet.
+
+---
+
+## Step 1 executed — 2026-08-08: alignment-gap test for `word_repetition` — FAILURE
+
+Per the project owner's explicit go-ahead to proceed, Step 1 of the
+decision tree above (section 5) was pre-registered
+(`VALIDATION.md` §15, written before any code existed), implemented
+(`profiling/evaluation/stage_k_alignment_gap_word_repetition.py`,
+self-tested first — 9/9 checks pass), and run against the existing
+Track B cache (189/499 clips cached, **no new ASR inference**).
+
+**Result: clean FAILURE, not inconclusive.** n=29 `word_repetition`
+category-1 targets, 941 controls. Cohen's d=-0.209 (wrong direction —
+target positions had slightly *lower* residual, not higher). AUC=0.485,
+95% clip-level bootstrap CI [0.396, 0.566] — comfortably includes chance
+and rules out even a modest hidden effect at this sample size. Full
+detail, including the honest interpretation of *why* (CrisperWhisper's
+own accurate-timestamp design property may mean a deleted repetition's
+audio simply doesn't leave a duration/silence residual on the surviving
+word) and what was deliberately not chased (a gap-after or multi-token-
+window variant, named as a possible future direction, not attempted this
+pass, per standing rule 4): `VALIDATION.md` §15.8.
+
+**This closes `word_repetition` candidate generation via this specific
+mechanism as a real, tested negative result** — the first result this
+track has produced with a clip-level bootstrap CI computed from the
+start, directly addressing the external review's own critique that no
+confidence interval had ever been computed anywhere in this track.
+
+**Decision tree update**: per Step 1's own failure branch (section 5
+above), proceeding to Step 2 (Dysfluent-WFST, for `sound_repetition`) —
+`word_repetition` is an independent problem and this failure does not
+block it. Step 2 is a materially heavier commitment (new dependencies:
+`k2`, a phone-posterior model, a grapheme-to-phoneme step) than Step 1
+was, so it is being reported as its own checkpoint before further
+implementation, rather than proceeding silently — consistent with this
+project's own "measure twice, cut once" discipline for larger
+commitments, not a change in the decision tree itself.

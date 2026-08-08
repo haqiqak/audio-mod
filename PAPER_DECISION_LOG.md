@@ -7229,3 +7229,74 @@ next action item; Dysfluent-WFST remains next after it for
 and falsifiable rather than "premature, not rejected" without a stated
 resolution path. No code, experiment, or dataset touched this session.
 No change to `main`.
+
+---
+
+## 2026-08-08 (same day) — Step 1 executed: alignment-gap test for `word_repetition` — FAILURE
+
+**What was done**
+Per the project owner's explicit go-ahead, pushed the prior reconciliation
+work to `origin/asr-research`, then executed Step 1 of the finalized
+decision tree. Pre-registered the exact methodology in `VALIDATION.md`
+§15 (hypothesis, data source, signal definition, metrics, success/failure
+criteria) *before* writing any code, per standing rule 1. Implemented
+`profiling/evaluation/stage_k_alignment_gap_word_repetition.py`, reusing
+existing infrastructure unmodified (`stage_b_representation_probe
+._identify_positions`/`_cohens_d`, `compare_corroboration_mechanisms
+._clip_folds`/`_cv_threshold`/`_summarize`, `stage_c_duration_baseline
+._auc`, and the existing Track B ASR cache — no new inference, no new
+dependency). Added a clip-level bootstrap 95% CI on the AUC, a
+statistical practice this track had never used before despite the
+external review naming its absence as a real gap. Self-tested (9/9
+checks) before running for real. Ran against the existing 189-clip Track
+B cache.
+
+**Result: FAILURE.** n=29 `word_repetition` category-1 targets vs. 941
+controls. Cohen's d=-0.209 (wrong direction), AUC=0.485 (95% CI
+[0.396, 0.566], comfortably includes chance). Full detail:
+`VALIDATION.md` §15.8; decision-tree implications: `ASR_RESEARCH_TRACK.md`
+"Step 1 executed — 2026-08-08."
+
+**Alternatives considered**
+- Try a different residual definition (gap-after, multi-token window)
+  immediately after seeing this result, since the AUC came back so
+  close to chance. **Rejected**, directly per standing rule 4 (never
+  retune/re-engineer in response to an evaluation result without
+  explicit go-ahead) and this track's own repeated "name, don't chase"
+  discipline (e.g. RQ-E, the dropped variants named throughout this
+  track) — the untested variant is named in `VALIDATION.md` §15.8 as a
+  possible future direction, not attempted this pass.
+- Treat P=0.031/R=0.567 as a partial success since recall alone cleared
+  its floor. **Rejected** — the pre-registered gate (§15.6) is
+  conjunctive (AUC CI excludes chance AND clears both precision and
+  recall floors), decided before running, and a near-chance AUC with
+  inflated recall from a forced threshold is exactly the failure
+  pattern the gate exists to catch, not a partial win to round up.
+- Proceed directly into Dysfluent-WFST implementation without reporting
+  this result first, since the project owner said to "proceed with the
+  next steps." **Rejected, deferred** — Step 2 is a materially heavier
+  commitment (new dependencies: `k2`, a phone-posterior model, a
+  grapheme-to-phoneme step) than Step 1's zero-new-dependency scope;
+  reporting this checkpoint first matches the project's own
+  "measure twice, cut once" discipline for larger commitments without
+  changing the decision tree itself, which already names Step 2 as the
+  correct next action regardless of Step 1's outcome.
+
+**Why this choice**
+Standing rule 3 (audit surprising results before trusting them) cuts
+both ways — a result this close to chance, with a wrong-direction point
+estimate, is exactly as worth double-checking as a suspiciously good
+one. The self-test suite (including hand-constructed decision-gate
+cases) was verified passing before this result was trusted, and the
+bootstrap CI (rather than a bare point estimate) is what makes "FAILURE"
+a confident call here rather than a guess at a borderline number.
+
+**Measured result**
+A real, pre-registered, self-tested, clip-level-bootstrapped negative
+result for one specific `word_repetition` candidate-generation mechanism.
+`word_repetition`'s alignment-gap approach is now closed. Per the
+decision tree, Step 2 (Dysfluent-WFST, for `sound_repetition`) is next,
+reported here as a checkpoint before that larger implementation begins.
+One new file created (`profiling/evaluation/stage_k_alignment_gap_
+word_repetition.py`); no other production code changed. No change to
+`main` yet (uncommitted at time of writing).

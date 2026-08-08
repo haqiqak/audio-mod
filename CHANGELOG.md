@@ -6,6 +6,25 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-08 (asr-research branch), Step 1 executed
+
+- **Alignment-gap test for `word_repetition`: FAILURE.** Pre-registered
+  in `VALIDATION.md` §15 before writing any code. Implemented
+  `profiling/evaluation/stage_k_alignment_gap_word_repetition.py`
+  (self-tested, 9/9 pass), reusing existing infrastructure only — no
+  new dependency, no new ASR inference (Track B cache reused as-is).
+  Added this track's first clip-level bootstrap AUC confidence interval,
+  directly addressing the external review's own critique that none had
+  ever been computed. Result: n=29 targets vs. 941 controls, Cohen's
+  d=-0.209 (wrong direction), AUC=0.485 (95% CI [0.396, 0.566] —
+  includes chance). Clean, decisive negative result, not inconclusive.
+  `word_repetition` candidate generation via this mechanism is closed;
+  Step 2 (Dysfluent-WFST, for `sound_repetition`) is next per the
+  decision tree, unaffected by this outcome. → `PAPER_DECISION_LOG.md`,
+  "Step 1 executed: alignment-gap test for `word_repetition` —
+  FAILURE"; full results in `VALIDATION.md` §15.8 and
+  `ASR_RESEARCH_TRACK.md` "Step 1 executed — 2026-08-08."
+
 ## 2026-08-08 (asr-research branch), final decision-oriented reconciliation
 
 - **Alignment-gap test for `word_repetition` ranked ahead of

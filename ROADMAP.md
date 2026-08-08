@@ -1256,6 +1256,18 @@ list, not separate from it.
     2026-08-08" (end of document, its own top-level section, following
     the three reconciliation rounds it re-orders).
 
+    **Step 1 executed, same day: FAILURE.** The `word_repetition`
+    alignment-gap test was pre-registered (`VALIDATION.md` section 15),
+    implemented (`profiling/evaluation/stage_k_alignment_gap_word_
+    repetition.py`), and run against the existing Track B cache --
+    n=29 targets vs. 941 controls, AUC=0.485 (95% clip-level bootstrap
+    CI [0.396, 0.566], includes chance), wrong-direction Cohen's
+    d=-0.209. Clean, decisive negative result. `word_repetition`
+    candidate generation via this specific mechanism is now closed;
+    Step 2 (Dysfluent-WFST, for `sound_repetition`) is next, unaffected
+    by this outcome. Full detail: `VALIDATION.md` section 15.8;
+    `ASR_RESEARCH_TRACK.md` "Step 1 executed -- 2026-08-08."
+
 21. **[New, 2026-08-05, small, detector-side, independent of the ASR
     research track — found while doing item 20's Stage A hand-trace]
     `word_repetition`'s exact-match candidate check appears to miss runs
