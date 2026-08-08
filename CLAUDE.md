@@ -37,9 +37,9 @@ the ASR/detector boundary:
    a decision that stays open to revision the same way any other does.
 3. **The transcript is one evidence source, not ground truth.** Treating
    decoded ASR text as if it faithfully represented what the speaker
-   produced is an assumption this project has found real ASR output can
-   violate for specific disfluency types — do not assume it holds
-   elsewhere without checking.
+   produced is exactly the assumption `ASR_RESEARCH_TRACK.md` found
+   real ASR output violates for at least two disfluency types — do not
+   silently re-adopt it elsewhere.
 4. **Encoder representations, acoustic features, confidence signals, and
    any future representations are complementary evidence sources**,
    incorporated only when evidence supports that they help — never
@@ -88,18 +88,73 @@ it's very likely already there with reasoning, and a change of plan
 should update it, not silently diverge from it.
 
 **A new, separate research track opened 2026-08-05: `ASR_RESEARCH_
-TRACK.md`.** Track B validation (`VALIDATION.md` §14/§14.1) found real
-ASR output essentially never produces the literal sub-word fragment
-tokens `sound_repetition` detection depends on — even at positions
-transcribed correctly — evidence that the ASR stage's own output
-representation may be discarding information this project's downstream
-objective needs, independent of any detector-side fix. This is being
-investigated as its own research track, on a dedicated `asr-research`
-branch, kept separate from `main` so the shipped state stays stable.
-**Read `ASR_RESEARCH_TRACK.md` before proposing anything about ASR
-representation richness, fine-tuning, or decoding changes** — it defines
-the problem, reviews the literature, and lays out a phased,
-evidence-gated plan; nothing there is implemented yet.
+TRACK.md`, on its own `asr-research` branch (kept separate so `main`
+stays stable and shippable — nothing from this track has merged to
+`main`).** If you are working on this branch, or about to propose
+anything touching ASR representation richness, fine-tuning, decoding
+changes, or the encoder/acoustic evidence pipeline: **read
+`ASR_RESEARCH_TRACK.md` end-to-end before proposing anything.** It is
+long (thousands of lines) by design — this is a pre-registered,
+evidence-audited research log, and skimming it risks missing a bug that
+was caught and fixed, a result that was later revised, or a conclusion
+that was superseded (marked in place, never silently deleted — see that
+file's own preservation discipline). Do not rely on a summary of it,
+including the one below — read the primary source. The single fastest
+orientation point, to read *first* and then use as a map for the rest,
+is the file's own **last few dated sections** (in order: "Final
+Decision-Oriented Reconciliation," "Step 1 executed," "Step 0 executed,"
+"Step 2 proposal," "Rank 1 re-thresholding follow-up validation") — these
+supersede every earlier summary in the file, **including the older
+"Current Project State — 2026-08-07 EOD" section** (still present,
+preserved, not deleted, but no longer the current picture — its own
+Stage D conclusion below was itself revised the next day). None of these
+sections is a substitute for reading the ones they point back into when
+your task touches them.
+
+**Where that track stands as of 2026-08-08** (last updated same day;
+this is a pointer, not the full picture — read the primary source above
+before proposing anything): the external-review reconciliation (3
+rounds) and a final decision-oriented pass re-anchored the whole track to
+the application objective and produced a concrete, two-step decision
+tree. **Step 1 (an alignment-gap/duration-residual candidate generator
+for `word_repetition`) has been run: FAILURE** — but scoped precisely to
+the one operationalization actually tested (an additive own-duration +
+gap-before residual), not to the mechanism class in general (gap-after,
+multi-token-window, and duration-ratio variants remain untested). **A
+zero-compute reanalysis of the earlier Rank 1/2/3 experiments (Step 0),
+followed by a focused follow-up validation, found Rank 1's original
+"Failure" verdict was substantially understated** by F1-optimal
+threshold selection — a properly cross-validated, recall-targeted
+threshold reaches real, meaningfully better performance, and a corrected
+end-to-end measurement shows a real (if partial) product benefit — **but
+concluded INSUFFICIENT EVIDENCE, MORE VALIDATION REQUIRED for production
+adoption**, specifically because no validated deployable threshold value
+yet exists and the classifier cannot say *which* disfluency type fired.
+**Stage D is currently classified as premature, not rejected** — it
+becomes justified only if a still-unexecuted Step 2 (Dysfluent-WFST, a
+reference-text-conditioned phonetic realignment decoder, prepared as a
+detailed proposal but **not yet run**) also fails, and a power analysis
+confirms the available real evaluation data can resolve Stage D's own
+success/failure gate. This machine has no CUDA GPU (confirmed directly,
+not assumed); real English-language disfluent-speech training data
+remains only partially in hand (small, real, open sets identified —
+Boli, FluencyBank, Sep-28k-SW — none yet acquired into this project).
+**No production code has changed as a result of any of this — it is still
+evidence-gathering, not a shipped decision**, and nothing from this
+track has merged to `main`.
+
+**The objective that governs this entire track, restated because it is
+easy to lose sight of amid the ASR detail**: this research exists to
+serve one application — take a speaker's audio, reliably extract the
+disfluencies actually occurring in it, and make that available for
+downstream localization, classification, and assistance (rephrasing,
+synonym substitution). Proving novelty, finding an unexplored research
+gap, or building a better ASR are never the goal in themselves — they
+only matter to the extent they serve that application. `ASR_RESEARCH_
+TRACK.md`'s own "PROJECT OBJECTIVE" section (near its top) and
+"Application-Objective Decision Analysis" section state this at length;
+do not propose or evaluate any ASR-track work without that framing in
+view.
 
 ## Standing rules for working in this repo
 
@@ -121,9 +176,16 @@ run, not aspirational — follow them by default:
 3. **Audit surprising results before trusting them.** This project has
    caught multiple real bugs this way (a `soundfile` dtype bug that silently
    zeroed real audio; a scoring-approximation gap in a decomposition
-   formula) — a dramatic-looking number is a reason to check harder, not a
-   reason to report faster. Small samples get an explicit "too small to
-   trust" caveat, not a confident headline.
+   formula; on `asr-research`, 2026-08-08: a gate-config bug that turned a
+   should-be-fast reanalysis into a 31-minute run, and — the same day, in a
+   follow-up validation of that reanalysis — a threshold-selection bug
+   where a result (mean recall 0.054) disagreed so drastically with an
+   already-published number for the supposedly identical computation
+   (mean recall 0.289) that it forced a fix which then revealed the
+   *original* published number had the same bug) — a dramatic-looking
+   number, in either direction, is a reason to check harder, not a reason
+   to report faster. Small samples get an explicit "too small to trust"
+   caveat, not a confident headline.
 4. **Never tune thresholds/config in response to an evaluation result
    without explicit go-ahead.** Findings get recorded as evidence
    (`VALIDATION.md`); acting on them is a separate, explicitly-approved step.
@@ -163,6 +225,52 @@ run, not aspirational — follow them by default:
    about who has standing to make a *considered, evidenced* architecture
    call once real evidence exists — see `PHASE_3_ARCHITECTURE_REVIEW.md`
    and `VALIDATION.md` §12 for the standard this was first applied to.
+9. **For any claim that gates a decision, read the primary source
+   directly — never accept a secondary paper's characterization of
+   another work, a search-result snippet, or a summarizing tool's report
+   of a fetched page as verified fact.** (project owner, 2026-08-08,
+   after an external-review reconciliation on `asr-research`). Established
+   after this project's own verification pass produced a wrong verdict
+   on a dataset (Sep-28k-SW) by reading a paper's prose summary of
+   another paper instead of fetching that other paper directly — caught
+   only because an outside reviewer pushed on it, not by this project's
+   own process. `WebFetch`-based verification in particular routes
+   through a summarizing intermediary; treat its "confirmed" results as
+   good enough to act on day-to-day, but for anything that will appear in
+   a paper, gate a resource commitment, or resolve a real factual dispute,
+   go back to the actual PDF/table/code, not a paraphrase of it. This
+   applies symmetrically to claims made *by* an external reviewer and
+   claims already recorded *in* this project's own docs — neither gets a
+   pass for being already-written-down or already-cited. See
+   `ASR_RESEARCH_TRACK.md`'s "External Review Reconciliation" sections
+   (2026-08-08) for the incident and the full correction.
+10. **A failed implementation is not the same claim as a disproven
+    mechanism — and interpretation of an ambiguous or edge-case result
+    must be decided before running, not after seeing it.** (project
+    owner, 2026-08-08, `asr-research` Step 1/Step 2 checkpoint). Step 1's
+    FAILURE result (`ASR_RESEARCH_TRACK.md`, `VALIDATION.md` §15) applies
+    to one specific, precisely-defined operationalization (an additive,
+    own-duration + gap-*before*, per-clip-z-scored residual) — not to
+    "the alignment-gap mechanism" as a general class; a gap-after variant,
+    a multi-token window, and a duration-*ratio* formulation were never
+    implemented and remain explicitly untested, not rejected by extension.
+    State results at the precision of what was actually coded and run,
+    not at the precision of the experiment's title or its general
+    hypothesis. Relatedly: when a run has a foreseeable ambiguous branch
+    (e.g. Step 2's frame-synchronicity check, where the decoder's own
+    timing behavior was genuinely unresolved by static reading), fix what
+    each branch means — including an explicit fallback for the "it
+    doesn't work as hoped" branch — *before* running, not by interpreting
+    whichever branch the real result happens to land in after the fact.
+    Also: prefer real data over synthetic-only validation whenever the
+    synthetic data's own construction could structurally fail to
+    represent the phenomenon a claim depends on (e.g. a method whose only
+    real-world validation anywhere is a different clinical population
+    should not be evaluated on synthetic splices alone and called
+    validated) — this is a stronger requirement than "synthetic data is a
+    cheaper first pass," and applies whenever the actual claim at stake
+    ("does this generalize to real X") is precisely what synthetic data
+    cannot test by construction.
 
 ## Where to look for what
 

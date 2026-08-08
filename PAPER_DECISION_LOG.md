@@ -4653,3 +4653,2998 @@ wholesale, dangling references included).
 Not a numeric result. `CLAUDE.md`, `README.md` updated on `main`
 directly (self-contained versions, verified to reference no
 `asr-research`-only files). No code changes; full test suite unaffected.
+
+---
+
+## 2026-08-05 — `asr-research` branch created; Stage A (systematic information-loss audit) done
+
+**What was done**
+Created the `asr-research` branch off the now-committed `main`
+(`e7add1b`). Executed Stage A of `ASR_RESEARCH_TRACK.md` §8 (answers
+RQ1): categorized all 186 disfluent ground-truth positions in the
+existing 120-clip Track B sample — not a hand-picked subset — into four
+causes, using the existing `--verbose` diagnostic output already cached
+from item 19's work (`eval_datasets/_gate_off_verbose_output.txt`, gate
+off, zero new ASR cost). Categories: (1) ASR transcribed the position
+correctly, no candidate generated ("normalized away"); (2) transcribed
+correctly, caught as a different type ("mis-routed"); (3) genuine ASR
+transcription error, no candidate; (4) genuine ASR error, something
+predicted at the misaligned word (not scored as a match).
+
+Result table: `sound_repetition` 19/4/16/3 (of 42); `word_repetition`
+17/5/11/8 (of 42, 1 TP); `phrase_repetition` 20/0/9/8 (of 40, 3 TP);
+`prolongation` included for completeness but flagged as the wrong lens
+(already acoustic-native, not text-alignment-dependent). Headline: for
+`sound_repetition`/`word_repetition`, categories (1)+(2) — losses that
+happen even when ASR transcribed the position correctly — account for
+~53% of all misses, confirming item 19's finding generalizes across the
+full sample rather than being a handful of anecdotal cases.
+
+A targeted follow-up (not just re-reading the diagnostic text — re-ran
+the actual alignment against cached `hyp_tokens` for every `word_
+repetition` position where the current-word alignment was "correct")
+found the specific mechanism for that type: 22 of 23 such cases have the
+*other* half of the repeated pair deleted or displaced by ASR — a
+different, more specific mechanism than `sound_repetition`'s fragment-
+token loss, not the same story restated. One case (a genuine, fully
+intact, adjacent triple repeat, `['wolf', 'wolf', 'wolf,']`) was still
+missed despite nothing wrong with the ASR output — a detector-logic bug
+unrelated to this track's question, flagged separately as `ROADMAP.md`
+item 21.
+
+**A real bug in the analysis itself, caught before trusting the result
+(rule 3 applied to this session's own tooling, not just the project's
+production code)**: the first version of the categorization script
+determined "true positive" by checking `true_type in predicted` without
+first requiring `align == "correct"` — `track_b.py`'s own scoring
+function only ever credits a prediction as a match when the reference
+position aligns "correct" (a coincidental type-label match at a
+mis-aligned hyp word is not attributable back to the reference instance,
+by design — see `score_clip`'s own code comment). The bug inflated
+`word_repetition`'s apparent TP count from the true value of 1 to 4, and
+silently dropped one row entirely (a ref word containing an apostrophe,
+`"Heaven's"`, broke a single-quote-only parsing regex). Caught by
+reconciling the script's totals against the already-trusted, officially-
+scored Track B table (item 19) before writing up any conclusion — found
+a real discrepancy, fixed the categorization order and the regex, and
+re-ran before this entry was written.
+
+**Alternatives considered**
+- Trust the first (buggy) categorization pass since its headline
+  direction ("losses happen even at correct-alignment positions") didn't
+  actually change once fixed. **Rejected**: the specific counts did
+  change (word_repetition TP 4 -> 1, one missing row recovered), and this
+  project's own standing discipline (audit surprising or newly-computed
+  numbers before trusting them, not just the ones that look dramatic) is
+  exactly what caught this before it became a wrong citation elsewhere.
+- Investigate the single triple-repeat miss (item 21) as part of this
+  track. **Rejected**: it's a plain detector-logic bug (a candidate check
+  not handling 3+ identical adjacent words), unrelated to ASR
+  representation richness — this track's charter explicitly scopes it to
+  representation questions; mixing in an unrelated detector fix would
+  blur what this branch is actually testing. Logged on `ROADMAP.md`
+  instead, for `main`.
+- Move straight to Stage B (representation probe) using only the four
+  hand-picked examples already in `VALIDATION.md` §14.1, skipping the
+  full 186-position categorization. **Rejected**: `ASR_RESEARCH_TRACK.md`
+  §8's own pre-registered exit criterion for Stage A requires enough
+  hand-checked cases to trust the categorization, not a few anecdotes —
+  the full sweep is what makes the ~50% "normalized away" figure a
+  measured result rather than an extrapolation from 3-4 examples.
+
+**Why this choice**
+Directly executes Stage A exactly as `ASR_RESEARCH_TRACK.md` §8
+pre-registered it, at the systematic scale that section's own exit
+criterion required, and applies the same audit-before-trusting discipline
+to this session's own new analysis tooling that the project applies to
+every other result — a bug in a one-off script is exactly as capable of
+producing a wrong "measured" number as a bug in production code, and
+deserves the same scrutiny before being written down.
+
+**Measured result**
+`ASR_RESEARCH_TRACK.md` §8 (Stage A results section, full table + four
+findings + small-sample caveats). `ROADMAP.md` item 20 marked done with
+the summary; new item 21 (the triple-repeat detector bug, for `main`,
+independent of this track). This entry. No code changes; no test suite
+impact (analysis-only, run against already-cached data, on the
+`asr-research` branch — none of this affects `main`).
+
+---
+
+## 2026-08-05 — Stage B (representation-level probe) done: mixed result, reported as such
+
+**What was done**
+Executed Stage B of `ASR_RESEARCH_TRACK.md` §8 (answers RQ2), per the
+project owner's explicit framing: "a hypothesis test, not an
+implementation task... a positive result, a negative result, or an
+inconclusive result are all acceptable outcomes." The exact protocol was
+pre-registered in `ASR_RESEARCH_TRACK.md` (target population, per-clip
+fluent centroid with leave-one-out controls, Cohen's d success criteria
+fixed at d>=0.5/positive, |d|<0.2/negative, matching Stage 1's own bar)
+*before* `profiling/evaluation/stage_b_representation_probe.py` was
+written or run.
+
+Built the extraction script reusing Stage 1's encoder primitives
+unmodified (`profiling/encoder_embedding.py`'s `extract_last_layer_
+states`/`pool_span`/`cosine_distance`), with a new span-selection layer
+for Track B's real ASR hyp-token boundaries (Stage 1 only ever used
+Track A's ground-truth token boundaries). Two real bugs caught and fixed
+before trusting any result, both by reconciling new numbers against
+already-trusted ones rather than accepting a plausible-looking output:
+
+1. **Target-identification used `audio_bytes=None`** to avoid triggering
+   the classifier gate without touching `config.yaml` — but this also
+   silently disabled the acoustic-native detectors (`block`,
+   `prolongation`), which could misclassify a Stage-A category-2 case
+   ("mis-routed to `block`") as category-1 ("no candidate at all") purely
+   because the detector that would have caught it was turned off too.
+   Caught because the first pass found 19/18 (`sound_repetition`/`word_
+   repetition`) targets against Stage A's already-known 19/17 — a
+   1-count mismatch, investigated rather than accepted as "close enough."
+   Fixed by passing real `audio_bytes` and forcing the classifier gate
+   off via `detect_disfluencies`'s own supported per-call `config`
+   override (never touching `config.yaml` on disk) — re-verified an
+   exact 19/17 match, across 31 distinct clips, before spending any
+   encoder time.
+2. Left-over dead code from an earlier draft of the audio-loading logic
+   (an unreachable `if False` branch) was caught and removed during
+   review before the script was run for real, not left in as harmless
+   clutter.
+
+Ran the real encoder pass: 31 clips, 1026s (~17 min) total, ~33s/clip —
+consistent with this project's previously-measured range, and lower cost
+than the pre-registration's conservative 38-clip estimate (which
+included category-2 cases before the bug above was found and corrected).
+
+**Result**: `sound_repetition` — positive, Cohen's d=0.894 (n=19 target,
+n=966 control), clearing the pre-registered d>=0.5 bar and close in
+magnitude to Stage 1's own original effect (d≈1.05) despite testing a
+completely different population and comparison. `word_repetition` —
+inconclusive, d=0.428 (n=17 target), falling between the pre-registered
+thresholds — direction positive, not established with confidence at this
+n, exactly the outcome the pre-registration flagged as plausible in
+advance given that type's more indirect test design (probing the
+*surviving* word's representation for a trace of a *deleted* partner,
+not a direct in-place fragment test).
+
+**Alternatives considered**
+- Treat `word_repetition`'s positive-but-sub-threshold result as a soft
+  confirmation since the direction agreed with `sound_repetition`.
+  **Rejected**: the pre-registration fixed the threshold before seeing
+  any data specifically to prevent this kind of after-the-fact
+  softening; reported as inconclusive, exactly as pre-registered.
+- Extend Stage C to both types on the strength of `sound_repetition`'s
+  result alone. **Rejected**: the pre-registration evaluates each type
+  against its own evidence; `sound_repetition` clearing the bar says
+  nothing about `word_repetition`, which is why they were pre-registered
+  and analyzed separately rather than pooled into one number from the
+  start.
+- Treat the confound (token-duration/word-identity, named in the
+  pre-registration before running) as resolved because the result came
+  out positive. **Rejected** — restated explicitly in the results
+  write-up as an open, unresolved limitation, plus one further
+  statistical caveat (control-group non-independence across positions
+  from the same clip) found only while interpreting the actual numbers,
+  disclosed even though it doesn't change either result's direction.
+
+**Why this choice**
+Directly executes Stage B exactly as pre-registered, applies the same
+audit-before-trusting discipline to this session's own new tooling that
+the project applies everywhere else (the 19-vs-18 count mismatch would
+have silently biased every downstream number if accepted rather than
+investigated), and reports a genuinely mixed result as a mixed result —
+per the owner's own explicit framing, an inconclusive or negative outcome
+here would have been exactly as valuable and exactly as reportable as the
+positive one that came out for `sound_repetition`.
+
+**Measured result**
+`profiling/evaluation/stage_b_representation_probe.py` (new, research
+code only — not imported by the live app). `ASR_RESEARCH_TRACK.md` §8
+(Stage B results section: table, per-criterion verdicts, limitations,
+and what this resolves for the decision gate — proceed to Stage C scoped
+to `sound_repetition` only). `ROADMAP.md` updated with the outcome.
+`eval_results/20260805T211000_stage_b_representation_probe.json` (raw
+distances, saved). No production code changed; full test suite unaffected
+(new file has no test coverage yet — analysis script, not app code, same
+convention as other `profiling/evaluation/` scripts). On the
+`asr-research` branch only — `main` untouched.
+
+---
+
+## 2026-08-05 — Interpretation added before Stage C: uncertainty, rationale, competing hypotheses
+
+**What was done**
+Per the project owner's explicit request, pushed `main` and
+`asr-research` to GitHub before any further work (`git push origin
+main`, `git push -u origin asr-research`), then re-fetched and directly
+compared local vs. remote commit hashes (not just trusted the push
+output) to confirm both branches are backed up: `main` local/remote
+`e7add1b`, `asr-research` local/remote `d68de95`, both exact matches,
+`git branch -vv` showing no ahead/behind drift.
+
+Added an "Interpretation" section to `ASR_RESEARCH_TRACK.md` §8, written
+before any Stage C code, stating precisely what Stages A and B have and
+haven't established (a real aggregate group-level effect for `sound_
+repetition`, not yet an instance-level, actionable, or confound-resolved
+one), three named competing hypotheses Stage C should distinguish
+(duration confound / genuine acoustic signature / real-but-not-yet-
+actionable), and one concrete design consequence: Stage C's own
+pre-registration should include an explicit duration-only baseline
+comparison arm, not just "does the new detector work in isolation,"
+since that is the direct test that separates the duration-confound
+hypothesis from the genuine-signature one.
+
+**Alternatives considered**
+- Proceed straight to Stage C's implementation without a written
+  interpretation step. **Rejected**: the owner explicitly asked for this
+  as a distinct, prerequisite step, and it surfaced a concrete
+  methodological improvement (the duration-only baseline arm) that
+  Stage C's own pre-registration would otherwise have missed — writing
+  the interpretation first paid for itself immediately, not just as
+  documentation hygiene.
+- Trust the `git push` command's own success output as sufficient
+  confirmation of backup. **Rejected**, per the owner's explicit
+  instruction to verify, not assume: re-ran `git fetch` and compared
+  hashes directly.
+
+**Why this choice**
+Matches this track's own standing discipline (§8's own stage-gate
+pattern) applied one level up: before spending real effort on Stage C's
+implementation, state clearly what is and isn't yet known, so Stage C is
+designed to answer the actual open question (is this signal usable and
+genuine) rather than just "does a stronger version of Stage B's number
+exist."
+
+**Measured result**
+Not a numeric result — an interpretive addition and a verified backup.
+`ASR_RESEARCH_TRACK.md` §8 (new "Interpretation" subsection). No code
+changes. `main`/`asr-research` confirmed pushed and in sync with
+`origin` before this entry was written.
+
+---
+
+## 2026-08-05 — Stage C done: H1 refuted, H2 supported, H3 also supported
+
+**What was done**
+Executed Stage C of `ASR_RESEARCH_TRACK.md` §8 exactly as pre-registered
+(target/control population reused from Stage B's saved data, no new
+encoder passes; a duration-only baseline arm added specifically to
+separate H1 from H2, per the Interpretation step's own recommendation).
+Built `profiling/evaluation/stage_c_duration_baseline.py`, computing ROC
+AUC (pure Python, Mann-Whitney-U formula, no scipy/sklearn dependency —
+sanity-checked against hand-computed known-answer cases, including a
+tie-handling case, before trusting it on real data) and precision at two
+pre-declared recall points for both arms.
+
+**Three real bugs caught by this stage's own safety checks, each
+investigated before proceeding, not one silently patched over the
+result**:
+1. A crash on real ASR tokens with `start`/`end` of `None` — fixed by
+   excluding those positions from the duration arm, with the count
+   reported explicitly.
+2. A large mismatch (3347 vs. Stage B's 966 saved control positions) —
+   traced to iterating all 120 clips instead of only the 31 Stage B
+   actually drew its control pool from. Fixed by applying the identical
+   population filter.
+3. A residual 1-position mismatch (967 vs. 966) after that fix — traced
+   to the exact same missing-timestamp position also making `pool_
+   span()` return `None` on the encoder side, meaning Stage B's own
+   arm silently excluded it too; once accounted for, both arms compute
+   over the identical 966-position population.
+
+**Result**: encoder arm AUC=0.723 (P@R>=0.5=0.047, P@R>=0.7=0.029);
+duration-only baseline AUC=0.483 (essentially chance). **A correction to
+the pre-registered assumption's direction, checked directly rather than
+assumed**: the protocol expected fragment-absorbing tokens to be
+*longer*; the data shows target positions are, if anything, very
+slightly *shorter* (mean duration z=-0.139) — duration carries no
+meaningful signal in either direction at this sample size. H1 (duration
+confound) is refuted, not merely unconfirmed. H2 (genuine signature) is
+supported — the encoder arm clears chance and clearly beats the duration
+baseline. H3 (real but not instance-actionable) is *also* supported,
+simultaneously: absolute precision at a useful recall (4.7% at 52.6%
+recall) is too low for standalone use given realistic 19-vs-966 class
+imbalance, regardless of the signal being genuine.
+
+**Alternatives considered**
+- Force H1/H2/H3 into a single selected outcome, since the
+  pre-registration was written as if they were mutually exclusive.
+  **Rejected**: the actual result shows two can hold simultaneously (a
+  genuine signal that isn't yet practically usable alone) — reporting
+  that precisely is more useful and more honest than picking the
+  single "winning" hypothesis the pre-registration's own framing implied
+  would exist.
+- Treat the 967-vs-966 count mismatch as close enough to ignore.
+  **Rejected**: investigated fully, traced to a specific, understood
+  mechanism (a shared missing-timestamp exclusion on both arms) rather
+  than assumed benign — the assertion was written specifically so a
+  mismatch this size would stop the run and require an explanation, not
+  silently pass.
+- Proceed to Stage D (fine-tuning) on the strength of H2 being
+  supported. **Rejected**: Stage D's own pre-registered gate requires
+  richer-representation approaches (Stage B/C) to be *insufficient* —
+  H1 being refuted here is the opposite of that condition. The
+  evidence-justified next step is a fusion-style Stage C revision, not
+  escalation to a materially more expensive intervention this evidence
+  doesn't yet call for.
+
+**Why this choice**
+Directly executes Stage C exactly as pre-registered, with the duration
+baseline arm the Interpretation step identified as necessary, and
+applies the same audit-before-trusting discipline to three real bugs in
+this session's own new tooling that the project applies to production
+code and to every other measured result this track has produced.
+
+**Measured result**
+`profiling/evaluation/stage_c_duration_baseline.py` (new, research code
+only). `ASR_RESEARCH_TRACK.md` §8 (Stage C results section: bug log,
+results table, per-hypothesis verdicts, the corrected duration-direction
+assumption, and the recommended next step). `ROADMAP.md` updated with
+the outcome. `eval_results/20260805T215037_stage_c_duration_baseline.json`
+(raw scores, saved). No production code changed. On the `asr-research`
+branch only — `main` untouched.
+
+---
+
+## 2026-08-05 — End-of-session documentation, consistency, and handoff pass
+
+**What was done**
+Per the project owner's explicit request to formally close today's
+session, performed a full documentation/consistency audit rather than
+starting a new experimental stage:
+
+1. **Objective hierarchy stated explicitly and consistently.** Added a
+   new section to `CLAUDE.md` ("The objective, stated precisely") stating
+   the project's long-term objective is not to optimize Whisper, preserve
+   the existing architecture, maximize transcript quality, or pursue any
+   component for its own sake — it is the most accurate, explainable,
+   scientifically grounded speech-disfluency detector possible from the
+   user's audio — and the five-point evidence hierarchy that follows from
+   it (audio is fundamental; ASR is one subsystem; the transcript is one
+   evidence source, not ground truth; encoder/acoustic/confidence signals
+   are complementary, evidence-gated; architecture stays evidence-driven
+   in both directions). Reinforced consistently, not just declared once:
+   `ARCHITECTURE.md` §1's opening reframed to lead with the detection
+   objective (transcription explicitly named as scaffolding, not the
+   deliverable); `README.md`'s opening paragraph corrected the same way
+   for a general reader.
+2. **Internal consistency audit of `ASR_RESEARCH_TRACK.md`** (the
+   heaviest-edited file this session): fresh full read start to finish;
+   found and fixed one typo and confirmed no other structural
+   inconsistencies from today's many sequential edits.
+3. **Staleness audit and correction across every major doc**: `CLAUDE.md`
+   and `HANDOFF.md` both still described the ASR research track as "not
+   yet implemented" / "charter document... nothing implemented yet" —
+   stale as of Stage C's completion earlier today. Corrected in both,
+   plus `HANDOFF.md` §4's "what's proven" list extended with today's two
+   strongest new findings (the traced normalization mechanism; the
+   genuine-but-not-yet-actionable encoder signal), `DOCS.md`'s file-map
+   entry updated, and a new dated status paragraph added to
+   `VALIDATION.md`'s top (append-style, prior paragraphs kept per that
+   file's own convention) pointing to `ASR_RESEARCH_TRACK.md` for work
+   that doesn't belong in `VALIDATION.md` itself.
+4. **Formal end-of-session handoff written into `ASR_RESEARCH_TRACK.md`**
+   (new section, end of file): a summary of the full day (not just this
+   track), the strongest evidence-backed conclusions, named remaining
+   uncertainties, the exact proposed next stage (a fusion-style
+   combination, not fine-tuning) with the specific hypotheses it would
+   test, a fully-ordered next-session plan (deliverables, success
+   criteria, stopping conditions) written so a future session can act on
+   it directly without re-planning, and explicit recommendations/risks
+   (do not merge to `main` without a deliberate decision; do not let a
+   disappointing fusion result cause a silent jump to Stage D; the
+   control-group independence caveat should be resolved before this
+   result is cited anywhere higher-stakes; `word_repetition` should not
+   be quietly dropped).
+
+**Alternatives considered**
+- Begin the fusion-style Stage C revision (the evidence-justified next
+  step) in this same session, since the reasoning for it was already
+  clear. **Rejected**, per the owner's explicit instruction: "do not
+  begin the next experimental stage... simply for the sake of progress."
+  Scoped fully in the handoff instead, for a deliberate next start.
+- Leave the objective-hierarchy statement implicit (it was already
+  present in scattered form — `CLAUDE.md`'s original "scaffolding, not
+  the end product" line, `HANDOFF.md` §1's "not trusting the ASR
+  transcript as ground truth"). **Rejected**: the owner asked for it
+  stated *consistently*, not just present somewhere — scattered implicit
+  alignment is exactly the kind of thing a full audit is supposed to
+  catch and make explicit rather than assume is already sufficient.
+
+**Why this choice**
+Directly executes the requested close: a repository another researcher
+(or Claude instance) could pick up cold, understand the evidence and the
+reasoning without reconstruction, and continue from an unambiguous next
+step — the same standard this project has held every individual result
+to today, applied once more at the level of the whole session.
+
+**Measured result**
+Not a numeric result — a documentation/consistency pass. Files touched:
+`CLAUDE.md`, `ARCHITECTURE.md`, `README.md`, `HANDOFF.md`, `DOCS.md`,
+`VALIDATION.md`, `ASR_RESEARCH_TRACK.md` (typo fix + new end-of-session
+handoff section), `ROADMAP.md` (via `CHANGELOG.md` pointer only, no
+further change needed there). No code changes. Full test suite
+unaffected (documentation-only). Repository confirmed ready for the
+owner's own `git push` of both branches, per their explicit request not
+to push in this session.
+
+---
+
+## 2026-08-06 — Stage C2 done: Praat voice-quality fusion — clean negative result
+
+**What was done**
+Continued directly from the prior session's end-of-session handoff, per
+the owner's go-ahead. Executed the "exact proposed next stage" from that
+handoff: a fusion-style revision of Stage C. Before writing any code,
+checked the handoff's own first-named fusion candidate (Stage A's
+"mis-routed" finding, n=4 `sound_repetition` cases caught as a different
+type) directly against Stage A's own category definitions — found it
+degenerate for Stage C's target population (category 1, Stage C's n=19,
+is defined as having *zero* other-detector predictions, by construction
+mutually exclusive with category 2's "mis-routed") and too small (n=4)
+to test quantitatively on its own regardless. Re-scoped, documented as a
+dated addendum in `ASR_RESEARCH_TRACK.md` before proceeding, to a
+different, well-powered, already-available signal: Praat-derived voice-
+quality features (`profiling/acoustic.py`'s existing `_praat_features` —
+pitch, pitch stability, jitter, shimmer, HNR), already used elsewhere in
+this codebase for `prolongation` corroboration.
+
+Pre-registered the full protocol (screen each feature individually at a
+low AUC>=0.55 bar before combining any with encoder-distance, to avoid
+combining noise features and mistaking the resulting inflation for a
+real effect; combination rule fixed in advance as max-of-z-scores, no
+trained model, consistent with this track's "cheapest version that can
+test the hypothesis" discipline) before writing `profiling/evaluation/
+stage_c2_praat_fusion.py`. Sanity-checked on a small clip subset first
+(a scope-limited dry run correctly tripped the count-check assertion,
+confirming the safety check itself works) before the real 120-clip run.
+
+**Result**: none of the five Praat features cleared the screening bar —
+`pitch_hz` 0.549, `pitch_std_hz` 0.471, `jitter` 0.527, `shimmer` 0.507,
+`hnr` 0.452, all within noise distance of chance (0.5), well below
+Stage C's own encoder-only AUC of 0.723 on the identical population. Per
+the pre-registered protocol, the fusion combination step was correctly
+never attempted — combining these with encoder-distance would only add
+noise. A real, clean, specific negative result: Praat voice-quality
+features are ruled out as this track's next signal for `sound_
+repetition`, distinct from "fusion doesn't help" in general.
+
+**Alternatives considered**
+- Force a fusion combination anyway, using the best-scoring feature
+  (`pitch_hz`, AUC=0.549) even though it didn't clear the bar, since
+  "some signal is better than none." **Rejected**: this is exactly what
+  the pre-registered screening step exists to prevent — a feature at
+  0.549 is statistically indistinguishable from chance at n=19/966, and
+  combining it would very likely just inflate apparent performance
+  through noise, not add real information.
+- Treat the mis-routing lead (n=4) as still worth a formal statistical
+  test, given it was the handoff's originally-named first candidate.
+  **Rejected**: checked directly and found it degenerate on Stage C's
+  own population (constant, not discriminative, by construction) and
+  too small to test on its own regardless — recorded as a dated
+  re-scoping addendum rather than silently swapped for the Praat test.
+- Try additional feature engineering (e.g. delta/derivative features,
+  or a shorter/longer analysis window) to salvage a Praat-based signal
+  before concluding it doesn't work. **Rejected for this session**: the
+  pre-registered protocol's success criteria were fixed in advance
+  specifically to prevent this kind of post-hoc searching for a result;
+  a genuinely different windowing strategy would be its own new,
+  separately pre-registered experiment, not a silent extension of this
+  one.
+
+**Why this choice**
+Directly executes the prior session's own handoff plan, applies the same
+pre-register-before-code and screen-before-combine discipline as every
+other stage in this track, and reports a negative result with the same
+weight and rigor a positive one would have gotten — consistent with the
+owner's explicit standing instruction that positive, negative, and
+inconclusive results are all acceptable outcomes.
+
+**Measured result**
+`profiling/evaluation/stage_c2_praat_fusion.py` (new, research code
+only). `ASR_RESEARCH_TRACK.md` §8 (Stage C2 pre-registered protocol +
+results, including the mis-routing re-scoping addendum) and an updated
+end-of-session handoff section (dated 2026-08-06 update note, three
+remaining options recorded, none chosen unilaterally). `ROADMAP.md`
+updated with the outcome. `eval_results/20260806T135433_stage_c2_praat_
+fusion.json` (raw screening/combination data, saved). No production
+code changed. On the `asr-research` branch only — `main` untouched.
+
+---
+
+## 2026-08-06 — First-principles reassessment: still the right trajectory, not yet time to leave CrisperWhisper
+
+**What was done**
+Per the project owner's explicit request after Stage C2, conducted a
+first-principles reassessment of this track's whole trajectory —
+specifically whether continued investment in CrisperWhisper's own
+representation is evidence-driven or has become attachment to the
+existing architecture. Structured as requested: evidence (directly
+measured facts, listed exhaustively across Phase 1 through Stage C2),
+inference (reasoned conclusions not directly measured — the loss is
+most consistent with a decoder-stage, not encoder-stage, phenomenon),
+and engineering judgment (labeled as such, not fact).
+
+**Conclusion**: not yet time to move to a different or purpose-built
+ASR — that would be exploration with zero supporting evidence (RQ3,
+whether any finding is CrisperWhisper-specific, has never been tested),
+symmetrically as ungrounded as clinging to CrisperWhisper by default
+would be in the other direction. What the evidence actually supports is
+narrower and still-actionable: only one encoder layer, threshold-only
+combination, no decoding variation, and a modest sample have been
+tried — real headroom remains untested *within* the current
+architecture. Two concrete experiments identified as the immediate next
+steps, ahead of RQ3/Stage D: encoder layer depth (literature-motivated,
+never tested — only the default last layer has ever been used) and
+decoding-parameter sensitivity (the most direct available test of the
+decoder-stage inference itself).
+
+**Alternatives considered**
+- Treat Stage C2's negative result as sufficient grounds to escalate
+  toward Stage D (fine-tuning) or RQ3 (a different ASR backend).
+  **Rejected**: two negative *fusion* results (duration, Praat features)
+  say something about which extra signals help, not about whether
+  CrisperWhisper's own representation — at other layers, or under other
+  decoding settings — has been exhausted. Escalating past untested,
+  cheap, in-architecture options on the strength of unrelated negative
+  results would be evidence-free in exactly the way the owner asked this
+  reassessment to check for.
+- Conclude the heuristic space is fully explored and recommend no further
+  work within the current architecture. **Rejected**: explicitly checked
+  against what has and hasn't actually been tried — encoder layer depth
+  and decoding parameters have literally never been varied anywhere in
+  this project, a fact, not an assumption.
+- Recommend switching to a different pretrained ASR now, given two
+  fusion attempts failed. **Rejected**: no experiment in this project
+  has ever run a second ASR backend (item 10/RQ3 remain fully open) — a
+  recommendation to switch would rest on zero comparative evidence,
+  exactly the sunk-cost-avoidant-but-still-ungrounded move the owner
+  explicitly warned against.
+
+**Why this choice**
+Directly answers the question asked, using the complete body of evidence
+rather than the most recent (negative) results in isolation, and keeps
+the evidence/inference/judgment distinction the owner asked for legible
+enough that a future reader can independently check whether they agree
+with the judgment layer without having to accept it on authority.
+
+**Measured result**
+Not a numeric result — a strategic reassessment. `ASR_RESEARCH_TRACK.md`
+gets a new "First-principles reassessment" section at the top of the
+file (mirroring `ROADMAP.md`'s own established pattern for this kind of
+content). `ROADMAP.md`'s pointer to this track updated with the
+conclusion. No code changed by this entry itself; the two recommended
+experiments are pre-registered and executed in the entry that follows.
+
+---
+
+## 2026-08-06 — Encoder layer-depth sweep done: the last layer is uniquely informative
+
+**What was done**
+Executed the first of the two experiments the same-day reassessment
+recommended. Verified the required API directly before writing the full
+script (a quick, isolated check that `output_hidden_states=True` on the
+cached `WhisperEncoder` object returns all 33 layers' activations from a
+single forward pass, and that the last one matches `extract_last_layer_
+states`'s existing output exactly) — cheap, and avoided discovering an
+API mismatch mid-way through an 11-minute run. Pre-registered the full
+protocol in `ASR_RESEARCH_TRACK.md` before writing `profiling/
+evaluation/stage_layer_sweep.py`, which extracts every layer from one
+forward pass per clip (not one pass per layer) and reuses Stage B/C's
+exact pool_span/cosine_distance/leave-one-out-centroid methodology at
+each layer, so every layer's AUC is directly comparable to Stage C's
+already-known last-layer result of 0.723.
+
+**A real deviation from the pre-registered population, caught and
+verified before trusting the result**: the implementation filtered to
+clips containing a `sound_repetition` target specifically (18 clips, 551
+control positions), not Stage B/C's full 31-clip/966-control pool (built
+from clips with *either* `sound_repetition` or `word_repetition`
+targets). Rather than treat this as invalidating, checked it directly:
+the last layer's AUC on this smaller population (0.721) came out almost
+identical to Stage C's own (0.723) — an unplanned internal-consistency
+check that passed, giving more confidence in both numbers, not less.
+
+**Result**: the last layer (32) is decisively the best — AUC 0.721,
+against a runner-up of 0.383 (layer 26) and most other layers sitting
+*below* chance (0.338-0.365, meaning target positions are mildly
+*closer* to the fluent centroid at those layers, the opposite direction
+from anomalous). No layer beats the last layer; Stage B/C's original
+choice (the default last-hidden-state) was already the right one. A
+secondary observation — the gradual below-chance-to-above-chance
+trajectory through depth — is reported as a plausible, unverified
+reading (early layers encode lower-level acoustic detail, the signal
+crystallizes only at the final layer), not an independently confirmed
+finding.
+
+**Alternatives considered**
+- Treat the population deviation as disqualifying and re-run on the
+  exact pre-registered 31-clip/966-control population before trusting
+  anything. **Not done**: the near-identical last-layer AUC across both
+  populations (0.721 vs 0.723) is itself strong evidence the deviation
+  doesn't matter for this question — re-running would cost ~11 more
+  minutes to confirm something already effectively confirmed by the
+  overlap; documented as a deviation instead, per standing rule 1, rather
+  than silently treated as identical to the pre-registered plan.
+- Investigate *why* early/mid layers show a mild below-chance pattern
+  before reporting the main result. **Rejected for this session**: a
+  real, interesting observation, but investigating it (attention
+  analysis, probing) is a separate, unscoped piece of work — reported
+  honestly as an unverified observation rather than either ignored or
+  chased down without a plan.
+
+**Why this choice**
+Directly executes the reassessment's own first recommended step, applies
+the same pre-flight-check and population-verification discipline every
+prior stage in this track has used, and reports a clean, decisive result
+(no layer beats the last one) rather than either overclaiming the
+secondary observation or hiding the population deviation that was found.
+
+**Measured result**
+`profiling/evaluation/stage_layer_sweep.py` (new, research code only).
+`ASR_RESEARCH_TRACK.md` (layer-sweep results section, plus a dated
+update to the reassessment's own "what changes as a result" note:
+decoding-parameter sensitivity is now the sole remaining untested
+in-architecture lever before this track's stated logic would shift
+weight toward RQ3/Stage D). `ROADMAP.md` updated with the outcome.
+`eval_results/20260806T144057_stage_layer_sweep.json` (full per-layer
+AUC table, saved). No production code changed. On the `asr-research`
+branch only — `main` untouched.
+
+---
+
+## 2026-08-06 — Decoding-parameter sensitivity (num_beams) done: clean negative
+
+**What was done**
+Executed the second and final of the reassessment's two recommended
+experiments. Checked the live app's actual constraint first:
+`profiling/asr.py` forces `num_beams=1` as a confirmed workaround for a
+real `transformers` bug (word-level timestamp extraction crashes under
+beam search — huggingface/transformers #28007/#36093), and the model's
+own `generation_config.json` default is `num_beams=5` — so the live app
+already runs the *least* beam-search-influenced decoding available.
+Recognized that testing `num_beams=5` would hit the same crash if word
+timestamps were requested, but that this experiment only needs decoded
+*text* (the same alignment methodology Stage A used operates on word
+sequences alone) — so the crash was sidestepped by design, not
+encountered.
+
+A 4-clip dry run (required to catch bugs before the real run, and it
+did: a hand-constructed unit test caught a real false-positive class in
+the "recovered" heuristic — single-letter words like "a" trivially
+prefix-match many following words by coincidence — fixed with a minimum
+fragment length before any real audio was processed) also surfaced a
+real cost-escalation finding: ~316s/clip for both conditions combined,
+far above the pre-registered ~55-105 minute estimate for the full
+31-clip population (num_beams=5 is ~5x the compute of num_beams=1, not
+simply additive). Per the same discipline §12.6.1 established for
+exactly this situation, scoped down to 40 raw clips scanned (not the
+full 120), committed to *before* seeing further results, not adjusted
+afterward.
+
+**Result**: 0 of 14 tested `sound_repetition`/`word_repetition`
+positions were recovered under `num_beams=5`; mean WER identical between
+conditions (0.187 vs. 0.187). A clean, decisive negative — not a weak or
+ambiguous null.
+
+**Alternatives considered**
+- Abandon the experiment once the cost overrun was discovered, given the
+  emerging early signal already looked negative. **Rejected**: the
+  scope-down decision (40 raw clips) was committed to based on cost
+  alone, before the dry run's own 0/5 result could bias that choice —
+  stopping early *because the result looked confirmed* would have been
+  exactly the kind of premature-stopping bias this project's own
+  discipline exists to prevent.
+- Test additional decoding parameters (`repetition_penalty`,
+  temperature) in the same run, now that the model was already loaded.
+  **Rejected**: the pre-registered protocol scoped this experiment to
+  `num_beams` specifically, with `repetition_penalty`/`no_repeat_ngram_
+  size` already checked and ruled out as *current* contributing factors
+  (both neutral in the default config) before this experiment was
+  designed — adding untested knobs mid-run would be exactly the kind of
+  post-hoc scope creep pre-registration exists to prevent.
+
+**Why this choice**
+Directly executes the reassessment's second recommended experiment with
+the same rigor as the first (pre-flight API/bug checks, a dry run that
+caught a real logic bug, an honest cost-escalation response matching
+established precedent), and reports a clean negative exactly as found —
+the owner's own standing instruction that positive, negative, and
+inconclusive results are all acceptable applies here as much as
+anywhere else this session.
+
+**Measured result**
+`profiling/evaluation/stage_decoding_sensitivity.py` (new, research code
+only). `ASR_RESEARCH_TRACK.md` (results section: cost/bug findings,
+0/14 recovery table, WER identity, what this resolves for the decoder-
+stage inference). `ROADMAP.md` updated with the outcome.
+`eval_results/20260806T161513_stage_decoding_sensitivity.json` (per-
+position detail, saved). No production code changed. On the
+`asr-research` branch only — `main` untouched. Both of the
+reassessment's recommended experiments are now complete; the full
+integrative reassessment this triggers follows in the next entry.
+
+---
+
+## 2026-08-06 — Integrative reassessment: current architecture's cheap investigation is exhausted; item 10 elevated as the next step
+
+**What was done**
+Per the project owner's explicit instruction to pause after the
+decoding experiment (not continue implementing) and reassess the entire
+track, wrote a full evidence inventory spanning every stage (Track B
+through decoding-parameter sensitivity, 11 numbered evidence points),
+followed by an explicit inference layer and a labeled judgment layer,
+answering the owner's question directly: has this project extracted
+essentially all meaningful evidence from CrisperWhisper's existing
+architecture, or is there still justified reason to continue researching
+within it.
+
+Named, not smoothed over, a real discrepancy surfaced by cross-checking
+this track's own result against the literature it already reviewed:
+arXiv:2311.05203 found deeper Whisper-encoder layers carry *more*
+disfluency signal for a comparable task; this track's own layer sweep
+found the opposite (only the last layer carries signal, for this
+specific task on this specific model). Not reconciled — offered as an
+inference-level consideration (possible causes: task framing,
+CrisperWhisper's own fine-tuning) rather than resolved as fact.
+
+**Conclusion**: yes, the cheap, representation/decoding-only
+investigation of CrisperWhisper specifically is essentially exhausted —
+every lever available without training something (layer choice, decoding
+width, duration, Praat fusion, mis-routing) has been tried, split
+between genuinely positive-but-limited (the core encoder signal) and
+negative/inconclusive (everything else). This is explicitly *not* a
+recommendation to abandon CrisperWhisper or begin building a different
+ASR — `ROADMAP.md` item 10 (a second ASR backend) has never been run, so
+"a different architecture would do better" remains exactly as
+evidence-free now as it was at the start of this reassessment cycle.
+Item 10 is elevated to this track's explicit next step — the one
+remaining cheap, no-training piece of evidence that actually informs
+whether to invest further in CrisperWhisper (fine-tuning, Stage D) or
+look elsewhere, rather than guessing at either.
+
+**Alternatives considered**
+- Recommend moving directly to Stage D (fine-tuning) or a purpose-built
+  representation, given two clean negative experiments in a row.
+  **Rejected**: neither experiment tested whether the finding is
+  CrisperWhisper-specific — recommending a training-level commitment
+  without that evidence would repeat the exact evidence-free pattern
+  this reassessment cycle was opened to guard against, just escalated
+  further than the original concern (attachment to CrisperWhisper)
+  rather than resolved.
+- Recommend continuing to test more cheap levers within CrisperWhisper
+  (different pooling strategies, more Praat/acoustic features, larger
+  samples of the same experiments already run) before considering item
+  10. **Rejected**: the evidence inventory shows every readily-
+  identifiable cheap lever has already been tried, with a coherent,
+  non-contradictory pattern of results (not scattered noise that a
+  slightly different variant might flip) — further variation within the
+  same scope has a low expected information gain relative to item 10,
+  which answers a structurally different, still fully open question.
+- Silently drop the fusion-style Stage C revision floated in an earlier
+  session as the "next step" without acknowledging the change.
+  **Rejected**: explicitly superseded in this entry and in `ROADMAP.md`,
+  with the reasoning stated (more fusion attempts at the current sample
+  size address a symptom — signal scarcity — that only more data or a
+  different representation source can actually fix, which item 10 and
+  Stage D address more directly).
+
+**Why this choice**
+Directly answers the question asked, using the complete evidence record
+built across this entire track rather than the two most recent results
+in isolation, and keeps the evidence/inference/judgment layers legible
+enough that a future reader can check the reasoning independently rather
+than accept the conclusion on authority — the same standard every other
+reassessment and stage in this track has been held to.
+
+**Measured result**
+Not a numeric result — an integrative reassessment. `ASR_RESEARCH_
+TRACK.md` gets a new "Integrative first-principles reassessment" section
+(the culminating one, distinct from the earlier "First-principles
+reassessment" written before the two experiments ran). `ROADMAP.md`
+item 10 elevated with the conclusion; the track's own summary pointer
+updated. No code changed by this entry. Full test suite unaffected
+(documentation only).
+
+---
+
+## 2026-08-06 — Phase 2 of the ASR research track formally opened: full design-space plan, pre-registered
+
+**What was done**
+Per the project owner's explicit instruction to formally open the next
+research phase from first principles — and *not* assume comparing
+pretrained ASRs was automatically correct, treating it only as "the
+strongest current hypothesis" — re-opened the complete design space
+before committing to any direction. Enumerated seven realistic
+directions (different pretrained ASR, different pretrained
+representation, hybrid architecture, decoder/decoding modifications,
+fine-tuning, purpose-built ASR, further acoustic-native extension),
+stated what each concretely means and its status before this phase,
+and only then selected and justified a specific, pre-registered plan.
+
+Did real, targeted literature research for this phase specifically (not
+reused blindly from the earlier 13-source pass): confirmed catastrophic
+forgetting / representational drift under fine-tuning is a real,
+independently documented phenomenon (both Whisper-specific and general
+transformer fine-tuning research), read WavLM's own paper directly
+(arXiv:2110.13900) to ground its paralinguistic-sensitivity design
+objective as a cited fact rather than an assumption, and verified a
+directly relevant empirical result (arXiv:2605.12387: a hybrid Whisper+
+acoustic-features model beat both pure-Whisper and pure self-supervised
+baselines for a comparable paralinguistic task). **One candidate claim
+checked and found not independently confirmable** — a search-engine
+paraphrase asserted Whisper "prioritizes linguistic invariance over
+prosodic variability" as if from a specific paper; fetched that paper's
+actual content directly and found it did not contain the claim — dropped
+from citation, reported honestly as unconfirmed rather than cited with
+borrowed confidence.
+
+Selected a 3-arm pre-registered design: Arm 1 (stock `whisper-large-v3`
+through Track B, item 10's original ask), Arm 2 (the same model's
+encoder through this track's own layer-sweep methodology, isolating
+whether CrisperWhisper's fine-tuning specifically — not Whisper
+generally — narrowed the disfluency signal to one layer), Arm 3
+(WavLM-Large's representation, motivated by its own stated design
+objective). Wrote exact success/failure criteria per arm, named real
+confounders before they could be discovered mid-run (model-size
+mismatch for Arm 3; a frame-rate/pooling adaptation this session's
+earlier characterization had wrongly treated as trivial, corrected here;
+decoding-configuration parity for Arm 1), costed every arm from this
+session's own measured rates, and built a full outcome-to-conclusion
+mapping covering every combination of arm results.
+
+**Performed the requested adversarial self-critique of this plan
+itself, not a token gesture**: checked directly whether this phase is
+just "test another representation source" after three already failed
+(duration, Praat, more CrisperWhisper layers) — argued explicitly why
+Arms 1-3 are categorically different (high-dimensional learned
+representations from differently-trained models, not more hand-
+engineered features), while acknowledging that distinction is itself
+untested until Arm 2 runs. Named a real, standing scope limitation this
+phase does not fix: ~45% of Stage A's original losses are ordinary ASR
+transcription error, unrelated to normalization, and remain unaddressed
+by this or any prior stage. Checked whether recommending WavLM is
+independently re-derived or just an old roadmap item recycled — traced
+the actual reasoning path (this track's own layer-sweep anomaly
+motivated the literature search that arrived at WavLM) and named this
+explicitly rather than let the recommendation read as inherited
+uncritically.
+
+**Alternatives considered**
+- Simply execute item 10 (a second ASR backend) as originally scoped,
+  without re-opening the full design space. **Rejected**: the owner
+  explicitly instructed against assuming this was correct without
+  reassessment — doing so anyway would have ignored a direct
+  instruction and repeated the exact "unexamined default" pattern
+  earlier reassessments in this track exist to catch.
+- Recommend fine-tuning or a purpose-built representation now, given
+  "be ambitious" and "never remain constrained by an existing
+  architecture." **Rejected**: ambition without evidence is not the
+  standard this project holds itself to (`CLAUDE.md` rule 8) — both
+  options remain genuinely gated on infrastructure this project doesn't
+  have; recommending them now would be bold in language, not in
+  evidence.
+- Run Arm 3 (WavLM) simultaneously with Arms 1-2 rather than sequencing
+  it. **Rejected**: real, asymmetric engineering cost (Arm 3 needs new
+  model integration and a frame-rate adaptation; Arms 1-2 reuse existing
+  infrastructure almost unchanged) — sequencing lets the cheaper,
+  faster arms inform whether the more expensive one is worth its own
+  dry-run-first discipline.
+
+**Why this choice**
+Directly executes what was asked — a complete plan before
+implementation, with every requested element (research questions,
+literature, alternatives comparison, direction justification,
+pre-registered criteria, confounders, costs, outcome mapping,
+self-critique) present and none reduced to a formality — while applying
+this project's own standing discipline (cite what's verified, flag what
+isn't; cost from measured rates, not assumption; name limitations rather
+than let them fade from view) to the planning process itself, not just
+to results.
+
+**Measured result**
+Not a numeric result — a complete, pre-registered research plan.
+`ASR_RESEARCH_TRACK.md` gets a new major section, "Phase 2 of this
+research track: comprehensive design-space investigation." `ROADMAP.md`
+item 10 updated with the specific 3-arm design; the track's summary
+pointer updated. No code written, no experiment run — per the request,
+this entry is the plan, not its execution.
+
+## 2026-08-06 — Arm 1 done: stock whisper-large-v3, full pipeline — clean negative
+
+**What was done**
+Built `profiling/evaluation/stage_arm1_stock_whisper.py` and ran it
+against the exact pre-registered 31-clip/36-position population
+(re-derived from the existing Track B cache and confirmed to match
+exactly, not re-scanned fresh). Re-transcribed the same 31 clips with
+stock `openai/whisper-large-v3` (`num_beams=1`, matching the live app's
+decoding configuration — a fair comparison, not the model's
+unconstrained default), then re-applied Stage A's own 4-category
+classification scheme to the same 36 known-loss ref positions under the
+new transcript.
+
+**Deviation from the letter of the pre-registration, recorded rather
+than silently absorbed**: the pre-registered success criterion cited
+CrisperWhisper's full-audit 45.2%/40.5% normalized-away rates (computed
+over Stage A's original 42-position audit) as the comparison baseline.
+Re-running that full hand-traced audit for stock Whisper was out of
+proportion to this arm's own 30-55 min cost estimate. Reported instead
+what fraction of the 36 *specific, already-known* losses got recovered
+under the new transcript — a more targeted version of the same question,
+stated as a substitution rather than left implicit.
+
+**Alternatives considered**
+- Use `profiling/asr.py`'s `CrisperWhisperASR` class directly with a
+  different `model_id`. **Rejected**: that class deliberately raises on
+  any vanilla-Whisper model ID to protect the live app from silently
+  losing disfluencies — correct for production, wrong tool for a script
+  whose entire purpose is measuring that exact behavior. Called
+  `transformers.pipeline()` directly instead, mirroring the class's own
+  proven decoding configuration.
+
+**Why this choice**
+Directly executes RQ-A / item 10's original ask with the cheapest
+available design: no new data, no new engineering beyond a second
+transcription pass, direct reuse of Stage A's own categorization logic.
+
+**Measured result**
+0/36 positions recovered (0% `recovered_tp`, both types). Normalized-away
+rate: `sound_repetition` 89.5% (17/19, vs. CrisperWhisper's 45.2%
+full-audit baseline), `word_repetition` 88.2% (15/17, vs. 40.5%) — higher,
+not lower. 4 positions (2 per type) moved to genuine ASR error instead of
+staying normalized-away — the bigger model introduced new transcription
+errors at positions CrisperWhisper got right, without recovering the
+disfluency either way. Mean WER 0.177, comparable to CrisperWhisper's own
+range (not a general degradation). Cost: 2533s (42 min) for 31 clips plus
+an 873s one-time download/load. **Failure**, exactly as pre-registered —
+real evidence this is a general property of large-scale weakly-supervised
+ASR, not something specific to CrisperWhisper's own choices.
+
+## 2026-08-06 — Arm 2 done: stock whisper-large-v3 encoder, layer sweep — clean negative
+
+**What was done**
+Extended `profiling/evaluation/stage_layer_sweep.py` with a `--model-id`
+argument (defaulting to `None` = CrisperWhisper, so existing behavior is
+unchanged) and re-ran the identical, already-validated layer-sweep
+methodology pointed at stock `whisper-large-v3`'s encoder. Position
+selection (which ref/hyp indices to pool from) was held fixed to
+CrisperWhisper's own cached hyp_tokens, exactly as the pre-registration
+specified — only the encoder processing the audio changed.
+
+**Alternatives considered**
+- Recompute target/control positions fresh under stock Whisper's own
+  transcript for this arm too. **Rejected**: the pre-registration is
+  explicit that Arm 2 isolates the *encoder* variable specifically by
+  holding position selection fixed — recomputing positions would
+  conflate two different questions (does a different transcript surface
+  different positions vs. does a different encoder represent the same
+  positions differently).
+
+**Why this choice**
+Cheapest arm in the design (reuses existing, already-cost-measured
+infrastructure with a one-line change), and the most direct test of
+RQ-C: is the last-layer-only concentration CrisperWhisper's fine-tuning,
+or Whisper's architecture generally.
+
+**Measured result**
+Same last-layer-only pattern: layer 32 (last) AUC=0.680, every other
+layer 0.336-0.378 (near/below chance) — structurally identical shape to
+CrisperWhisper's own sweep. Same-population comparison (both on the
+identical 18-clip/19-target subset): CrisperWhisper's last layer scored
+0.721 here vs. stock Whisper's 0.680 — slightly *lower*, not higher or
+more distributed. Cost: 555s (9 min) for 18 clips, matching the
+layer-sweep's established rate. **Failure**, exactly as pre-registered —
+the concentration pattern is a Whisper-architecture property, not
+something CrisperWhisper's fine-tuning introduced. Narrows RQ-C's answer
+to "not fine-tuning specifically" and shifts the open question fully
+onto Arm 3 (a genuinely different architecture).
+
+## 2026-08-06 — Arm 3 done: WavLM-Large representation — negative on the primary metric, one genuine nuance
+
+**What was done**
+Built `profiling/evaluation/stage_arm3_wavlm.py`, loading WavLM-Large
+via `transformers`' `WavLMModel`/`Wav2Vec2FeatureExtractor` and
+extracting encoder states at the same target/control positions Arm 2
+used (CrisperWhisper's own cached hyp_tokens as the position source).
+Computed last-layer Cohen's d/AUC (the pre-registered primary metric,
+directly comparable to Stage B/C's own number) plus a full layer sweep
+(`sound_repetition` only, matching Arm 2's scope) since the dry run
+showed it was cheap enough to include.
+
+**Confounder resolved rather than left as assumed friction**: the
+pre-registration flagged WavLM's frame-rate/pooling as "real, non-trivial
+engineering, not a drop-in checkpoint swap." Checked directly before
+writing any extraction code: WavLM-Large's conv feature encoder has
+total stride 320 at 16kHz, giving exactly 20ms/frame — identical to
+`profiling/encoder_embedding.py`'s `FRAME_SECONDS` convention — and
+LibriStutter's audio files are natively 16kHz (verified directly, not
+assumed). `pool_span`/`cosine_distance` needed zero modification. Recorded
+as a correction to the earlier, more cautious characterization, not a
+silent scope change.
+
+**Alternatives considered**
+- Skip the layer sweep, last-layer stats only (the strict minimum the
+  pre-registration required). **Rejected once the dry run landed**: at
+  ~10s/clip the full sweep cost almost nothing extra (302s total for 31
+  clips, including the sweep), and the pre-registration explicitly said
+  "resources permitting" — worth the additional RQ-C evidence at
+  near-zero marginal cost.
+
+**Why this choice**
+Directly executes RQ-B(ii): does a representation from a model with a
+genuinely different (not ASR) pretraining objective, explicitly designed
+for paralinguistic sensitivity, carry a stronger signal than anything in
+the Whisper family. Sequenced last, after Arms 1-2 both failed — exactly
+the pre-registered trigger for running it.
+
+**Measured result**
+`sound_repetition` (the primary, directly comparable metric): d=-0.061,
+AUC=0.474 — indistinguishable from chance, weaker than both CrisperWhisper
+(d=0.894, AUC=0.723) and Arm 2's stock Whisper (AUC=0.680). **Failure**,
+exactly as pre-registered. Two things recorded honestly alongside that
+verdict, neither reversing it: (1) the layer-depth *profile* is genuinely
+different from either Whisper variant — WavLM peaks mid-network (layer
+10, AUC=0.617) rather than only at the last layer, consistent with
+masked-prediction pretraining distributing signal differently across
+depth than a narrowly-supervised decoder objective, though its peak still
+underperforms both Whisper arms; (2) `word_repetition` showed a small
+positive signal (d=0.259, AUC=0.576, n=17) that CrisperWhisper's own
+Stage B never found at all — flagged explicitly as too small to trust
+standalone (rule 3: small effect, small sample, the only positive cell
+among five arms x two types this phase tested), not elevated into a
+claim this evidence doesn't support. Cost: 302s (5 min) for 31 clips plus
+a 357s one-time download — cheapest of the three arms.
+
+## 2026-08-06 — Phase 2 integrative conclusion: Failure/Failure/Failure — Stage D costing is the evidence-motivated next step
+
+**What was done**
+Applied the pre-registered outcome-to-conclusion mapping table to the
+three arms' real results (all Failure) rather than re-litigating or
+re-scoping after seeing them. Updated `ASR_RESEARCH_TRACK.md` with a
+full "Phase 2 results" write-up (per-arm numbers, the integrative
+conclusion, and what it does/doesn't rule out) and `ROADMAP.md` item 10
+with the same conclusion and pointer.
+
+**Alternatives considered**
+- Treat Arm 3's `word_repetition` signal or its layer-depth-profile
+  nuance as a partial success, softening the overall verdict.
+  **Rejected**: the pre-registered primary metric for Arm 3 was
+  `sound_repetition` (the one type with a directly comparable prior
+  number), and it came back at chance. Recording the nuances honestly
+  is not the same as letting them dilute a clean negative result on the
+  metric that was actually pre-registered.
+- Treat this as grounds to immediately begin fine-tuning or a
+  purpose-built representation. **Rejected**: both remain genuinely
+  gated on infrastructure (GPU, paired data at volume) this project does
+  not have — the evidence-motivated action is to formally *cost out*
+  that direction (what data, what compute, what a pre-registered success
+  criterion would look like), not to attempt it uninstrumented.
+
+**Why this choice**
+This is exactly the branch the pre-registration named before any arm
+ran (§ "Outcome-to-conclusion mapping," row 3) — following it here is
+the entire point of pre-registering it in the first place: the
+conclusion was fixed before the data that would produce it existed.
+
+**Measured result**
+Five independent, real, pre-registered probes across this track (Stage
+C's duration baseline, Stage C2's Praat fusion, the CrisperWhisper layer
+sweep, the `num_beams` decoding experiment, and now these three
+model-swap arms) have each independently found the same thing: nothing
+cheap, off-the-shelf, and representation-only closes the
+`sound_repetition`/`word_repetition` normalization gap. Directions (a)
+and (b) (a different pretrained ASR; a different pretrained
+representation, in-family or architecture-diverse) are now
+evidence-closed for this specific problem, not merely untested. Two live
+next steps remain, named but not yet executed: formally costing out
+Stage D (fine-tuning/data acquisition, §9), and giving direction (g)
+(extending the acoustic-native precedent further) a real look first,
+since it remains cheap and was deliberately sequenced after, not
+instead of, (a)/(b). No change to `main`.
+
+## 2026-08-06 — Direction (g) pre-registered: an acoustic-native `sound_repetition` candidate generator
+
+**What was done**
+Given the choice between costing out Stage D and pursuing direction (g)
+next, the project owner chose (g) (cheaper, no new infrastructure,
+already sequenced first). Wrote a full pre-registered protocol in
+`ASR_RESEARCH_TRACK.md` before any implementation, per rule 1: a new
+acoustic candidate-generation mechanism for `sound_repetition` — 2+
+short, spectrally self-similar voiced bursts in immediate succession,
+detected directly from the waveform via `profiling/acoustic.py`'s
+existing `segment_voiced()` segmentation, evaluated against
+LibriStutter's own ground-truth timestamps (Track-A-style, no ASR
+involved at all).
+
+**Why this is not the same idea as the earlier superseded fusion
+proposal, checked explicitly rather than assumed**: the fusion idea
+(encoder-distance + Stage A's mis-routing signal) was starved at n=19/
+n=4 because both signals only exist at ASR-correct or ASR-mis-routed
+positions — a population ceiling Phase 2 (Arms 1-3) has now confirmed
+will not be enlarged by a different ASR or representation. This
+proposal depends on no ASR output whatsoever, so it can evaluate against
+the *full* ground-truth `sound_repetition` population (up to 42
+instances, Stage A's original count) rather than the 19-position
+ASR-correct subset — a genuinely different, larger, non-starved
+population, not the same starvation problem under new branding.
+
+**Alternatives considered**
+- Implement the detector immediately rather than pre-register first.
+  **Rejected**: this is new engineering (a candidate-generation
+  mechanism this codebase doesn't have yet, plus a new timestamp-based
+  scorer), not a parameter change to existing, already-validated
+  infrastructure — exactly the case rule 1 exists for, and the project
+  owner's own choice this session was explicitly "scope a concrete
+  pre-registered next experiment," not "build it."
+- Anchor evaluation to ASR hypothesis positions (matching every prior
+  stage in this track). **Rejected**: doing so would silently reimport
+  the same starved-population ceiling this proposal exists to escape —
+  the entire point of an ASR-independent detector is an ASR-independent
+  evaluation.
+
+**Why this choice**
+Cheapest live option left in the original 7-direction design space
+(no model download, no GPU, no new data acquisition), directly extends
+a pattern this codebase already ships and validates (`block`/
+`prolongation`), and was named as the nearer-term option ahead of Stage
+D in Phase 2's own "Direction justification" before today's results
+existed — not a direction invented after the fact to have something
+positive to try next.
+
+**Measured result**
+Not a numeric result — a complete, pre-registered protocol (hypothesis,
+design, population, metric, success/failure criteria, confounders,
+cost). No code written yet. `ASR_RESEARCH_TRACK.md` gets a new section,
+"Direction (g): an acoustic-native `sound_repetition` candidate
+generator." Implementation requires a separate go-ahead, per this
+track's standing two-step cadence.
+
+## 2026-08-06 — Direction (g) implemented and run: Failure, with an honest mechanistic diagnosis
+
+**What was done**
+Given explicit go-ahead to implement (not just plan) direction (g), with
+instructions to keep the same research discipline regardless of outcome,
+built `profiling/evaluation/stage_g_acoustic_sound_repetition.py`: a new
+candidate-generation function (short, spectrally self-similar voiced
+bursts, via `profiling/acoustic.py`'s existing `segment_voiced()`/
+`frame_features()`, unmodified) and a Track-A-style scorer against
+LibriStutter's own ground-truth timestamps. 7 self-test cases written and
+passing (candidate grouping across short/long gaps, similarity math,
+scoring math) before any real clip was processed — one real bug caught
+this way (a `dataclass` constructor call missing a required argument,
+fixed before the first real run).
+
+**A second, more serious bug caught after the first real run, not
+before** — worth recording honestly rather than only crediting the
+self-test process: the first real run against 120 clips returned
+recall=1.000/precision=0.966, an implausibly perfect result for a
+first-pass, untuned mechanism. Per rule 3 ("a dramatic-looking number is
+a reason to check harder, not report faster"), did not report this
+number. Traced directly: `score()` pooled every clip's targets and
+candidates into flat lists before matching, so a candidate in one clip
+could spuriously match a target in a different clip whenever their
+independent, zero-based clip timelines happened to overlap in raw
+seconds (routine at 120 clips x ~10-15s each). Fixed by scoring strictly
+within each clip; added a dedicated self-test
+(`"a candidate in one clip never matches a target in a different clip,
+even with identical raw timestamps"`) so this class of bug cannot
+silently recur. This is the same category of catch as the decoding-
+sensitivity experiment's single-letter-word false-positive fix earlier
+in this track — a bug that inflates a result into looking better than
+it is, caught by treating an unexpectedly good number with the same
+suspicion this project applies to unexpectedly bad ones.
+
+**Alternatives considered**
+- Cap candidate `n_bursts` (the count of short segments merged into one
+  candidate) at a small value, on the theory that a real stutter rarely
+  repeats more than 3-4 times, to filter out very broad multi-burst
+  candidates. **Rejected, checked directly rather than assumed safe**:
+  compared the `n_bursts` distribution of true-positive candidates
+  against false-positive candidates directly — they overlap almost
+  completely (both range 2-32, similar medians), so a count-based cap
+  would cost real recall at roughly the same rate it would remove false
+  positives. Applying it anyway, after already seeing the result, would
+  have been exactly the kind of post-hoc retuning rule 4 prohibits
+  without an explicit go-ahead — not attempted.
+
+**Why this choice**
+Directly executes the pre-registered protocol without deviation: same
+population (the 120-clip sample's full ground-truth `sound_repetition`
+set, 51 instances), same metric (candidate-generation precision/recall
+against ground-truth timestamps), same pre-registered threshold sweep,
+same success/failure criterion (meaningfully above the duration-only
+baseline or not).
+
+**Measured result**
+Baseline (ungated): recall=0.824 (42/51), precision=0.081 (62/766).
+Similarity-gated sweep (thresholds 0.30-0.90): precision never exceeds
+0.094 at any threshold; recall only drops as the threshold tightens
+(0.569 at threshold=0.90). Best-F1 operating point (threshold=0.90,
+F1=0.161) is not meaningfully above the baseline (F1=0.147) — the
+pre-registered **Failure** outcome, exactly as defined in advance.
+Mechanistic diagnosis (checked directly, not left as a bare number):
+candidate duration is not the problem (median 0.81s, no candidate
+exceeds 50% of median clip duration) — the real cause is that ordinary
+fluent speech contains abundant short, similarly-shaped voiced segments
+(function words, fast syllables), and the RMS/ZCR envelope-shape
+similarity feature this arm tried cannot distinguish those from a
+genuine repeated fragment; true-positive and false-positive candidates'
+`n_bursts` distributions overlap almost completely. **What this does
+and does not establish**: recall=0.824 from a completely naive
+mechanism is itself real, positive evidence that `sound_repetition`
+co-occurs reliably with a detectable run of short voiced segments — this
+is not a "no acoustic signature" result. What failed specifically is
+this one cheap feature's ability to discriminate that co-occurrence from
+background speech rhythm at usable precision, given a real class
+imbalance (51 true instances against ~751 plausible-looking candidate
+positions in the sample). Two live next options, neither pursued this
+session: a richer per-burst feature (MFCC-based similarity, the
+escalation this arm's pre-registration named but didn't yet need to
+reach a Failure/Success decision), or treating this as a third
+independently-converging piece of evidence (alongside Phase 2's Arms 1-3)
+that the cheap, no-new-infrastructure options are narrowing, and Stage D
+costing is the better-justified next use of effort.
+
+## 2026-08-06 — MFCC escalation run: Failure, closer to the bar, second real bug caught first
+
+**What was done**
+Per the project owner's choice to run the MFCC escalation the original
+pre-registration already named, pre-registered its exact parameters
+(26-mel filterbank, 13 coefficients, standard windowed-FFT/DCT pipeline,
+no new dependency) before implementing, then refactored
+`generate_candidates()` to accept a pluggable `similarity_fn` so the
+run-detection logic stays byte-identical between the RMS/ZCR and MFCC
+passes — any result difference is attributable to the feature alone.
+Validated the MFCC extractor on synthetic pure tones (same tone -> high
+similarity, different frequency -> meaningfully lower) before touching
+real audio.
+
+**A second real bug, caught the same way as the first — this time on a
+suspiciously flat result, not a suspiciously perfect one**: the first
+real MFCC run returned a nearly unchanged precision/recall curve across
+the entire threshold sweep (766 of 766 candidates survived even a 0.80
+threshold). Rule 3 treats an unexpectedly *uninformative* result with
+the same suspicion as an unexpectedly good one — a feature that fails to
+discriminate anything at all is as diagnostic of a bug as one that
+discriminates everything perfectly. Measured the actual similarity
+distribution directly (3,708 real burst pairs): mean 0.961, 90% of ALL
+pairs (not just true repeats) scoring >=0.9. Root cause: MFCC
+coefficient 0 is overall log-energy, not spectral shape, and dominates
+cosine similarity between any two voiced (energetic) segments regardless
+of whether they actually sound alike — standard, well-documented MFCC
+practice excludes it for exactly this reason. Excluding it dropped mean
+similarity to 0.433 with real spread (min -0.955), confirming the fix.
+
+**Alternatives considered**
+- Trust the first (flat) result and report "MFCC provides no benefit."
+  **Rejected**: a curve with zero discriminative movement across a full
+  threshold sweep, on a feature specifically chosen for richer spectral
+  information, was itself the anomaly rule 3 exists to catch — reporting
+  it without investigating would have been exactly the "report faster"
+  failure mode the rule is written against.
+
+**Why this choice**
+Directly executes the escalation named in the original pre-registration
+as the fallback once the RMS/ZCR feature proved insufficient (it did),
+completing direction (g)'s cheap-feature search exactly as scoped in
+advance — one escalation step, not an open-ended search.
+
+**Measured result**
+Corrected MFCC result: a genuine precision/recall trade-off curve
+(recall falls from 0.824 to 0.157 as the threshold tightens from
+ungated to 0.90; precision rises from 0.081 to a peak of ~0.10 around
+threshold 0.60-0.80) — real discriminative structure, unlike the
+RMS/ZCR pass's nearly flat curve. Best-F1 operating point:
+threshold=0.40, F1=0.170 (recall=0.686, precision=0.097), better than
+the RMS/ZCR pass's F1=0.161. **Still a Failure per the pre-registered
+criterion** (precision meaningfully, >=20% relative F1, above the
+RMS/ZCR baseline): 0.170 falls short of the 0.176 bar by a small but
+real margin, not adjusted or reclassified after seeing how close it
+came. Direction (g)'s cheap-feature search is now complete per its own
+pre-registration. Both failures in this arm are mechanistically
+explained (feature specificity, not absence of acoustic signal) and
+each was reached only after a real implementation bug was caught and
+fixed first (cross-clip scoring pollution; MFCC coefficient-0 energy
+masking) — this is the most carefully verified negative result this
+track has produced for any single mechanism. No change to `main`,
+`profiling/acoustic.py`, or `profiling/detect.py`.
+
+## 2026-08-07 — Research review: Stage D not yet justified by this track's own §9 gate; one final bounded experiment authorized
+
+**What was done**
+Opened today's session with a full research-thinking-first pass, before
+any code, per the project owner's explicit request: reviewed the entire
+accumulated evidence base (Stage A through yesterday's direction (g))
+as an independent researcher would, answering seven questions with
+evidence/inference/speculation kept separate — what's known with high
+confidence, what's strongly supported, what's uncertain, what's
+disproven, the strongest remaining hypothesis, whether cheap directions
+are genuinely exhausted, and whether Stage D is scientifically
+justified now or just the only thing left on the original list.
+
+**Key finding, checked against this track's own pre-registered gate
+rather than asserted independently**: `ASR_RESEARCH_TRACK.md` §9's
+second condition for concluding Stage D is necessary requires richer-
+representation approaches to have been "tried and genuinely isn't
+enough, not merely untried." Every signal this track has measured
+(CrisperWhisper's encoder-distance, stock Whisper's representation,
+WavLM's representation, RMS/ZCR acoustic similarity, MFCC acoustic
+similarity) was tested *alone*, gated by a hand-set threshold — never
+combined, never trained together. By the gate's own language, that
+condition was not yet satisfied.
+
+**Alternatives considered**
+- Recommend Stage D anyway, since seven single-signal probes had all
+  failed and Stage D was "the only thing left" from the original
+  7-direction list. **Rejected, explicitly**: the project owner's own
+  framing for this review warned against exactly this reasoning
+  pattern, and the track's own §9 gate — written before any of today's
+  or yesterday's results existed — draws the same distinction between
+  "tried and failed" and "merely untried."
+
+**Why this choice**
+A combined-signal classifier over already-built signals (Stage C's
+encoder-distance, direction (g)'s acoustic candidate features) is real,
+concrete, and cheap — no new data, no new model integration — and had
+never been attempted, unlike every other direction in the original
+design space.
+
+**Decision (project owner, 2026-08-07)**: authorized exactly one final,
+explicitly bounded low-cost experiment — the combined-signal
+classifier — before moving to Stage D, with an explicit instruction not
+to let it become an open-ended optimization track: if it fails,
+document that honestly and proceed directly to Stage D planning without
+revisiting further cheap variants.
+
+**Measured result**
+Not a numeric result — a research review and a scoped decision. Full
+review recorded in `ASR_RESEARCH_TRACK.md`'s "Research review
+(2026-08-07)"; the combined-signal classifier's own pre-registration and
+results follow as separate entries below.
+
+## 2026-08-07 — Combined-signal classifier: a real bug caught (F1=0.000 despite a real input signal alone scoring 0.244), then a clean Failure
+
+**What was done**
+Built `profiling/evaluation/stage_combined_classifier.py`, reusing this
+track's own existing infrastructure exclusively, per the pre-
+registration's explicit "no new signal sources" scope: direction (g)'s
+MFCC candidate generator for acoustic features (similarity, burst count,
+duration), `profiling/encoder_embedding.py`'s Stage B/C primitives for
+encoder-distance (recomputed at each acoustic candidate's own span, with
+a documented, necessary adaptation from Stage B/C's original ASR-
+hypothesis-token anchoring — see the pre-registration for why), and
+`compare_corroboration_mechanisms.py`'s existing nested-CV logistic-
+regression infrastructure (the same mechanism that shipped this
+project's one other trained classifier, `ROADMAP.md` item 17) for the
+model itself. 6 self-tests (feature-matrix construction, median
+imputation, the has-signal indicator column) written and passing before
+any real audio ran. A pre-registered dry run (3 clips, 117s) confirmed
+the estimated cost (~78 min for 120 clips) before the full run was
+committed to.
+
+**A real bug caught before trusting the first real result, investigated
+per rule 3 rather than reported as-is**: the first full run (120 clips,
+~62 min) returned F1=0.000/0.000/0.000/0.000/0.000 for the combined
+classifier across all 5 folds — while the encoder-distance-alone
+baseline (one of the combined model's own five input features)
+independently scored F1=0.244 on the same data. A trained model scoring
+literally nothing, when one of its own inputs alone scores real,
+non-trivial F1, is not a plausible "no benefit from combining" result.
+Diagnosed directly: `compare_corroboration_mechanisms.py`'s reused
+`_cv_classifier` hardcodes a `proba>=0.5` decision rule. Confirmed the
+mechanism with a synthetic check (not just inferred) — fit the identical
+logistic-regression pipeline on synthetic data at this population's
+exact ~8% positive rate, with a deliberately real, informative feature
+planted in it, and found every held-out predicted probability landed
+below 0.5 anyway (max observed 0.234) — a well-documented property of
+logistic regression under severe class imbalance (the fitted intercept
+correctly reflects the low base rate), not a defect in the reused
+fitting code itself.
+
+**Alternatives considered**
+- Report the F1=0.000 result as-is. **Rejected**: exactly the kind of
+  implausible result rule 3 exists to catch before it's trusted,
+  especially given a direct, cheap synthetic check was available to
+  confirm or rule out the suspected mechanism before spending more real
+  compute re-running anything.
+- Leave `_cv_classifier`'s fixed 0.5 threshold as the reported Arm (C)
+  result, since it's the "unmodified, reused" version literally named
+  in the pre-registration. **Rejected**: Arms (A) and (B) both already
+  use a train-fold-optimal threshold (`_best_threshold_by_f1`) rather
+  than a fixed cutoff — keeping Arm (C) at a fixed 0.5 while (A)/(B) get
+  an optimized threshold would make the three-arm comparison internally
+  inconsistent, not simpler. Added `_cv_classifier_optimal_threshold()`
+  (same nested-CV L2 selection and fit, only the threshold-selection
+  step changed to match (A)/(B)'s own convention) and recorded this as
+  a dated pre-registration addendum, written before re-running, per
+  rule 1 — a fairness correction required to make the comparison valid,
+  not a new tuning surface.
+
+**Why this choice**
+Directly executes the pre-registered protocol's actual hypothesis (does
+combining these signals help) rather than an artifact of one reused
+function's threshold convention not matching this population's class
+balance.
+
+**Measured result**
+Re-ran the full pipeline with the fix (cost: 3068s/~51 min for the
+full data-collection pass, this time cached for reuse). The F1=0.000
+bug reproduced identically under the original fixed-0.5 rule (confirming
+it is deterministic, not run-to-run noise) — and with the corrected
+threshold: (A) MFCC-alone F1=0.147 (P=0.090, R=0.541); (B) encoder-
+distance-alone F1=0.244 (P=0.343, R=0.234, real values only, 607/766
+candidates = 79.2%); (C) combined classifier F1=0.242 (P=0.314,
+R=0.244). **Failure, exactly as pre-registered**: (C) clears the bar
+against (A) (0.242 > 0.177) but not against (B) (0.242 < 0.293), and
+both were required. In practical terms, (C)'s F1 (0.242) is
+statistically indistinguishable from (B) alone (0.244) — the
+combination neither helps nor hurts meaningfully; the model appears to
+lean almost entirely on the encoder-distance feature. A real
+side-finding worth recording: encoder-distance-alone (P=0.343) is the
+strongest single number this track has produced against real candidates
+at usable precision, though scored against a different (smaller,
+acoustic-candidate-anchored) population than Stage C's original number,
+so the two are not directly comparable.
+
+Per the project owner's explicit, standing instruction, this closes the
+cheap-direction search — no further feature, model, or combination
+variant will be tried in response. Next step: Stage D planning,
+directly, described in a following entry.
+
+## 2026-08-07 — Stage D planned: scientifically motivated, not currently actionable — a real infrastructure blocker
+
+**What was done**
+Wrote the complete Stage D planning deliverable requested: what it's
+intended to achieve, why previous directions failed and why Stage D
+might succeed where they didn't (clearly labeled as inference/reasoned
+hypothesis, not evidence), major engineering/computational/data
+requirements, biggest technical risks, expected payoff relative to
+effort, and simpler alternatives worth considering first — all in
+`ASR_RESEARCH_TRACK.md`'s "Stage D planning (2026-08-07)" section,
+before writing or attempting any training code.
+
+**Checked §9's third condition directly against this project's actual
+environment, rather than assumed** — the first time this track has done
+so: `torch.cuda.is_available()` is `False`; the installed `torch` build
+is CPU-only; the only GPU present is integrated (Intel UHD Graphics
+620), not CUDA-capable; 17GB RAM; 91GB free disk. No local GPU compute
+exists for fine-tuning a Whisper-scale model. Separately, no
+large-scale, real (non-synthetic) paired disfluent-speech dataset is
+currently accessible: SEP-28k needs real audio acquisition never
+attempted (`ROADMAP.md` item 15); FluencyBank needs a CHAT-format
+parser this project doesn't have (`ROADMAP.md` item 16); LibriStutter
+(already available) is synthetic splicing, and using it as the sole
+fine-tuning target risks training a model that learns to recognize
+splice artifacts rather than genuine disfluency patterns — a
+materially worse risk for a *training* target than it has been for an
+evaluation-only set throughout this track.
+
+**Alternatives considered**
+- Attempt a minimal or token Stage D implementation anyway (e.g., a
+  tiny LoRA fine-tune on CPU, or training on LibriStutter alone despite
+  its named risk), to have *something* running today. **Rejected**:
+  this project's own §9 explicitly names the correct handling for
+  exactly this situation — "a validated future-work item, not a stalled
+  implementation" — and a token implementation on inadequate compute
+  and unverified-generalization data would risk producing a
+  confidently-wrong result, the same failure mode named as Stage D's
+  single biggest risk in the planning write-up itself. Forcing an
+  implementation here would repeat that risk rather than avoid it.
+- Treat the infrastructure gap as something to silently work around
+  (e.g., assume cloud GPU access without confirming it, or scope down
+  Stage D's ambition without saying so). **Rejected**: per this
+  project's own standing rule 8 (evidence-constrained decisions,
+  reasoning recorded so a future reader can see why) and the explicit
+  instruction to stop at a genuine blocker requiring a new decision —
+  this is exactly that blocker, named plainly rather than smoothed over.
+
+**Why this choice**
+Directly follows §9's own pre-registered, three-part test (written
+before any of today's or the accumulated evidence existed) rather than
+either forcing an implementation the evidence doesn't yet support
+infrastructurally, or quietly declining to check condition 3 at all.
+
+**Measured result**
+Not a numeric result — a complete Stage D design document and a
+directly-verified, hard infrastructure fact (no local GPU; no
+accessible real training data at volume). Stage D is now scientifically
+well-motivated (conditions 1 and 2 of this track's own gate satisfied)
+but not currently actionable (condition 3 unmet) — recorded as exactly
+that, per §9's own guidance, pending the project owner's decision on
+how to proceed (cloud GPU/budget and real-data acquisition scope, the
+cheaper real-data-generalization check named in the planning document,
+or holding Stage D as validated future work). No code written for
+Stage D itself. No change to `main`.
+
+## 2026-08-07 — Final research audit: literature-grounded close-out of the experimental phase, no new experiments
+
+**What was done**
+Per the project owner's explicit request to close out the experimental
+phase with a rigorous audit rather than continue experimenting,
+performed a documentation-and-research-review pass only: no experiment,
+model, or dataset was touched. Reviewed the full 12-experiment
+progression this track has run (Stage A through the combined-signal
+classifier) and classified findings into five explicit categories
+(high-confidence / limited-scope / open questions / Stage D hypotheses
+/ claims that must NOT be made), specifically to guard against
+overclaiming novelty — the project owner named "no existing ASR in the
+world can solve this" as an example of exactly the kind of claim this
+track's own evidence does not support (only three representations and
+two acoustic features were tested, not an exhaustive survey).
+
+**Extensive external literature research, verified directly rather
+than summarized from search results**: fetched and read 18 additional
+primary sources (foundational ASR paradigms — Whisper, CTC, RNN-T,
+Conformer, wav2vec 2.0, HuBERT, WavLM; disfluency datasets — SEP-28k,
+KSoF, FluencyBank Timestamped, LibriStutter; disfluency-aware/
+preserving ASR — most importantly Kordt et al. 2026's full paper,
+fetched as a PDF and read completely, table by table; audio-native
+dysfluency detectors — YOLO-Stutter, SSDM; forced alignment; discrete-
+audio-token speech foundation models), on top of this track's own
+13 already-verified citations from earlier sessions, for a combined,
+single bibliography of 19+ sources with title/authors/year/venue/URL.
+
+**Key finding that corrected the project owner's own framing, found and
+stated explicitly rather than simply agreed with**: the closest
+published precedent to this track's own Stage D hypothesis (Kordt et
+al., "Learning to Hear Hesitation," Interspeech 2026) already fine-tunes
+Whisper with explicit disfluency tokens using continual learning, and
+already independently confirms this track's own catastrophic-forgetting
+concern with real, quantified numbers (a documented trade-off between
+marker-F1 and general WER). Critically, their `REP` token collapses
+word- and phoneme-level repetitions into one coarse marker — it does
+not preserve or distinguish the repeated fragment's own content, and
+does not separate `sound_repetition` from `word_repetition` at this
+project's own taxonomy granularity. This means Stage D's core strategy
+(disfluency-token fine-tuning) is **not** novel in the broad sense —
+it's already published and working for coarser categories — but the
+*specific* fragment-level granularity this project's own taxonomy
+targets remains, as far as this review found, unaddressed by any
+source reviewed. This materially sharpens (and narrows) the novelty
+claim this track can defensibly make.
+
+**Alternatives considered**
+- Accept the project owner's framing at face value and write the audit
+  to confirm it. **Rejected, per explicit instruction**: "I want you to
+  independently verify my interpretation rather than simply agreeing
+  with it." The audit found the framing needed a real, specific
+  correction (see above) and stated it plainly rather than smoothing it
+  into agreement.
+- Treat YOLO-Stutter/SSDM (audio-native, ASR-bypassing, *trained/
+  learned* dysfluency detectors) as equivalent to this track's own
+  direction (g) (hand-engineered RMS/ZCR/MFCC features) and conclude the
+  problem is already solved by them. **Rejected**: neither reviewed
+  system reports results against this project's own exact fragment-
+  boundary definition, and both are architecturally more capable than
+  this track's own hand-engineered attempt — named explicitly as the
+  strongest "simpler alternative" this review surfaced, not treated as
+  a solved problem or silently ignored.
+
+**Why this choice**
+Directly executes the fifteen-part audit requested: define the
+experimental stopping point, separate evidence/inference/speculation
+with especial care around novelty, ground every major finding against
+directly-verified literature (not memory or assumption), produce a
+defensible novelty assessment, formalize Stage D's requirements and
+re-entry gate, and leave a venture/collaborator-ready brief — all
+without starting a thirteenth experiment.
+
+**Measured result**
+Not a numeric result — a complete literature-grounded research audit.
+`ASR_RESEARCH_TRACK.md` gets a new major section, "Final research audit
+— 2026-08-07," containing: Experimental Phase Stopping Point (the full
+12-experiment table and why this is a deliberate, evidence-closed
+stopping point, not an exhausted idea list); Findings Classification
+(A-E); Existing Technology & Literature Landscape (paradigm-by-paradigm
+review plus a detecting-vs-preserving distinction table); a dedicated
+`sound_repetition`-specific literature pass; "How Our Experimental
+Findings Fit the Existing Literature" (independently-supported /
+partially-supported / contradicted / not-previously-investigated,
+per finding); "Open Research Gap and Novelty Assessment" (with explicit
+confidence levels and an explicit list of claims not to make); an
+existing-approaches-vs-Stage-D comparison table with a recommended,
+precise terminology ("disfluency-preserving ASR fine-tuning with a
+fragment-level auxiliary objective," not "a new ASR"); a realistic,
+non-marketing significance assessment separated into scientific/
+technical/engineering/practical-impact categories; a formalized Stage D
+Requirements specification (data/compute/model/evaluation) and Re-entry
+Gate (do-not-start-until / ready-when); a Venture/Research Collaboration
+Brief; and a full Bibliography. `ROADMAP.md` item 10 updated with a
+pointer and summary. No code, experiment, or dataset touched. No change
+to `main`.
+
+## 2026-08-07 — Deep-pass research-positioning analysis: one material revision, a sharpened novelty claim, no new experiments
+
+**What was done**
+Per the project owner's explicit instruction to treat the same-day
+"Final research audit" (above) as preliminary input, not a final
+conclusion, and to independently verify and expand it rather than
+simply agree with it, performed a second, deeper research pass: 16
+requested sections (precise research reconstruction with exact
+numbers and an explicit "demonstrated experimentally" / "results
+suggest" / "not tested" distinction throughout; an architectural
+deep-dive on exactly where in the ASR pipeline disfluency information
+disappears; structured, individually-analyzed entries for every major
+relevant study; a field-vs-findings comparison stating the narrowest
+defensible claim per finding, not a blanket "novel"; an honest
+evidence-credibility classification; four versions of the current
+problem statement; a direct search for the exact "encoder retains it,
+decoder doesn't emit it" problem formulation; a 10-family solution
+taxonomy; a technical explanation of why standard ASR training
+structurally disfavors this project's objective; a critical
+(not assumed-correct) re-evaluation of Stage D itself; a brutally
+honest paper-worthiness assessment; an explicit "already known /
+partially known / underexplored" verdict matrix; an independently
+re-verified infrastructure "wall"; an explicit scientific-vs-
+engineering-vs-data-vs-compute gap distinction; and a final verdict
+plus a concise "Research Position as of 2026-08-07" section. Nine
+additional primary sources were fetched and read directly (two — AS-70
+and, previously, Kordt et al. — as complete PDFs, table by table), on
+top of the 19 already verified earlier the same day, for 26 total
+cited sources.
+
+**The one material revision, found by treating the prior audit as
+something to test rather than defend, and marked explicitly rather
+than silently corrected**: the prior audit claimed no accessible
+large-scale real (non-synthetic) dataset provides the fragment-level
+`sound_repetition`-vs-`word_repetition` distinction this project's
+taxonomy needs. Reading AS-70 (Gong et al., Interspeech 2024) in full
+found this claim wrong: AS-70 is real, 48.8 hours, verbatim,
+character-level-annotated Mandarin stuttered speech with an explicit
+`/r` (sound repetition — "repeated phoneme that do not constitute an
+entire character") vs. `[]` (word/phrase repetition) distinction, and
+a published wav2vec2.0 baseline achieving F1=65.76% specifically for
+`/r` on real speech. **Also found, by reading past the headline claim**:
+AS-70's own published ASR fine-tuning experiments strip disfluency
+markup before training and scoring CER — their own authors did not run
+the fragment-preservation experiment despite having exactly the right
+data sitting in front of them. This sharpens rather than resolves the
+novelty claim: the gap is not "no adequate data exists," it is "every
+individual technique needed has real precedent (including, now,
+adequate data for at least one language), and nobody has assembled and
+evaluated them together at this specific taxonomy granularity, on real
+speech."
+
+**Alternatives considered**
+- Treat the prior audit's conclusions as settled and use this pass only
+  to add breadth (more citations, more detail) without revisiting its
+  actual claims. **Rejected, per explicit instruction**: "verify and
+  expand it against the full literature, critically test our novelty
+  claims... Do not assume that reaching a 'stopping point' means there
+  is nothing left to investigate." Finding and reporting the AS-70
+  correction is the direct product of not doing this.
+- Soften the AS-70 finding to avoid contradicting the same-day prior
+  audit. **Rejected**: the project owner's own instruction was explicit
+  — "If the literature shows that something we thought was novel has
+  already been done, tell me" — stated plainly instead, with the
+  historical reasoning preserved above it, not deleted.
+
+**Why this choice**
+Directly executes a genuinely independent, skeptical second pass rather
+than a restatement of the first — the value of this exercise is
+specifically in finding what the first pass missed or got wrong, which
+it did (materially, on the data-availability question).
+
+**Measured result**
+Not a numeric result — a complete, independently-verified research-
+positioning analysis. `ASR_RESEARCH_TRACK.md` gets a new major section,
+"Comprehensive research-positioning analysis — 2026-08-07 (deep pass),"
+16 subsections plus a closing "Research Position as of 2026-08-07"
+summary and an expanded bibliography (7 new sources, B20-B26). Final
+verdict, stated precisely: the barrier is an engineering-and-assembly
+gap compounded by a project-specific (English-language) data gap and a
+project-specific compute gap — not a field-wide scientific unknown.
+Stage D remains justified per this track's own pre-registered §9 gate,
+now with a cheaper, newly-identified minimum-viable path (an AS-70-
+first, Mandarin, reduced-scale pilot, testing the *method* independent
+of the English-data problem, before committing to English-language
+data acquisition). Papers A (empirical characterization), B (failure
+analysis), and C (representation study) are assessed as supportable
+now, pending one real-speech validation pass; Papers D (proposed
+architecture) and E (full system) require Stage D's own results first.
+`ROADMAP.md` item 10 updated with a pointer and summary. No code,
+experiment, or dataset touched. No change to `main`.
+
+## 2026-08-07 — Novelty-falsification pass: L1-L4 operationalized, a further material revision, primary sources traced to the actual paper
+
+**What was done**
+Per the project owner's own direct verification of the AS-70 primary
+source and a request for a stricter, four-level operationalization
+(L1: ASR for stuttered speech; L2: verbatim vs. normalized output; L3:
+explicit disfluency-type representation; L4: actual repeated-fragment
+*content* preserved, e.g. "c-c-cat," not a generic marker), traced the
+Hugging Face `StutteredSpeechASR` model card to its actual technical
+paper rather than accepting the card's own (notably incomplete —
+"word repetitions and interjections," not sound repetitions)
+description. Fetched and read Li, Li, Gong, Wang, & Wu's "Our
+Collective Voices" (FAccT 2025) in full — 16 pages including the
+appendix, via the authors' own open preprint, not a paywalled or
+summarized version — and confirmed it is the technical paper behind
+both `StutteredSpeechASR` and the `StammerTalk`/`AS-70` dataset
+(overlapping authors, identical scale, identical annotation schema).
+
+**Real, quantified L2 confirmation, directly verified**: the paper's
+own fine-tuned Whisper deletion-error rate (the error type triggered by
+omitting a repetition) dropped from 26.56% to 2.29% (severe stuttering)
+and 15.77% to 1.27% (moderate) after fine-tuning on literal (verbatim,
+markup-stripped-but-content-real) transcriptions — genuine, first-party
+evidence L2 is solved, on real speech.
+
+**The precise L4 evidence, read directly from the paper's own Tables
+3-4**: one concrete example shows a `/r` (sound-repetition) annotation
+on a single character; the baseline model's output at that position is
+a single wrong homophone character with no repeat structure at all —
+even in the same utterance where a word-level repeat elsewhere
+partially (if garbled) survived. **A real, honestly-stated gap in what
+this paper demonstrates**: no corresponding fine-tuned-model output
+example for a `/r` event was found in the paper — only aggregate,
+severity-level CER/deletion-rate numbers, not a qualitative comparison
+isolated to sound-repetition events. This was not filled by assumption
+in either direction.
+
+**A further, material, explicitly-marked revision to this same day's
+earlier deep pass**: comparing the annotation convention across both
+papers ("小/r明," "自/r卑的" — always a marker on one whole existing
+character) against what true L4 requires, this review's own reasoned
+inference (stated explicitly as inference, not attributed to either
+paper) is that Chinese orthography has no sub-character grapheme
+available to write a phonetic fragment as literal text — word-level
+repeats can be written as genuinely repeated whole characters (which is
+exactly why StammerTalk's word-level content preservation is real and
+demonstrated), but a sound-level fragment has no comparable written
+form. **If correct, this means AS-70/StammerTalk — despite being the
+best real, right-granularity data this entire review found — may be
+structurally unable to test this project's actual L4 hypothesis for
+`sound_repetition`,** independent of model or training-method choice.
+This revises, not merely extends, the deep pass's "AS-70-first,
+Mandarin pilot" recommendation: that pilot remains real and useful for
+de-risking the *training recipe* (verbatim-target fine-tuning,
+catastrophic-forgetting control, using StammerTalk's own directly-
+demonstrated approach), but cannot substitute for eventually testing
+fragment-content preservation in English or another alphabetic-script
+language, which is the specific question Stage D exists to answer.
+
+**Alternatives considered**
+- Accept the Hugging Face model card's own claims at face value, since
+  it explicitly says the model "preserves disfluencies." **Rejected**:
+  the card itself doesn't specify sound-repetition preservation (only
+  "word repetitions and interjections"), gives no example output, and
+  doesn't define "verbatim" precisely enough to answer L4 — exactly the
+  kind of secondary-source gap this project's own citation discipline
+  exists to close by going to the primary source instead.
+- Treat AS-70/StammerTalk's real, demonstrated L2 success as sufficient
+  evidence that L4 is also likely solved, by extension. **Rejected**:
+  checked directly instead of assumed — L2 (verbatim vs. normalized)
+  and L4 (fragment-content preservation, specifically for sound-level
+  repetition) are different claims, and the paper's own qualitative
+  examples show a real, unresolved gap at exactly the point that
+  matters for L4.
+- Present the Mandarin-script structural finding as an established fact
+  from the literature. **Rejected**: explicitly labeled as this
+  review's own inference throughout, since no source read states it
+  directly — consistent with the project owner's own instruction to
+  distinguish "demonstrated by our experiments" / "supported by
+  literature" / "inferred" / "still hypothetical" precisely.
+
+**Why this choice**
+Directly executes the requested stricter falsification pass — the
+value of operationalizing L1-L4 and tracing every claim to its primary
+source is specifically in finding exactly where the evidence stops,
+which it did (at L4 for sound-level fragments), and in catching a
+further real revision (the script-structural finding) that the
+broader, less strict deep pass did not surface.
+
+**Measured result**
+Not a numeric result — a precise, primary-source-traced novelty
+falsification. `ASR_RESEARCH_TRACK.md` gets a new section, "Novelty-
+falsification pass — 2026-08-07," with the operationalized L1-L4
+framework, the revised three-level verdict (L1/L2 already solved; L3
+partially solved; L4 for `sound_repetition` specifically remains
+unaddressed), and a revised (not silently replaced) recommendation:
+Stage D at true L4 preservation, most plausibly in English, is a
+genuine contribution, not a reassembly of existing techniques — but the
+Mandarin pilot named in the deep pass, while still useful for the
+training-recipe question, cannot test the actual hypothesis on its own.
+`ROADMAP.md` item 10 updated with a pointer and summary. No code,
+experiment, or dataset touched. No change to `main`.
+
+## 2026-08-07 — Application-Objective Decision Analysis: reinterpreting two sessions of research through the project's actual product objective
+
+**What was done**
+The project owner issued an explicit, direct course correction: the prior
+four entries today (final research audit, deep-pass positioning analysis,
+novelty-falsification pass) had drifted into treating "finding a novel,
+unaddressed ASR research gap" as the destination, when the project's
+actual objective — stated by the owner in full — is an application that
+takes a speaker's audio and reliably extracts the disfluencies actually
+occurring in it, so they can be localized, classified, and used downstream
+(rephrasing, synonym substitution) to help the speaker toward more fluent
+speech. Novelty is a side effect worth documenting honestly, never a goal
+to steer toward. Per this instruction, inserted a "## PROJECT OBJECTIVE"
+section near the top of `ASR_RESEARCH_TRACK.md` (before all prior
+sections) stating this explicitly and flagging that later sections'
+implicit L4 (fragment-content-preservation) framing was likely the wrong
+target read against the actual objective. Then wrote a full 10-part
+"Application-Objective Decision Analysis" re-examining this track's
+entire evidence base — Stage A/B/C, direction (g), the RMS/ZCR and MFCC
+failures, the combined-signal classifier failure, and all four literature
+passes — against that corrected objective: (1) what the application
+actually needs (detection/localization/classification of disfluencies;
+the *intended* clean content, not necessarily the disfluent fragment's
+literal content); (2) what the current pipeline already provides, mapped
+per-type; (3) the literature re-scored against "solves our actual
+requirement," not "is novel" (finding Kordt et al.'s marker-token approach
+and Huang et al.'s joint ASR+SED result closer to solving the real problem
+than the earlier framing credited them for); (4) the best existing
+solution by that criterion, not by novelty; (5) what this track's own
+experiments actually found, separated by category and not overgeneralized;
+(6) what remains genuinely unsolved for the application (narrowed to a
+detection/candidate-generation gap, not an alignment or output-
+representation problem); (7) Stage D re-evaluated (not currently
+necessary; if it becomes necessary, re-scoped from L4 to L2); (8) a
+ranked implementation roadmap (Rank 1: extend item 17's own full-raw-
+embedding classifier methodology to candidate generation, no new data or
+GPU; Rank 2: a learned acoustic detector matching YOLO-Stutter/SSDM's
+architecture class; Rank 3, fallback only: re-scoped Stage D); (9)
+novelty kept explicitly secondary, reported accurately either way; (10) a
+final, explicit decision statement in the owner's requested format,
+naming Rank 1 as the concrete next step. Closed with an explicit "Decision
+for Next Session" section per the owner's direct request, telling a future
+session to open with implementation (Rank 1), not further research.
+
+**Alternatives considered**
+- Treat this as a lightweight addendum to the existing novelty-focused
+  sections rather than a first-class section of its own. **Rejected**:
+  the owner explicitly required the objective to be placed *above* the
+  novelty question in a way "impossible for a future session to mistake,"
+  which a buried addendum would not achieve — hence the standalone
+  "PROJECT OBJECTIVE" section placed before everything else, plus a full
+  dedicated decision-analysis section rather than scattered edits.
+- Silently revise the prior four entries' conclusions to match the
+  corrected framing. **Rejected**, per the owner's own explicit
+  instruction ("Preserve all existing experimental evidence and
+  citations. Do not rewrite history or silently change conclusions.") and
+  this project's own standing rule 2 (append-only decision log) — the
+  prior audits stand as written, with the new section explicitly marked
+  as the current governing interpretation that supersedes their framing
+  without deleting it.
+- Let the decision analysis recommend Stage D anyway, since three prior
+  passes had built toward it. **Rejected** — re-reading the same evidence
+  against the actual requirement (detection, not fragment-content
+  preservation) shows two cheaper, untried, evidence-motivated options
+  (Rank 1/2) that were never disqualified by any experiment this track
+  ran; recommending Stage D first would have been schedule-momentum, not
+  evidence, exactly what standing rule 8 warns against.
+- Recommend further literature research as the next step, given how much
+  the last two research passes turned up. **Rejected**, directly per the
+  owner's own explicit instruction: "Do not continue experimenting
+  indefinitely... I want the research to converge toward implementation."
+
+**Why this choice**
+This entry is not a new experimental result — it is a correction of what
+question this track's evidence should be read as answering. The prior
+audits' literature findings, bibliography, and experimental results all
+remain valid and cited; what changes is which of them the project should
+act on next, evaluated against the application's real requirement instead
+of against "is this the first time anyone has done this."
+
+**Measured result**
+Not a numeric result — a documentation and decision-analysis pass.
+`ASR_RESEARCH_TRACK.md` gets a new top-of-file "PROJECT OBJECTIVE" section
+and a new "Application-Objective Decision Analysis — 2026-08-07" section
+(10 parts plus a "Decision for Next Session" close), superseding, not
+deleting, the novelty-centered framing of the four prior same-day entries.
+`ROADMAP.md` item 10 updated with a pointer and summary. No code,
+experiment, or dataset touched. No change to `main`.
+
+## 2026-08-07 — Rank 1 (full-embedding candidate-generation classifier): pre-registered, implemented, run — Failure on deployability, real signal confirmed
+
+**What was done**
+Per the project owner's explicit go-ahead to proceed with Rank 1 (item
+10's own ranked roadmap, above), pre-registered a full 9-part protocol in
+`ASR_RESEARCH_TRACK.md` before writing any code — population, ground
+truth, baseline, metrics, a concrete decision gate (including an exact,
+numeric per-fold stability rule for calling a result Inconclusive,
+fixed before running), what would justify Rank 2 vs. Stage D, and the
+downstream integration path if the result were Success. The core idea:
+item 17's own shipped classifier mechanism ((S1-full, M3): the full raw
+~1280-dim CrisperWhisper encoder embedding, nested-CV L2-regularized
+logistic regression) has only ever been applied to *corroboration*
+(is an already-flagged candidate real or a false positive?). Stage B/C
+separately found a real, Cohen's-d-confirmed encoder signal at
+candidate-*generation*-gap positions (where the ASR transcript shows
+zero surface evidence of a real repetition) but only ever tested a
+single hand-picked scalar (cosine distance to a fluent centroid, with a
+threshold). Rank 1 asks whether giving the *full* embedding to item 17's
+own classifier mechanism, on that same gap population, does better than
+the one scalar did. Implemented as `profiling/evaluation/stage_h_
+candidate_generation_classifier.py`, reusing `stage_b_representation_
+probe.py`'s population-identification logic, `compare_corroboration_
+mechanisms.py`'s CV/threshold machinery, and `stage_combined_
+classifier.py`'s already-fixed train-fold-optimal-threshold convention,
+all unmodified. Self-tested (8/8: decision-gate logic on hand-constructed
+win/floor/inconclusive cases, row-packing round-trip) before running the
+real, ~33-minute encoder pass over the 58 real LibriStutter clips that
+contain at least one qualifying position.
+
+**Result**: primary population (`word_repetition` + `sound_repetition`
+combined, n_pos=66, n_neg=1780) — baseline (distance-to-centroid +
+CV threshold) F1=0.097 (P=0.055, R=0.462); Rank 1 classifier F1=0.230
+(P=0.580, R=0.147). Clears the pre-registered relative bar (>=20%
+relative F1) by a wide margin — precision improved roughly 10x. Does
+**not** clear the pre-registered absolute usability floor (precision
+>=0.15 AND recall >=0.3) — recall (0.147) falls well short. Per-fold
+direction was stable (4 wins / 1 loss of 5), so the result is a genuine
+Failure under the pre-registered gate, not an Inconclusive call. Per-type
+cuts (`sound_repetition` n_pos=37, `word_repetition` n_pos=29) both
+landed Inconclusive under the pre-registered per-fold stability rule —
+too few examples to call either way, exactly the caveat pre-registered
+for them (`word_repetition`'s classifier scored F1=0.000 on every fold,
+which looks like an obvious loss on the raw number, but the stability
+rule correctly refuses to call it Failure given only 29 positives and a
+3-of-5, not 4-of-5, loss margin — a deliberately conservative rule
+working as designed).
+
+**Alternatives considered**
+- Report this as an unqualified negative result ("full embedding doesn't
+  help"). **Rejected**: the data does not support that — precision
+  improved ~10x and mean F1 more than doubled, a real, cross-validated,
+  directionally-stable effect. The correct, honest characterization is
+  narrower: the classifier *works* in the sense of finding a real,
+  learnable, precise signal, but at this sample size (66 positives) it is
+  too conservative (low recall) to be usable on its own, and this
+  experiment cannot distinguish a genuine representation ceiling from a
+  sample-size artifact — stated as an open, unresolved question, not
+  glossed over in either direction.
+- Loosen the absolute recall floor after seeing the result, since
+  precision so clearly cleared its half. **Rejected**, directly per
+  standing rule 4 (never tune criteria in response to a result without
+  explicit go-ahead) and rule 1 (the floor was fixed in the pre-
+  registration before the run) — the floor was chosen specifically so
+  that a "big relative win, still practically unusable" outcome could not
+  be reported as Success by construction, and this result is exactly the
+  case that floor exists to catch.
+- Treat this Failure as sufficient justification for Stage D. **Rejected**
+  per the project owner's own explicit instruction and the pre-
+  registration's own §7: this result is about representation/sample-size
+  on the encoder side specifically; it says nothing about whether a
+  purpose-built acoustic detector (Rank 2) would do better, and Stage D
+  remains a reserve option gated on both Rank 1 *and* Rank 2 failing, not
+  either alone.
+
+**Why this choice**
+This is the exact question the project owner asked to have answered
+before deciding what comes next, answered with a pre-registered,
+cross-validated, self-tested experiment reusing this project's own
+proven infrastructure — no new data, no GPU, no new dependency. The
+result is genuinely informative either way: it confirms the full
+embedding carries more usable signal than the single scalar reduction
+(the underlying hypothesis was right), while being honest that this
+specific sample size cannot yet turn that signal into a deployable
+detector — precisely the kind of "established / promising / failed /
+unknown" distinction the project owner asked this pass to preserve.
+
+**Measured result**
+Numeric, reported in full above and in `ASR_RESEARCH_TRACK.md`'s "Rank 1
+results" section; raw output also saved to `eval_results/20260807T193221_
+stage_h_candidate_generation_classifier.json` and the cached row-level
+dataset to `eval_results/_stage_h_rows_cache.npz`. Verdict: **Failure**
+on the primary population (deployability floor, not the relative-
+improvement bar), **Inconclusive** on both per-type cuts. Per the
+pre-registered roadmap, next step is Rank 2 (a learned acoustic
+detector), not Stage D. `ROADMAP.md` item 10 updated with a pointer and
+summary. New file: `profiling/evaluation/stage_h_candidate_generation_
+classifier.py`. No change to `main`.
+
+## 2026-08-07 — Rank 2 (learned acoustic candidate-generation classifier): pre-registered, implemented, run — marginal Failure; synthesis decision names the real next step
+
+**What was done**
+Per the project owner's explicit instruction to complete Rank 1's own
+decision gate immediately (Failure -> Rank 2) and run the *full* Rank 2
+cycle — plan, implement, test, run, diagnose, document, decide — in the
+same session without stopping to ask permission, pre-registered a second
+full protocol in `ASR_RESEARCH_TRACK.md` before writing any code. Rank
+2's question is deliberately different from Rank 1's: not "does the ASR
+encoder's representation help" (Rank 1's question) but "does *learning*
+a combination of raw acoustic features beat the *hand-designed* single
+similarity scalar direction (g) already tried" — acoustic-only, no ASR,
+no encoder, matching direction (g)'s own scope exactly. Designed a
+26-dimensional feature per acoustic candidate (mean + std of each MFCC
+coefficient, 1-12, across the candidate's bursts — generalizing direction
+(g)'s pairwise-cosine-similarity idea to any burst count while letting a
+classifier weight each coefficient independently instead of forcing all
+of them into one fixed geometric formula), fed into the exact same
+nested-CV logistic-regression machinery this track has used for every
+classifier so far (item 17, the combined-signal classifier, Rank 1).
+Explicitly scoped down from YOLO-Stutter/SSDM's own deep, GPU-trained
+architecture class to a CPU-feasible approximation, stated as such rather
+than claimed as parity. Implemented as `profiling/evaluation/stage_i_
+learned_acoustic_classifier.py`, reusing `stage_g_acoustic_sound_
+repetition.py`'s exact candidate-span-detection logic (re-derived in a
+new function only because the existing `AcousticCandidate` doesn't expose
+individual burst spans, not because the span logic itself needed
+changing) and `compare_corroboration_mechanisms.py`/`stage_combined_
+classifier.py`'s unmodified CV/threshold/decision-gate machinery.
+Self-tested (12/12: candidate/burst extraction on hand-constructed
+segments, feature construction on synthetic identical-vs-degenerate
+bursts, decision-gate logic, row round-trip) before running.
+
+**A real, deliberate scale-up**: because Rank 2 needs no CrisperWhisper
+encoder pass, it was run over all 499 real LibriStutter clips (not
+direction (g)'s original 120) — 358 seconds total, matching the
+pre-registered cost estimate exactly. This gave 245 positive
+`sound_repetition` candidates, several times larger than either
+direction (g)'s original sample (51) or Rank 1's (66).
+
+**Result**: baseline (mean MFCC similarity + CV threshold) F1=0.133
+(P=0.077, R=0.531); Rank 2 classifier (raw per-coefficient MFCC stats +
+nested-CV logistic regression) F1=0.163 (P=0.114, R=0.308). Per-fold
+direction stable (4 wins / 1 loss of 5). Clears the pre-registered
+relative bar (+20%) but only barely — the margin (0.163 vs. a 0.160 bar)
+is smaller than either arm's own fold-to-fold F1 range, an honesty check
+applied and reported rather than left implicit. Clears the recall half of
+the absolute usability floor (0.308 vs. ≥0.3) narrowly, but **not** the
+precision half (0.114 vs. ≥0.15) — **Failure** under the pre-registered
+gate. Audited before trusting (rule 3): this experiment cannot rule out
+that the 26-dim classifier is mostly rediscovering a well-calibrated
+version of the same "how similar are these bursts" concept the single
+hand-designed scalar already captures, rather than genuinely exploiting
+the richer per-coefficient information — reported as a real, unresolved
+limitation, not glossed over in either direction.
+
+**Synthesis and next-step decision** (per the project owner's explicit
+request to explain, after a Rank 2 failure, whether Stage D or another
+low-cost direction is now justified): Rank 1 and Rank 2 together show two
+independent representations (ASR encoder embedding; raw acoustic MFCC
+statistics) each carrying real, cross-validated, non-random signal for
+this exact gap, with *differently shaped* failure modes (Rank 1: large
+precision gain, big recall loss; Rank 2: small precision gain, moderate
+recall loss) — evidence the two are not redundant. A concrete, specific,
+genuinely untried option exists that is meaningfully different from the
+already-failed combined-signal classifier (which only ever combined weak
+*hand-picked scalars* from each domain, F1=0.242): a classifier combining
+Rank 1's *full* embedding with Rank 2's *full* 26-dim acoustic features
+together. This remains cheap (no new data, no GPU — one more encoder pass
+scoped to Rank 2's candidate population). Per the project owner's own
+explicit decision hierarchy (existing components first; cheapest reliable
+recovery method second; Stage D only once those demonstrably fail) and
+this session's own pre-registered exit condition, **Stage D is judged
+not yet justified** — this combined-rich-feature classifier is the
+identified low-cost direction that should be tried first; Stage D
+becomes the honestly-earned next step only if that also fails.
+
+**Alternatives considered**
+- Report the relative-bar pass (0.163 > 0.160) as a straightforward win
+  on that half of the criterion. **Rejected**: the margin is smaller than
+  ordinary fold-to-fold noise in this same experiment — reporting it
+  without that context would be technically true but misleading about
+  how meaningful the "beats_bar=True" flag actually is. Stated plainly
+  instead, per rule 3's audit-before-trusting discipline.
+- Treat this Failure (on top of Rank 1's) as sufficient grounds to move
+  to Stage D immediately, since two representation-side experiments have
+  now both fallen short. **Rejected**: neither experiment tried the *rich*
+  combination of both signals together — only each alone, plus an
+  earlier, already-documented attempt using weak scalars from both. Per
+  standing rule 8 (evidence-constrained, not preservation- or momentum-
+  constrained decisions) and the project owner's own explicit tiered
+  hierarchy, a real untried cheap option must be exhausted, or at least
+  named and reasoned about, before a materially larger commitment
+  (GPU, new data acquisition) is called for.
+- Implement and run the combined-rich-feature classifier immediately in
+  this same session, rather than only naming it. **Rejected**, directly
+  per the project owner's explicit instruction to stop the experimental
+  chain at the pre-registered stopping point after Rank 2 and not
+  introduce additional variants inside the same pass — named precisely
+  as the next step for a future session instead.
+
+**Why this choice**
+This is the exact question the project owner asked to have answered:
+given both pre-registered experiments' real results, does the evidence
+point toward Stage D or toward a cheaper alternative? Naming a specific,
+reasoned, genuinely-different next option — rather than either defaulting
+to Stage D on momentum or silently proposing an open-ended new
+experiment — is the discipline the project's own standing rule 8 and the
+Application-Objective Decision Analysis both call for: evidence-
+constrained decisions, recorded so a future reader sees the reasoning,
+not just the verdict.
+
+**Measured result**
+Numeric, reported in full above and in `ASR_RESEARCH_TRACK.md`'s "Rank 2
+results" and "Rank 1 + Rank 2 synthesis and next-step decision" sections;
+raw output also saved to `eval_results/20260807T202145_stage_i_learned_
+acoustic_classifier.json` and the cached row-level dataset to
+`eval_results/_stage_i_rows_cache.npz`. Verdict: **Failure** (marginal,
+on the precision half of the absolute floor). Synthesis verdict: **Stage
+D not yet justified**; the combined-rich-feature classifier (Rank 1's
+embedding + Rank 2's acoustic stats together) is the named next step.
+`ROADMAP.md` item 10 updated with a pointer and summary. New file:
+`profiling/evaluation/stage_i_learned_acoustic_classifier.py`. No change
+to `main`.
+
+## 2026-08-07 — Rank 3 (combined rich-feature classifier): the final bounded experiment, Inconclusive with an instability signature, Stage D decision made
+
+**What was done**
+Per the project owner's explicit instruction to run the combined-
+rich-feature classifier immediately as the final bounded low-cost
+experiment — without stopping to ask first, diagnosing genuine bugs if
+any, and ending with a clear evidence-based Stage D decision either way,
+not another new variant if this one also failed — pre-registered a third
+full protocol in `ASR_RESEARCH_TRACK.md`. Rank 3's design choice: reuse
+the *exact* population Phase A's original combined-signal classifier
+used (the first 120 real LibriStutter clips' acoustic candidates, 766
+total, `sound_repetition` only) rather than Rank 2's larger 499-clip
+population, deliberately trading sample size for a clean, directly
+comparable re-test of Phase A's own already-published Arm A (MFCC-alone,
+F1=0.147) and Arm B (encoder-distance-alone, F1=0.244) baselines — the
+cleanest possible "did richer features help" comparison. Concatenated
+Rank 1's full ~1280-dim encoder embedding (pooled at each acoustic
+candidate's overlapping ASR token, median-imputed with a has-signal
+indicator where uncoverable — reusing `stage_combined_classifier.py`'s
+already-validated imputation convention) with Rank 2's full 26-dim raw
+per-coefficient MFCC statistics, into one ~1307-dim feature vector per
+candidate, fed through the same nested-CV logistic regression this track
+has used throughout. Explicitly pre-registered, before running, that this
+dimensions-to-samples ratio (1307 / ~613 per training fold) was
+foreseeably worse than either Rank 1 or Rank 2 individually — a real risk
+stated up front, not discovered after the fact. Implemented as
+`profiling/evaluation/stage_j_combined_rich_classifier.py`. Self-tested
+(11/11) — one self-test authoring bug was caught and fixed before
+trusting the suite: two hand-constructed comparison arms were
+accidentally given identical F1 values, collapsing an intended "beats
+one baseline but not the other" test case into a tied, already-correct
+Inconclusive result; the decision-gate logic itself was right, only the
+test's own input data needed fixing (documented here per rule 3's audit
+discipline, applied to test code as much as production code).
+
+**Result**: population reproduced Phase A's original counts exactly
+(766 candidates, 62 positive) and both baselines recomputed fresh landed
+on Phase A's exact original numbers (Arm A F1=0.147, Arm B F1=0.244) —
+confirming this is a genuinely clean, unconfounded re-test, not a
+different population being silently compared. Combined classifier
+F1=0.254 (P=0.330, R=0.257) — nominally the highest mean F1 of the three
+arms. But the pre-registered per-fold stability check (combined vs. Arm
+B, the stronger baseline) came back 2 wins / 3 losses of 5 folds — the
+combined classifier actually lost to the single encoder-distance scalar
+on a majority of folds despite winning on the mean. The combined
+classifier's own fold-to-fold F1 range (0.091-0.400) is far wider than
+either individual arm's, and its worst fold (0.091) is worse than Arm
+A's worst fold (0.121) — the concrete, pre-registered-as-a-risk signature
+of an unstable, high-variance fit at this dimensionality, not a real
+generalizable improvement that happens to look noisy. Per the
+pre-registered gate: **Inconclusive**.
+
+**Final synthesis and Stage D decision**: taken together with Rank 1
+(clean Failure, recall) and Rank 2 (clean Failure, precision, marginal),
+Rank 3's Inconclusive-with-instability result is judged, as a considered
+whole, sufficient evidence that this project's representation-side,
+no-new-data classifier-fitting approach has reached a genuine small-
+sample ceiling — not a "look harder with one more feature" situation.
+Three independent representations (encoder alone, acoustic alone, both
+combined) have each been tried; the richest one became *less* stable, not
+more powerful, exactly the signature of running out of real labeled
+examples (62-245 depending on population) to fit an increasingly
+high-dimensional decision boundary against. **Decision: Stage D,
+re-scoped to L2 (stop deleting disfluency information during decoding,
+per the Application-Objective Decision Analysis), is now judged the
+evidence-justified next step.** Per the project owner's explicit
+instruction, no fourth feature/variant is proposed in its place.
+
+**Alternatives considered**
+- Report the combined classifier's higher mean F1 (0.254) as a modest
+  win, since it is numerically the best of the three arms. **Rejected**:
+  the pre-registered stability check exists precisely to catch this —
+  a mean improvement built from 2 wins and 3 losses, with a wider
+  variance and a worse worst-case fold than even the weakest baseline,
+  is not evidence of a real effect. Reporting the mean alone without the
+  per-fold picture would have been technically true and substantively
+  misleading.
+- Treat Inconclusive as insufficient grounds for any decision and
+  recommend a fourth experiment (e.g. a smaller, more regularized feature
+  set, or a different combination). **Rejected**, directly per the
+  project owner's explicit instruction not to invent another feature/
+  variant if this one failed, and because the specific *shape* of the
+  Inconclusive result (instability from added dimensionality, not a near-
+  miss) is itself informative enough, combined with Rank 1/2's own clean
+  Failures, to support a real decision rather than another cheap
+  iteration.
+- Treat this as insufficient to recommend Stage D, since Rank 3's own
+  verdict was Inconclusive, not Failure, and defer the Stage D question
+  again. **Rejected**: the project owner explicitly asked for the
+  evidence-based Stage D decision now, given this exact outcome — and per
+  standing rule 8, a considered decision over the *combined* weight of
+  three real experiments (two clean Failures plus one Inconclusive-with-
+  a-specific-diagnostic-shape) is exactly the kind of evidence-
+  constrained call that rule authorizes, recorded with its reasoning, not
+  a default.
+
+**Why this choice**
+This is the exact question the project owner asked to have answered at
+the end of this bounded three-experiment sequence: given everything
+tried, is Stage D now justified? The answer is reasoned from the full
+arc, not from Rank 3 in isolation — each experiment's specific failure
+shape (not just pass/fail) is what makes the aggregate conclusion
+defensible: two clean floor-misses plus a combination that got *less*
+stable when given more information, together, are the signature of a
+data-quantity ceiling this project's existing representations and no-
+new-data classifier-fitting approach cannot get past on their own.
+
+**Measured result**
+Numeric, reported in full above and in `ASR_RESEARCH_TRACK.md`'s "Rank 3
+results" and "Final synthesis" sections; raw output saved to
+`eval_results/20260807T214951_stage_j_combined_rich_classifier.json` and
+the cached row-level dataset to `eval_results/_stage_j_rows_cache.npz`.
+Verdict: **Inconclusive** (Rank 3 alone); **Stage D judged evidence-
+justified** (final synthesis over all three experiments). `ROADMAP.md`
+item 10 updated with a pointer and summary. New file: `profiling/
+evaluation/stage_j_combined_rich_classifier.py`. No change to `main`.
+
+## 2026-08-07 — End-of-day research consolidation: additive synthesis, no new experiment
+
+**What was done**
+Per the project owner's explicit, detailed instruction to close out the
+day with an *additive* consolidation (not a rewrite) of the entire
+`asr-research` branch's research record, reviewed all four project
+documents (`ASR_RESEARCH_TRACK.md`, `ROADMAP.md`, `PAPER_DECISION_LOG.md`,
+`CHANGELOG.md`) and confirmed every item the project owner explicitly
+asked to be incorporated was already present in full detail somewhere in
+`ASR_RESEARCH_TRACK.md` (direction (g), the RMS/ZCR result, the cross-
+clip scoring bug, MFCC escalation, the coefficient-0 bug, the combined-
+signal classifier, Rank 1/2/3, the literature falsification work covering
+AS-70/StammerTalk/Kordt et al./StutteredSpeechASR/Whisper/HuBERT/WavLM,
+the application-objective reorientation, the Stage D cost/infrastructure
+analysis, and the L2-vs-L4 distinction) — verified by section-header
+inventory before writing anything, not assumed. Added one new, clearly-
+demarcated section, "Current Project State — 2026-08-07 EOD," at the very
+end of `ASR_RESEARCH_TRACK.md`: a complete, properly cross-referenced
+synthesis covering the primary objective (restated first, per the project
+owner's explicit requirement that it be impossible to miss), the full
+chronological experimental story with real numbers and pointers into the
+detailed sections, a precise Experimentally-Demonstrated/Strongly-
+Supported/Supported-by-Literature/Inferred/Unresolved/Not-Tested/Proposed
+classification (deliberately avoiding both "ASR cannot solve this" and
+"nobody has solved this" as the project owner explicitly named), a
+literature position table reframed around "what can we use" rather than
+novelty, a reassessed application requirement list, a retrieved-and-
+updated (not reinvented) Stage D summary explicitly noting the L2 rescope
+and tonight's "not yet justified" -> "evidence-justified" evolution, an
+explicit current-stopping-point statement, a 10-step next-session plan
+that supersedes (via an in-place marker, not a deletion) the now-stale
+"Decision for Next Session" written earlier the same day, and guidance on
+which file to share with collaborators. Added matching, non-duplicative
+pointer entries to `ROADMAP.md` item 10 and this same-day `CHANGELOG.md`
+entry.
+
+**Alternatives considered**
+- Rewrite or compress any existing section for stylistic consistency now
+  that the full day's story is known. **Rejected**, directly per the
+  project owner's explicit, repeated instruction: "Do not shorten
+  existing literature reviews, experiment descriptions, citations,
+  methodology, or reasoning just because you can summarize them... Do not
+  replace detailed sections with summaries." Every section that existed
+  before tonight remains completely unedited.
+- Silently correct the now-outdated "Decision for Next Session" section
+  (written before Rank 1-3 existed) to reflect tonight's actual plan.
+  **Rejected**: marked superseded in place, with a short dated note
+  explaining exactly what changed and pointing to the new authoritative
+  section, per the project owner's own explicit rule 4 ("If an earlier
+  conclusion is superseded, DO NOT erase its history. Mark it as
+  superseded/revised and explain what new evidence changed it").
+- Duplicate the full Stage D design/requirements detail into the new EOD
+  section, in case a reader doesn't follow the pointer. **Rejected**:
+  the project owner explicitly asked to "retrieve and update the
+  previous Stage D analysis rather than inventing a new one" — the EOD
+  section summarizes and cross-references the existing "Stage D planning"
+  and "Stage D Requirements / Re-entry Gate" sections rather than
+  restating them at full length, avoiding exactly the kind of
+  unnecessary duplication the project owner also asked to avoid ("Do not
+  duplicate thousands of lines unnecessarily across all four files").
+
+**Why this choice**
+This is a documentation-and-synthesis pass, not a research pass — its
+value is entirely in making the existing, already-correct research record
+navigable and complete for a reader (human or a future Claude session)
+who was not present for today's work, without risking the loss or
+distortion of any of the historical reasoning, citations, or measured
+results that make this track's conclusions trustworthy in the first
+place.
+
+**Measured result**
+Not a numeric result — a documentation consolidation. `ASR_RESEARCH_
+TRACK.md` gains one new section ("Current Project State — 2026-08-07
+EOD") and one superseded-marker addition to an existing section; no
+existing section's own text was edited, shortened, or removed.
+`ROADMAP.md` item 10 and `CHANGELOG.md` gain matching pointer entries. No
+code, experiment, or dataset touched. No change to `main`.
+
+---
+
+## 2026-08-08 — External review reconciliation: Stage D re-classified premature, not rejected
+
+**What was done**
+Received `EXTERNAL_REVIEW_2026-08-07.md`, an independent adversarial
+review of the `asr-research` track arguing its 2026-08-07 "Stage D is
+the evidence-justified next step" decision rested on an incomplete
+literature map (centrally, a missed paper/system, Dysfluent-WFST,
+arXiv:2505.16351). Per the project owner's explicit instruction, neither
+document was taken at face value. Ran four independent primary-source
+verification passes (as parallel research agents, no code written):
+(1) fetched the Dysfluent-WFST paper and GitHub repo directly; (2)
+verified every disputed dataset claim (Switchboard/MsState, SEP-28k-SW,
+Boli, Buckeye, FluencyBank Timestamped, LibriStutter's construction,
+AS-70, Libri-Dys/VCTK-Stutter) against primary sources; (3) verified
+every disputed statistical/citation claim (Zayats et al.'s human
+transcription-error rates, SEP-28k inter-annotator kappa by type, the
+StutterFuse characterization, Gulzar et al.'s LibriStutter non-verbatim
+finding, Shih et al.'s F1 baseline, the alignment-gap classifier's
+coverage figure); (4) verified current cloud-GPU pricing/free-tier
+availability against the review's cost claims. Findings recorded as a
+new, dated, additive section in `ASR_RESEARCH_TRACK.md` ("External
+Review Reconciliation — 2026-08-08"), a correction annotation on the
+StutterFuse citation (previously mischaracterized as text/acoustic
+fusion; it is a retrieval-augmented classifier), superseded-in-place
+notices on the prior Stage D decision and next-session plan, and a
+matching sequencing update to `ROADMAP.md` item 20.
+
+**Alternatives considered**
+- Accept the external review's conclusions directly and start
+  implementing Dysfluent-WFST. **Rejected** — the project owner
+  explicitly required independent verification before acting on either
+  document; several of the review's claims (Dysfluent-WFST's output
+  including timestamps; SEP-28k-SW adding fragment annotation; "the
+  English data gap is not real") did not survive verification intact.
+- Dismiss the external review because the internal track's process was
+  already rigorous. **Rejected** — rigor in execution does not imply
+  completeness of the literature map searched; the review's central
+  factual claim (a relevant, on-target paper/system existed and was
+  missed) verified true.
+- Silently revise the 2026-08-07 Stage D decision to "premature" without
+  a dated record of why. **Rejected**, same append-and-supersede
+  discipline this track has used throughout: the original decision
+  remains fully intact and readable, with a pointer to what changed it.
+- Re-run Ranks 1-3's zero-compute reanalysis (PR/AUPRC + bootstrap CIs;
+  end-to-end Track B effect of Rank 1) or clone/run Dysfluent-WFST as
+  part of this same pass. **Rejected for this pass, explicitly deferred**
+  — the project owner's instructions were analysis/decision-making only
+  ("do not implement anything until that answer is established"); both
+  are now the top two items in the revised decision tree.
+
+**Why this choice**
+The external review's own most consequential claim — that a cheaper,
+better-matched, previously-untried mechanism (reference-text-conditioned
+phonetic realignment against a WFST/CTC emission lattice) exists and
+targets this track's exact `sound_repetition` gap — held up under
+independent verification of the primary source, and this track's own
+document already records (RQ-E, named and never run) that its own
+"every cheap lever tried" language was not literally true. Per standing
+rule 8 (architectural decisions are evidence-constrained, not
+preservation-constrained), a decision reached under a since-falsified
+premise does not get protected just because it was already recorded —
+it gets re-opened, with the reasoning for both the original call and the
+revision kept visible. At the same time, several of the review's own
+claims did not survive independent verification (no timestamps from the
+WFST decoder as released; SEP-28k-SW does not add fragment annotation;
+the English-data-gap correction is real but narrower than claimed — see
+the reconciliation section for the full list) — accepting the review
+uncritically would have repeated the same error in the opposite
+direction.
+
+**Measured result**
+Not a numeric result — a documentation reconciliation following a
+completed, four-pass, primary-source verification exercise. Stage D
+moves from "evidence-justified next step" to "premature, not rejected."
+Two zero-compute reanalyses and one cheap, never-tried experiment
+(Dysfluent-WFST against the existing 120-clip Track B sample) are now
+sequenced ahead of it. No code, experiment, or dataset touched this
+session. No change to `main`.
+
+---
+
+## 2026-08-08 (same day, round 2) — Correcting round 1's own SEP-28k-SW verdict; primary-source read of Kordt et al.
+
+**What was done**
+A second AI reviewer, external to this repo, independently re-checked
+the round-1 reconciliation above: conceded most of it without further
+verification needed, disputed one specific factual claim (whether
+Sep-28k-SW adds sub-word annotation), made one unverified technical claim
+(Dysfluent-WFST timestamps being "an afternoon of work" to recover), and
+proposed three design refinements (move real-audio acquisition earlier;
+promote Buckeye to a training-corpus role under an explicit train/eval
+split; use Libri-Dys as a scale diagnostic for Rank 1's open question).
+Separately, the project owner supplied the full text of "Kordt et al."
+(arXiv:2606.14391, "Learning to Hear Hesitation"), previously cited in
+this track only secondhand as `[B11]`. Ran two more independent
+primary-source verification passes (the SEP-28k-SW table-vs-prose
+discrepancy, traced to Sridhar & Wu's own Interspeech 2025 paper; the
+Dysfluent-WFST timestamp claim, checked against the actual repo code and
+k2/icefall documentation) and read the new Kordt et al. paper directly.
+Recorded all of this as a new, dated, additive "Second-pass reconciliation
+— 2026-08-08 (round 2)" section in `ASR_RESEARCH_TRACK.md`, with a
+superseded-in-place notice on round 1's decision tree, plus matching
+pointers in `ROADMAP.md` item 20 and `CHANGELOG.md`.
+
+**Alternatives considered**
+- Accept the second reviewer's SEP-28k-SW and timestamp claims without
+  independent re-verification, since round 1 had already done one
+  verification pass. **Rejected** — the whole point of this reconciliation
+  exercise is not accepting either side's claims at face value; a claim
+  surviving one AI's scrutiny is not the same as being independently
+  re-verified against the primary source, and in fact round 1's own
+  SEP-28k-SW verdict turned out to be wrong.
+- Quietly fix round 1's SEP-28k-SW verdict in place without flagging that
+  it was wrong. **Rejected**, same append-and-supersede discipline as
+  every other correction in this track — the error is recorded, with why
+  it happened (a verification pass that read a paper's prose but missed
+  its own table, and stopped at a citation instead of fetching the
+  underlying paper), because that failure mode is exactly what this
+  reconciliation process exists to guard against, in either direction.
+- Accept "an afternoon of work" for WFST timestamp recovery since the
+  underlying structural claim (frame-indexed emission, k2 preserves
+  frame correspondence) checked out. **Rejected** — checked the actual
+  shipped repo code, not just the paper, and found the decoder discards
+  the one tensor axis that would carry timing and composes a non-trivial
+  graph (CTC topology + annotation arcs) that no existing documented
+  recipe (icefall's own forced-alignment doc page is an empty stub)
+  covers. The structural premise is correct; the effort estimate is not
+  verified.
+- Treat Kordt et al.'s CL-methods-on-full-fine-tune recipe and
+  StammerTalk's LoRA recipe as the same, already-combined approach, since
+  Stage D's design section already cited both together. **Rejected** —
+  reading Kordt et al. directly shows no LoRA anywhere in it; the two
+  recipes have never been demonstrated combined by anyone, and Stage D's
+  design text is corrected to say so explicitly rather than implying an
+  already-proven combination.
+
+**Why this choice**
+Per standing rule 8, a decision (or a verification finding) does not get
+protected from revision just because it was already recorded earlier the
+same day — it gets re-opened the moment better evidence exists, with both
+the original and the correction kept visible. The SEP-28k-SW correction
+in particular is a useful, humbling data point about this reconciliation
+process's own failure mode (secondhand citations and prose-only reads
+miss things a table or a primary source would have caught) and is worth
+keeping visible for exactly that reason, not just for its factual content.
+
+**Measured result**
+Not a numeric result. One dataset verdict corrected (Sep-28k-SW: real,
+sub-word-annotated stuttering data likely exists, pending a public-
+availability check); one technical estimate downgraded from "trivial" to
+"plausible but unverified, budget as its own sub-task"; one citation
+corrected (Stage D's LoRA+CL framing is an untested combination, not a
+proven recipe); one new zero-cost diagnostic identified (Rank 1 re-run at
+Libri-Dys's ~10x scale); one new limitation recorded (LibriStutter's
+zero-annotation-noise ground truth makes every precision figure this
+track has produced optimistic relative to real deployment); revised data
+strategy (train on general-disfluency corpora, evaluate on the small real
+stuttering sets) and decision tree recorded. No code, experiment, or
+dataset touched this session. No change to `main`.
+
+---
+
+## 2026-08-08 (same day, round 3) — Sep-28k-SW licence, WFST timing left genuinely unresolved, marker-F1 reconciled, two new queued items
+
+**What was done**
+The second reviewer's own follow-up accepted round 2 in full (including
+the correction made against its own earlier claim) and raised five
+further points. Checked each independently rather than accepting any of
+them, including the one round 2 had already flagged as unresolved
+(Sep-28k's licence): fetched `apple/ml-stuttering-events-dataset`'s own
+README directly and confirmed CC BY-NC 4.0 (non-commercial) — a real
+constraint given `audio-mod`'s place in a two-repo commercial product.
+Re-fetched the Dysfluent-WFST decoder code specifically to test the
+reviewer's counter-argument that the special transition arcs might use
+the CTC blank symbol (frame-consuming) rather than a true epsilon
+(non-frame-consuming); found this round's own reading disagreed with
+round 2's reading about what the arcs' label actually means — concluded
+this is not resolvable by further static reading and requires the
+concrete runtime check the reviewer proposed. Resolved an apparent
+contradiction between two Kordt et al. marker-F1 figures cited in round 2
+directly from the paper's own text already in hand (different tables,
+different training stages — not a contradiction). Accepted two new
+queued items: a CrisperWhisper cross-attention probe (reusing Kordt et
+al.'s head-attribution method) and a required power analysis on the
+assembled real evaluation data before any Stage D pre-registration.
+Recorded all of this as "Third-pass reconciliation — 2026-08-08
+(round 3)" in `ASR_RESEARCH_TRACK.md`, with matching pointers in
+`ROADMAP.md` item 20 and `CHANGELOG.md`. Also added a new standing rule
+to `CLAUDE.md` (rule 9): read primary sources directly for any claim
+that gates a decision — prompted by round 2 catching this project's own
+wrong verdict on Sep-28k-SW, which had been reached from a paper's prose
+summary of another paper rather than that paper itself.
+
+**Alternatives considered**
+- Accept the Sep-28k-NC license claim from the reviewer's assertion
+  without an independent fetch, since round 1/2 had already verified
+  several other claims from this same reviewer accurately. **Rejected**
+  — a claim's source having been reliable before is not the same as this
+  specific claim being verified, and this one gates a real legal/product
+  constraint, not just a research interpretation.
+- Try to resolve the WFST blank-vs-epsilon question with one more,
+  more careful code-reading pass. **Rejected** — attempted exactly this,
+  and it produced a reading that disagreed with the previous round's own
+  reading of the same code. Two AI-generated characterizations of the
+  same source disagreeing with each other is itself sufficient evidence
+  that more reading will not settle this; recorded as genuinely
+  unresolved and deferred to the concrete runtime check instead, per the
+  new standing rule (rule 9) this round also added.
+- Silently pick one of the two marker-F1 figures as authoritative rather
+  than reconciling both. **Rejected** — both are real numbers from the
+  same real paper; the resolution (different tables, different stages)
+  is more informative than picking one, and is itself a decision-relevant
+  finding about marker retention degrading under continued adaptation.
+- Add the CrisperWhisper cross-attention probe or run the power analysis
+  in this same session. **Rejected, deferred** — this remains a
+  documentation/decision-analysis session; both are now queued, correctly
+  sequenced, in the revised decision tree.
+
+**Why this choice**
+The pattern across all three rounds of this reconciliation is the same:
+every claim that gates a real decision — whether it originated inside
+this project or from an external reviewer — gets checked against its
+actual primary source before being acted on, and a claim's earlier
+reliability does not exempt a new claim from the same check. Round 2's
+own Sep-28k-SW mistake is the clearest demonstration available that this
+discipline has to be procedural, not judgment-based, which is why it is
+now a numbered standing rule rather than an implicit practice.
+
+**Measured result**
+Not a numeric result. One licensing constraint confirmed and applied
+(Sep-28k-SW: evaluation-only); one technical question correctly
+downgraded from "plausible engineering guess" to "genuinely unresolved,
+needs a runtime check" after this round's own attempt to resolve it by
+reading failed to agree with the prior round's reading; one apparent
+data contradiction resolved directly from primary text (not a
+contradiction — different tables/stages); two new items queued
+(CrisperWhisper cross-attention probe; pre-Stage-D power analysis); one
+new standing rule added to `CLAUDE.md`. No code, experiment, or dataset
+touched this session. No change to `main`.
+
+---
+
+## 2026-08-08 (same day) — Final decision-oriented reconciliation: alignment-gap test for `word_repetition` ranked ahead of Dysfluent-WFST
+
+**What was done**
+Per the project owner's explicit instruction, treated rounds 1-3's own
+decision tree as an input to re-examine, not a conclusion to inherit —
+re-anchored the entire reconciliation to `CLAUDE.md`'s stated application
+objective and built an explicit architecture comparison (current
+pipeline; CrisperWhisper+Dysfluent-WFST; an existing stutter-aware ASR,
+found not to exist for English; acoustic/audio-native detector fusion;
+Stage D; and other mechanisms found this session) scored strictly
+against information gained/lost, taxonomy coverage, timing, data,
+compute, testability, and biggest uncertainty — novelty deliberately
+excluded as a ranking factor. Reconciled Ranks 1-3 explicitly: what they
+established (frozen-representation classification insufficient, real
+result), what they did not (that no mechanism can work, or that a
+different mechanism — WFST or alignment-gap — would fail too), and what
+must be withdrawn (the exhaustion claim) vs. narrowed (the
+quantity-of-labels bottleneck, now quantity-and-reliability, scoped to
+one mechanism class only). Concluded the single highest-value next step
+is an **alignment-gap/duration-residual candidate generator for
+`word_repetition`** — reusing CrisperWhisper's own already-computed word
+timestamps, no new data or dependencies — placed ahead of Dysfluent-WFST
+in priority, which becomes the immediate next step after it (for
+`sound_repetition` specifically). Recorded a precise Stage D
+justification condition (both tests fail *and* a power analysis confirms
+the available real evaluation data can resolve Stage D's own gate).
+Wrote this as a new, dated, top-level "Final Decision-Oriented
+Reconciliation" section in `ASR_RESEARCH_TRACK.md`, with a claim
+classification (experimentally demonstrated / primary-source supported /
+inferred / unresolved / proposed) closing it out.
+
+**Alternatives considered**
+- Accept rounds 1-3's own sequencing (Dysfluent-WFST as the immediate
+  next step) since it had already been through three rounds of
+  verification. **Rejected**, per explicit instruction — verification of
+  individual *claims* is not the same as verification of the
+  *sequencing decision* built from them; the sequencing itself was never
+  re-examined against the application objective until this pass, and
+  doing so surfaced a cheaper, lower-risk, equally-real alternative
+  (the alignment-gap test) that had been present in the evidence the
+  whole time but ranked lower by the external review's own novelty-
+  weighted ordering.
+- Treat the external review's "Dysfluent-WFST is the experiment" framing
+  as authoritative since it was the review's own top-ranked item.
+  **Rejected** — re-scored against this project's own stated priority
+  order (application fit, reliability, implementability, evidence,
+  novelty last, in that order) rather than the review's implicit
+  novelty-first ordering.
+- Propose parallel branches for both `word_repetition` and
+  `sound_repetition` simultaneously. **Rejected**, per explicit
+  instruction to avoid a speculative multi-branch tree — sequenced
+  instead, with each branch's own hard stop condition.
+- Run the alignment-gap test, or check YOLO-Stutter/SSDM checkpoint
+  availability, in this same session. **Rejected, deferred** — this
+  remains a decision-only session; nothing was implemented or executed.
+
+**Why this choice**
+The project's own standing rule 8 (evidence-constrained, not
+preservation-constrained architecture decisions) applies as much to this
+track's own sequencing choices as to its architecture choices — a
+decision tree already written down and already verified in its parts
+does not thereby become correct in its ordering. Scoring honestly against
+application fit, reliability, and implementability before novelty is the
+only way to avoid quietly re-adopting "prove something interesting" as
+the real objective, which is precisely the failure mode `ASR_RESEARCH_
+TRACK.md`'s own "PROJECT OBJECTIVE" section and this reconciliation's
+opening section exist to prevent.
+
+**Measured result**
+Not a numeric result. A finite, two-step, hard-stop-conditioned decision
+tree replaces the three-round reconciliation's own more open-ended
+sequencing. `word_repetition`'s alignment-gap test is now the single
+next action item; Dysfluent-WFST remains next after it for
+`sound_repetition`; Stage D's justification condition is now precise
+and falsifiable rather than "premature, not rejected" without a stated
+resolution path. No code, experiment, or dataset touched this session.
+No change to `main`.
+
+---
+
+## 2026-08-08 (same day) — Step 1 executed: alignment-gap test for `word_repetition` — FAILURE
+
+**What was done**
+Per the project owner's explicit go-ahead, pushed the prior reconciliation
+work to `origin/asr-research`, then executed Step 1 of the finalized
+decision tree. Pre-registered the exact methodology in `VALIDATION.md`
+§15 (hypothesis, data source, signal definition, metrics, success/failure
+criteria) *before* writing any code, per standing rule 1. Implemented
+`profiling/evaluation/stage_k_alignment_gap_word_repetition.py`, reusing
+existing infrastructure unmodified (`stage_b_representation_probe
+._identify_positions`/`_cohens_d`, `compare_corroboration_mechanisms
+._clip_folds`/`_cv_threshold`/`_summarize`, `stage_c_duration_baseline
+._auc`, and the existing Track B ASR cache — no new inference, no new
+dependency). Added a clip-level bootstrap 95% CI on the AUC, a
+statistical practice this track had never used before despite the
+external review naming its absence as a real gap. Self-tested (9/9
+checks) before running for real. Ran against the existing 189-clip Track
+B cache.
+
+**Result: FAILURE.** n=29 `word_repetition` category-1 targets vs. 941
+controls. Cohen's d=-0.209 (wrong direction), AUC=0.485 (95% CI
+[0.396, 0.566], comfortably includes chance). Full detail:
+`VALIDATION.md` §15.8; decision-tree implications: `ASR_RESEARCH_TRACK.md`
+"Step 1 executed — 2026-08-08."
+
+**Alternatives considered**
+- Try a different residual definition (gap-after, multi-token window)
+  immediately after seeing this result, since the AUC came back so
+  close to chance. **Rejected**, directly per standing rule 4 (never
+  retune/re-engineer in response to an evaluation result without
+  explicit go-ahead) and this track's own repeated "name, don't chase"
+  discipline (e.g. RQ-E, the dropped variants named throughout this
+  track) — the untested variant is named in `VALIDATION.md` §15.8 as a
+  possible future direction, not attempted this pass.
+- Treat P=0.031/R=0.567 as a partial success since recall alone cleared
+  its floor. **Rejected** — the pre-registered gate (§15.6) is
+  conjunctive (AUC CI excludes chance AND clears both precision and
+  recall floors), decided before running, and a near-chance AUC with
+  inflated recall from a forced threshold is exactly the failure
+  pattern the gate exists to catch, not a partial win to round up.
+- Proceed directly into Dysfluent-WFST implementation without reporting
+  this result first, since the project owner said to "proceed with the
+  next steps." **Rejected, deferred** — Step 2 is a materially heavier
+  commitment (new dependencies: `k2`, a phone-posterior model, a
+  grapheme-to-phoneme step) than Step 1's zero-new-dependency scope;
+  reporting this checkpoint first matches the project's own
+  "measure twice, cut once" discipline for larger commitments without
+  changing the decision tree itself, which already names Step 2 as the
+  correct next action regardless of Step 1's outcome.
+
+**Why this choice**
+Standing rule 3 (audit surprising results before trusting them) cuts
+both ways — a result this close to chance, with a wrong-direction point
+estimate, is exactly as worth double-checking as a suspiciously good
+one. The self-test suite (including hand-constructed decision-gate
+cases) was verified passing before this result was trusted, and the
+bootstrap CI (rather than a bare point estimate) is what makes "FAILURE"
+a confident call here rather than a guess at a borderline number.
+
+**Measured result**
+A real, pre-registered, self-tested, clip-level-bootstrapped negative
+result for one specific `word_repetition` candidate-generation mechanism.
+`word_repetition`'s alignment-gap approach is now closed. Per the
+decision tree, Step 2 (Dysfluent-WFST, for `sound_repetition`) is next,
+reported here as a checkpoint before that larger implementation begins.
+One new file created (`profiling/evaluation/stage_k_alignment_gap_
+word_repetition.py`); no other production code changed. No change to
+`main` yet (uncommitted at time of writing).
+
+---
+
+## 2026-08-08 (same day) — Step 0 executed and reviewed; Rank 1's original verdict substantially understated; Step 2 proposed, not started
+
+**What was done**
+Per the project owner's explicit instruction, ran Step 0 (zero-compute
+reanalysis of Ranks 1-3, per the decision tree in `ASR_RESEARCH_TRACK.md`),
+then performed a thorough review pass for mistakes before documenting,
+then prepared (without starting) a detailed Step 2 proposal.
+
+Implemented `profiling/evaluation/stage_l_zero_compute_reanalysis.py`:
+Part A recomputes AUPRC + clip-level bootstrap 95% CIs for Ranks 1/2/3
+from already-cached row-level predictions (no new inference); Part B
+measures the end-to-end Track B effect of injecting Rank 1's classifier
+as a new candidate-generation trigger. During review, found and fixed two
+real mistakes and one process deviation (detailed in `VALIDATION.md`
+§16.1): (1) Part B's first version omitted the gate-off config, silently
+triggering item 17's shipped encoder-based classifier gate per clip — not
+just a ~30-90s/clip performance cost but a methodological inconsistency,
+since Stage A's "category 1" population is defined under gate-off
+conditions; caught when the project owner asked how much longer the run
+would take, prompting a check of actual CPU time (47+ min CPU across
+31+ min wall-clock) rather than continuing to wait on an unverified
+assumption; (2) a fold-id recomputation relied on an assumption that
+happened to hold but wasn't guaranteed, hardened to remove the
+assumption entirely; (3) `stage_l` was run for real before it had a
+self-test, unlike every other `stage_*` script in this codebase — added
+and verified retroactively (10/10 pass), confirmed not to change any
+already-reported number.
+
+Real results (full detail: `VALIDATION.md` §16.2-16.3): Rank 1's original
+"FAILURE (recall floor)" verdict was substantially understated — AUPRC=
+0.556 (~15x its own chance rate), and an honest per-fold recall-targeted
+reanalysis reaches mean P=0.783 at mean R=0.289 (vs. the original
+P=0.580/R=0.147). Rank 2 remains a real Failure; Rank 3's precision
+improves but its fold-instability concern is unresolved. The end-to-end
+Track B effect (previously never measured) is real but modest: overall
+recall 0.000→0.052. A concrete, zero-new-cost action item is identified
+(re-threshold the shipped Rank 1 classifier) but not adopted here.
+
+Prepared a detailed Step 2 (Dysfluent-WFST) proposal in `ASR_RESEARCH_
+TRACK.md` — concrete steps, named risks, success/failure criteria — with
+nothing executed, per explicit instruction.
+
+**Alternatives considered**
+- Keep waiting on Part B's first (buggy) run rather than investigating
+  why it was taking so long. **Rejected** — 31+ minutes against an
+  expected few minutes (matching Part A's own timing for a comparable
+  fit) was a real anomaly, not just slower-than-expected; checking actual
+  CPU time confirmed genuine heavy computation rather than a hang, which
+  by itself was enough to conclude something was wrong (over-invoking
+  work that shouldn't have been happening), not merely slow.
+- Silently fix the gate-off bug and re-report only the corrected numbers,
+  without recording that the first version was wrong. **Rejected**, same
+  append-and-supersede discipline as every other correction in this
+  track — the mistake and why it happened are recorded in `VALIDATION.md`
+  §16.1 precisely because the project owner asked for thorough review and
+  debugging, not just a clean final number.
+- Treat Rank 1's improved reanalysis (mean R=0.289, just short of the 0.3
+  floor) as a clean SUCCESS given how close it is. **Rejected** — the
+  pre-registered floor is what it is; the honest characterization
+  ("substantially understated, closer to Success than Failure, not a
+  clean strict pass") is reported instead of rounding a near-miss up.
+- Immediately act on the re-thresholding finding by changing `detect.py`'s
+  shipped configuration. **Rejected, deferred** — per standing rule 4,
+  this is a finding to be acted on only with explicit go-ahead, recorded
+  as a candidate for `ROADMAP.md`, not a silent config change.
+- Start Step 2 (Dysfluent-WFST) implementation in this same session.
+  **Rejected, deferred** — explicit instruction was to prepare and
+  propose Step 2, not begin it; the proposal names concrete steps, new
+  dependencies, and risks for review first.
+
+**Why this choice**
+The project owner's request was explicitly for thorough review and
+honest debugging, not just a result — per standing rule 3 (audit
+surprising results before trusting them), a run taking 8x longer than
+its own comparable sibling computation is exactly the kind of anomaly
+that needed checking before its output could be trusted, and the
+resulting fix changed a real methodological inconsistency (gate state),
+not just performance. Recording the mistakes found, and confirming they
+don't invalidate the numbers ultimately reported, is what makes those
+numbers trustworthy rather than merely fast to produce.
+
+**Measured result**
+Real, reviewed, self-tested numbers for Step 0 (detailed above and in
+`VALIDATION.md` §16); a concrete but not-yet-adopted re-thresholding
+candidate for `ROADMAP.md`; a detailed, unexecuted Step 2 proposal in
+`ASR_RESEARCH_TRACK.md`. One new file
+(`profiling/evaluation/stage_l_zero_compute_reanalysis.py`); no other
+production code changed. Nothing beyond Step 0 was executed. No change
+to `main` yet (uncommitted at time of writing).
+
+---
+
+## 2026-08-08 (same day) — Rank 1 re-thresholding follow-up: INSUFFICIENT EVIDENCE, MORE VALIDATION REQUIRED
+
+**What was done**
+Per the project owner's explicit decision (Rank 1's Failure verdict
+should not be treated as final, but production adoption was not yet
+warranted), ran a focused, decision-closing follow-up on six specific
+questions (fold stability, recall-floor approach, the Any-label/type
+issue, the corrected end-to-end effect, single-vs-per-fold threshold).
+Pre-registered the exact methodology in `VALIDATION.md` §17 before
+writing code. Implemented `profiling/evaluation/stage_m_rank1_
+rethreshold_validation.py`. Self-tested (12 checks) before trusting real
+data. Explicitly did NOT execute Step 2 and did NOT modify
+`profiling/repetition_classifier.py` or `config.yaml`.
+
+Diagnosed and fixed a genuine performance anomaly (a single classifier
+fit that should take seconds was taking 42+ seconds, making the naive
+plan ~40 minutes): the L2 regularization strength selected by nested CV
+is fully deterministic and was already published in the original Rank 1
+experiment's own saved JSON output; reused those exact values instead of
+recomputing them, verified this reuse produces bit-identical results via
+a monkeypatch-based self-test before trusting it, cutting runtime from
+~40 minutes to ~10.
+
+Found and fixed a second, more consequential mistake: the first version
+of the per-fold analysis selected its recall-targeted threshold from
+each fold's own in-sample training predictions, not genuinely
+out-of-fold signal. Caught because the result (mean P=0.400, R=0.054)
+was drastically different from Step 0's own already-published number
+(mean P=0.783, R=0.289) for what should have been the identical
+computation — audited per standing rule 3 rather than trusted at face
+value. Fixed by reusing Step 0's own exact two-stage procedure; the
+corrected re-run reproduces Step 0's published numbers exactly. This
+also revealed that Step 0's own original end-to-end Part B measurement
+(`VALIDATION.md` §16.3) used the identical flawed pattern — corrected
+the same way, with a superseded-in-place notice added to §16.3 (not
+edited, preserving the historical record).
+
+**Results** (full detail: `VALIDATION.md` §17.6-17.8): fold-to-fold
+threshold stability is moderate, not fragile (jackknife max shift
+±0.07/±0.035); the recall-floor operating point improves both precision
+AND recall simultaneously over the original F1-optimal point, not a
+trade-off; the Any-label/type attribution is corrected (ground-truth-
+justified for true positives, honestly untyped for false positives);
+the corrected end-to-end effect is substantially larger than first
+measured (Any-label recall 0.000→0.247, up from 0.052; precision 0.559,
+up from 0.308) but still recovers only ~25% of total ground-truth loss;
+and no validated, ready-to-ship threshold value currently exists — a
+naive full-dataset refit produces a threshold (0.982) that falls outside
+the validated per-fold range [0.66, 0.80] and is an overfitting artifact.
+
+**Alternatives considered**
+- Accept the first (buggy, in-sample-threshold) Q1/Q2/Q5 result at face
+  value since it completed without error. **Rejected** — a result
+  differing this drastically (mean R: 0.289 vs. 0.054) from an
+  already-published number for the same computation is exactly the kind
+  of surprising result standing rule 3 requires auditing before trust,
+  regardless of whether the code ran without raising an exception.
+- Silently fix the in-sample-threshold bug without checking whether it
+  also affected Step 0's own original Part B, since only this follow-up's
+  new code was directly implicated. **Rejected** — the bug pattern was
+  copied from `stage_l`'s existing `_out_of_fold_scores_and_thresholds`,
+  making it a real, specific question (not idle speculation) whether that
+  original function shared the flaw; checking confirmed it did, and this
+  is exactly the kind of retroactive consequence this project's own
+  "audit surprising results, mark superseded not edited" discipline is
+  built to catch.
+- Round the corrected mean recall (0.289) up to "clears the 0.3 floor"
+  given how close it is, or round the end-to-end result up to a clean
+  "ADOPT" given how much larger it is than first measured. **Rejected**
+  — reported both exactly as measured; the strict verdict is grounded in
+  a concrete, still-open gap (no validated deployable threshold value,
+  no deployment-time type resolution), not a subjective read of how
+  promising the numbers feel.
+- Optimize the expensive nested L2 search by simplifying the search grid
+  or epoch count instead of reusing already-published values. **Rejected**
+  — reusing exact, already-computed, deterministic values changes nothing
+  about the answer (proven via self-test); shrinking the grid/epochs
+  would have been a real, if small, change to the method requiring its
+  own justification and risking a different answer.
+
+**Why this choice**
+Per the project owner's explicit instruction to base the decision on
+measured evidence and pre-registered criteria, not intuition: the
+concrete gaps found here (no validated deployable threshold; deployment-
+time type ambiguity unresolved) are specific, nameable requirements, not
+a vague sense of "needs more work" — exactly what should separate
+INSUFFICIENT EVIDENCE from a judgment call in either direction. Standing
+rule 3 (audit surprising results) is what caught both the in-sample-
+threshold bug and its retroactive implication for Step 0; skipping that
+audit because the code "ran successfully" would have shipped a
+materially wrong number in both directions (first too pessimistic in
+this follow-up, then discovered to have also been too pessimistic in the
+already-published Step 0 result it was meant to validate).
+
+**Measured result**
+Real, self-tested, corrected numbers answering all six pre-registered
+questions (`VALIDATION.md` §17). Strict verdict: **INSUFFICIENT
+EVIDENCE — MORE VALIDATION REQUIRED**, with three concrete named
+requirements before any production change (a validated deployable-
+threshold method; a deployment-time type-ambiguity resolution;
+validation against real, non-synthetic audio). Two files changed:
+`profiling/evaluation/stage_l_zero_compute_reanalysis.py` (two new
+functions added, `known_l2s` parameter added to an existing one — no
+existing behavior changed, verified via self-test) and the new
+`profiling/evaluation/stage_m_rank1_rethreshold_validation.py`. No
+production code (`profiling/repetition_classifier.py`, `config.yaml`)
+touched. Step 2 not executed. No change to `main` yet (uncommitted at
+time of writing).
+
+---
+
+## 2026-08-08 (same day) — Clean checkpoint: doc audit, staleness fixes, Step 1/Step 2 scoping corrections
+
+**What was done**
+Per the project owner's explicit request for a clean, auditable
+checkpoint before Step 2, ran a documentation-only audit (no new
+experiment, no production code touched): verified git state (working
+tree clean, local HEAD matched `origin/asr-research` exactly before this
+checkpoint's own changes); re-read the actual Step 1 implementation
+(`stage_k_alignment_gap_word_repetition.py`) line-by-line rather than
+inferring its scope from its title; scanned all docs for specific
+overclaim patterns (production-ready, validated threshold, Step 2
+executed, Stage D required, mechanism exhausted).
+
+Found and fixed:
+- **Step 1's documented scope was looser than the actual code.**
+  Sharpened `ASR_RESEARCH_TRACK.md` and `VALIDATION.md` §15.8 to state
+  precisely what was tested — an additive `duration(h) + gap_before(h)`
+  residual, z-scored per clip — and to name gap-after, multi-token-
+  window, and **duration-ratio** (not previously named explicitly) as
+  distinct, untested variants, not rejected by extension.
+- **The threshold-work follow-up lacked an explicit bound.** Added a
+  scope-correction note to `ASR_RESEARCH_TRACK.md` stating plainly that
+  this work is a prerequisite for real-audio Rank 1 validation, not a
+  production commitment, and that any future threshold task is a single
+  bounded, deterministic computation (out-of-fold predictions + the
+  already-fixed recall rule + report the operating point) — not an
+  open-ended optimization thread, and that a future result outside the
+  observed [0.66, 0.80] range is itself a finding to record, not a
+  trigger for another optimization cycle.
+- **The Step 2 proposal treated real-data validation as optional and
+  scoped out `word_repetition` without justification.** Revised the
+  proposal: Boli acquisition is now a mandatory prerequisite, not an
+  "if acquired by then" appendix; the frame-synchronicity timing
+  fallback is now a pre-registered, fixed-before-running decision rule
+  (detection still evaluated, localization explicitly deferred, if the
+  check fails) rather than something to interpret after the fact; scope
+  widened to both `sound_repetition` and `word_repetition` since the
+  WFST return-arc mechanism is generic to any revisited span, not
+  sound-level-specific by construction; and CMUdict/G2P coverage
+  measurement is now an explicit, required, up-front metric rather than
+  a risk that could silently masquerade as a WFST recall ceiling later.
+- **`CLAUDE.md`'s and `HANDOFF.md`'s own top-level "where the track
+  stands" summaries were stale**, predating the entire external-review
+  reconciliation, Step 0, Step 1, and the Rank 1 follow-up — both still
+  said Stage D "is now judged the evidence-justified next step," directly
+  contradicting the actual current state ("premature, not rejected").
+  Both rewritten to reflect 2026-08-08's actual state, with the old text
+  preserved as marked history, not deleted.
+- **Added `CLAUDE.md` standing rule 10**: a failed implementation is not
+  the same claim as a disproven mechanism; interpretation of an ambiguous
+  or edge-case result must be fixed before running, not after seeing it;
+  prefer real data over synthetic-only validation whenever the synthetic
+  data's own construction could structurally fail to represent the
+  phenomenon a claim depends on. Also enriched standing rule 3's own
+  citation list with this session's two newly-found bugs (the gate-
+  config bug, the in-sample-threshold bug).
+
+**Alternatives considered**
+- Treat this as "just" a git-status check since the prior turn's own
+  work was already committed and pushed. **Rejected** — the project
+  owner's request was explicitly broader: verify documentation accuracy
+  and internal consistency against the actual evidence, not merely
+  confirm nothing was lost. Several real staleness/precision gaps were
+  found this way that a pure git check would have missed entirely.
+- Leave the older, now-inaccurate CLAUDE.md/HANDOFF.md summaries in
+  place on the reasoning that later sections in `ASR_RESEARCH_TRACK.md`
+  already supersede them. **Rejected** — both files are explicitly
+  positioned as the first things a new, cold session reads; a stale
+  top-level claim that contradicts the actual current state is exactly
+  the kind of drift standing rule 5 exists to catch, regardless of
+  whether a correct answer exists further down in a different file.
+- Infer Step 1's tested scope from its own title/docstring summary
+  ("alignment-gap / duration-residual") rather than reading the actual
+  `_residual()` function. **Rejected**, per explicit instruction — doing
+  so is exactly how a title-level description ends up overstating what
+  a specific implementation actually covers.
+
+**Why this choice**
+Per the project owner's explicit framing: truth and methodological
+correctness take priority over preserving a conclusion merely because it
+was already written down. A checkpoint's entire value is in being
+trustworthy enough to build the next step on; a checkpoint that still
+contained a stale Stage D claim or an imprecisely-scoped Step 1 result
+would not have been clean, regardless of git being tidy.
+
+**Measured result**
+Not a numeric result — a documentation-integrity correction. No new
+experiment run, no production code touched
+(`profiling/repetition_classifier.py`, `config.yaml`,
+`profiling/detect.py` all unmodified, confirmed via `git status`/`git
+diff --stat` before committing). Four files changed: `ASR_RESEARCH_
+TRACK.md`, `CLAUDE.md`, `HANDOFF.md`, `VALIDATION.md`. All changes
+append-only or explicitly-marked corrections to prose framing/scoping —
+no historical result, number, or verdict was deleted or silently edited.

@@ -13,11 +13,18 @@ see `PAPER_DECISION_LOG.md`; for the full documentation map, see `DOCS.md`.
 
 ## 1. What this project is
 
-`audio-mod` is a standalone Streamlit app for verbatim speech transcription
-and stuttering disfluency profiling. It's one module of a larger "Speech AI"
-system — the part that handles audio. A separate codebase (not in this repo)
-is meant to consume `profile.difficulty(word)` to drive synonym suggestions;
-that consumer doesn't exist in this repo and isn't wired up here.
+`audio-mod` is a standalone Streamlit app whose objective is to detect,
+classify, and localize stuttering disfluencies from a speaker's own audio as
+accurately, explainably, and scientifically as possible. Verbatim
+transcription (CrisperWhisper ASR) is scaffolding toward that objective, not
+the deliverable itself — the transcript is one evidence source the detector
+consumes, not ground truth (see `CLAUDE.md`'s objective/evidence-hierarchy
+section and `ASR_RESEARCH_TRACK.md` for the concrete finding that treating
+it as ground truth elsewhere would be a mistake). It's one module of a
+larger "Speech AI" system — the part that handles audio. A separate codebase
+(not in this repo) is meant to consume `profile.difficulty(word)` to drive
+synonym suggestions; that consumer doesn't exist in this repo and isn't
+wired up here.
 
 **Core user story:** a person who stutters records a speech sample. The app
 transcribes it verbatim (preserving repetitions, fillers, false starts),
@@ -567,6 +574,19 @@ sensitivity below what an uncalibrated speaker gets.
   real. Fix would mean restructuring `asr.py`'s core transcription call
   to capture encoder states during its existing forward pass — not
   attempted, a real, separately-scoped follow-up (`ROADMAP.md`).
+- **The classifier's shipped benchmark (`Any` F1 0.631 → 0.890, §4b
+  above) was measured on Track A (ground-truth transcript tokens), and
+  its real-world impact is now known to be much smaller** — confirmed
+  2026-08-05 by re-running it against real ASR output for the first time
+  (`VALIDATION.md` §14/§14.1): the gate's own precision-improving
+  mechanism transfers safely, but real ASR produces so few `word_
+  repetition`/`sound_repetition` candidates in the first place (`sound_
+  repetition`: zero, in this sample) that there's little for the gate to
+  act on. Not a reason to disable it (still enabled, still net-positive,
+  never harmful) — but "0.631 → 0.890" should not be read as this
+  project's real-world number; it is the Track A ceiling. This finding
+  opened a separate, still-open research track investigating the ASR
+  stage itself — see `ASR_RESEARCH_TRACK.md`.
 
 ---
 
@@ -804,6 +824,13 @@ train_repetition_classifier.py` against a fresh `collect_raw_encoder_
 data.py` collection — there is no automated retraining trigger, and
 this project has no established process yet for deciding *when* a
 retrain is warranted (§4b, `VALIDATION.md` §13).
+
+**To investigate whether ASR's own output representation is rich enough**
+(not just tuning the existing detector/classifier): read `ASR_RESEARCH_
+TRACK.md` first, specifically its end-of-session handoff section for
+where that investigation currently stands — this is a separate,
+evidence-gated research track on its own `asr-research` branch, not
+something to improvise inline here.
 
 **To change the difficulty model:** edit `profiling/profile.py`. EWMA update
 is in `update()`, the difficulty formula is in `factors_for_word()`, cold-

@@ -71,15 +71,39 @@ anything is untested or undecided:
   `sound_repetition` specifically produced **zero** candidates across the
   120-clip real-ASR sample, traced to a specific mechanism (the candidate
   check needs a literal sub-word fragment token in the transcript; real
-  verbatim ASR essentially never produces one). **This — not latency, not
-  the learned tier — is now the project's top-priority open item**,
-  tracked as `ROADMAP.md` item 20. Item 18 (latency removal) and the
-  deferred-learned-tier direction are both explicitly re-flagged as
-  premature until item 20 is resolved, since neither has a healthy
-  candidate population to operate on yet. → **`PHASE_3_ARCHITECTURE_
-  REVIEW.md`** for the foundational decision, **`VALIDATION.md` §11-§14**
-  for the full Stage 1 → comparison → implementation → Track B validation
-  arc, `ROADMAP.md` items 17-20 for current status.
+  verbatim ASR essentially never produces one). Item 18 (latency removal)
+  and the deferred-learned-tier direction are both explicitly re-flagged
+  as premature until the candidate-population question is resolved. →
+  **`PHASE_3_ARCHITECTURE_REVIEW.md`** for the foundational decision,
+  **`VALIDATION.md` §11-§14** for the full Stage 1 → comparison →
+  implementation → Track B validation arc, `ROADMAP.md` items 17-21 for
+  current status.
+
+**A separate research track (`ASR_RESEARCH_TRACK.md`, its own
+`asr-research` branch, `main` untouched) opened directly from that
+finding, and is where the actual investigative work now lives — read its
+own last few dated sections (do not trust this paragraph as current; it
+is a stale pointer, kept here as history, superseded the same way every
+other conclusion in that track is — in place, not deleted).** As of
+2026-08-08 (the track's own latest dated sections — read them directly,
+this is a pointer, not a substitute): Stages A/B/C, a full Phase 2
+investigation, and three learned-classifier experiments (Ranks 1-3) are
+done; an external-review reconciliation (3 rounds) then re-anchored the
+whole track to the application objective and produced a concrete
+two-step decision tree. **Step 1** (an alignment-gap candidate generator
+for `word_repetition`) **has run: FAILURE**, scoped to the one specific
+residual definition actually tested, not the mechanism in general.
+**Step 0** (a zero-compute reanalysis of Ranks 1-3) and a follow-up
+validation found Rank 1's original "Failure" verdict was substantially
+understated by bad threshold selection, with a real but partial
+end-to-end product benefit — but concluded **INSUFFICIENT EVIDENCE, MORE
+VALIDATION REQUIRED** for production adoption (no validated deployable
+threshold exists yet; the classifier can't say which type fired).
+**Step 2** (Dysfluent-WFST) is prepared as a detailed proposal but **not
+yet executed**. **Stage D is classified as premature, not rejected** —
+conditional on Step 2 also failing plus a power analysis. No production
+code has changed as a result of any of this. `profiling/repetition_
+classifier.py` and `config.yaml` remain unmodified by this entire track.
 
 **If you are about to suggest "what should we do next," don't guess —
 read `ROADMAP.md` first.** It is very likely already there, in priority
@@ -138,17 +162,19 @@ for a first read:
     (condensed again in §5 below). Loaded automatically for a Claude Code
     session; read it directly if you're a human or a different tool.
 11. **`ASR_RESEARCH_TRACK.md`** — opened 2026-08-05, a separate research
-    track (own branch, `asr-research`) investigating whether the ASR
-    stage's own output *representation* is rich enough for this
-    project's taxonomy, triggered by Track B finding that real ASR
-    essentially never preserves the sub-word fragment tokens `sound_
+    track (own branch, `asr-research`, `main` untouched) investigating
+    whether the ASR stage's own output *representation* is rich enough
+    for this project's taxonomy, triggered by Track B finding that real
+    ASR essentially never preserves the sub-word fragment tokens `sound_
     repetition` detection depends on. Read this before proposing or
     implementing anything about ASR representation richness, decoding
-    changes, or fine-tuning — it's a charter document (problem
-    statement, literature review, architectural options, phased
-    evidence-gated plan), not yet an implemented decision. Narrower than
-    item 9 above: it doesn't reopen whether there should be a distinct
-    ASR stage, only whether what that stage hands the detector is rich
+    changes, or fine-tuning. **Not just a charter document anymore** —
+    Stages A, B, and C are done, with real (sometimes mixed) results;
+    read its end-of-session handoff section first for exactly where
+    things stand and the specific next step, rather than starting from
+    the charter's original planning language. Narrower than item 9
+    above: it doesn't reopen whether there should be a distinct ASR
+    stage, only whether what that stage hands the detector is rich
     enough.
 
 ## 4. What's proven vs. what's still a hypothesis
@@ -177,6 +203,24 @@ Don't treat everything in this repo as equally certain. The short version
   this codebase resting on a *trained* model rather than a physically-
   grounded signal (pitch, jitter, silence), and its live-app latency
   cost is a real, currently-unresolved trade-off, not a solved problem.
+- **Real ASR normalizes disfluency evidence away, measurably and by a
+  specific, traced mechanism, not just "ASR is imperfect" in general**
+  (`ASR_RESEARCH_TRACK.md` Stage A, 2026-08-05): for `sound_repetition`/
+  `word_repetition`, roughly half of all real-ASR misses happen even at
+  positions ASR transcribed *correctly* — `sound_repetition` loses the
+  literal fragment token; `word_repetition` loses the other half of the
+  repeated pair (22/23 hand-checked cases). This is now a measured fact
+  about this project's ASR stage, not a hypothesis.
+- **CrisperWhisper's encoder retains a genuine, duration-confound-refuted
+  `sound_repetition` signal even where the decoded text shows nothing**
+  (`ASR_RESEARCH_TRACK.md` Stages B+C: Cohen's d=0.894, AUC=0.723 vs. a
+  chance-level duration-only baseline) — **but** the absolute precision
+  achievable from that signal alone, at a useful recall, is still too low
+  to ship as a standalone candidate generator (4.7% precision at 52.6%
+  recall, given realistic ~19-vs-966 class imbalance). Both halves of
+  this are measured, not assumed — treat neither "the encoder has real
+  signal" nor "the signal isn't useful yet" as settled independently of
+  the other.
 
 **Explicitly still open, not settled:**
 - Whether "ASR fidelity is the dominant bottleneck" generalizes beyond
@@ -188,6 +232,11 @@ Don't treat everything in this repo as equally certain. The short version
   sources — not confirmed either way).
 - Whether VAD/Praat corroboration's confidence-adjustment mechanism is
   worth its complexity, given a near-zero measured effect on one dataset.
+- `ASR_RESEARCH_TRACK.md`'s `word_repetition` question (Stage B was
+  inconclusive there, not extended to Stage C).
+- Whether a fusion-style combination of the encoder signal with other
+  evidence (the scoped, not-yet-started next step) actually closes the
+  precision gap Stage C found — a real hypothesis, not yet tested.
 
 ## 5. Standing rules — read before doing anything non-trivial
 
