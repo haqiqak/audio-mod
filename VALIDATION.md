@@ -3267,3 +3267,165 @@ Step 2 (Dysfluent-WFST, for `sound_repetition`) regardless; `word_
 repetition` candidate generation via this exact mechanism is a dead end,
 recorded here, not silently dropped, and not re-attempted with
 variant-tuning in response to this result.
+
+## 16. Step 0 -- zero-compute reanalysis of Ranks 1/2/3 (2026-08-08)
+
+Method fixed here (`profiling/evaluation/stage_l_zero_compute_reanalysis.py`'s
+own module docstring, written before real results were read) per Step 0 of
+`ASR_RESEARCH_TRACK.md`'s "Final Decision-Oriented Reconciliation": two
+reanalyses of Ranks 1/2/3 using only already-cached predictions -- no new
+ASR run, no new encoder pass, no new acoustic-feature extraction.
+
+- **Part A**: average precision (AUPRC) + clip-level bootstrap 95% CI for
+  each Rank's own nested-CV classifier, from the cached row-level
+  embeddings/features `stage_h`/`stage_i`/`stage_j` already saved.
+- **Part B**: the end-to-end Track B effect of adding Rank 1's classifier
+  as an additional candidate-generation trigger, reusing the existing
+  Track B cache and `score_clip` unmodified.
+
+### 16.1 Process note: two real mistakes found and fixed during this work, not smoothed over
+
+1. **A real performance/methodology bug.** The first version of Part B
+   called `detect_disfluencies(hyp_tokens, audio_bytes=...)` without the
+   gate-off config `_identify_positions` itself uses -- silently invoking
+   item 17's shipped classifier gate (a real CrisperWhisper encoder
+   forward pass per candidate, ~30-90s/clip per section 13.2) for every
+   clip's baseline scoring. This was not just slow (the run was killed
+   after 31+ minutes of active CPU work, versus Part A's full three-rank
+   analysis completing in under 4 minutes) -- it was also a methodological
+   inconsistency, since Stage A's "category 1" population is *defined*
+   under gate-off conditions, so scoring the baseline under gate-on would
+   have silently changed what "baseline" meant, not just cost time. Fixed
+   by reusing `_GATE_OFF_CONFIG` explicitly, matching `_identify_
+   positions`'s own established methodology. Caught because the project
+   owner asked how much longer the run would take -- prompting a check of
+   actual elapsed vs. CPU time (47+ min CPU across 31+ min wall-clock,
+   i.e. genuinely busy, not hung) rather than continuing to wait blind.
+2. **A hardened, not-yet-manifested fragility.** The per-fold recall-floor
+   reanalysis originally recomputed fold assignment via a fresh
+   `_clip_folds()` call on the (possibly row-filtered) clip-id array
+   returned by `_out_of_fold_scores`, rather than returning the fold ids
+   actually used during fitting. In every run so far no row was actually
+   filtered (`valid` was all-`True`), so this happened to be safe, but it
+   was an assumption, not a guarantee. Fixed by having `_out_of_fold_
+   scores` return the real fold ids directly. This did not change any
+   already-reported number (the filtered and recomputed fold-id arrays
+   were identical in practice), but removes the latent risk for any
+   future reuse of this function on a dataset where rows genuinely are
+   filtered.
+3. **Process deviation, named rather than hidden**: unlike every other
+   `stage_*` script in this codebase, `stage_l` was run for real *before*
+   it had a self-test -- a real lapse relative to this project's own
+   "self-test before trusting a result" convention. A self-test (10
+   checks: `_average_precision` on perfect/worst-case/no-positive inputs,
+   `_best_threshold_for_recall_floor`'s correctness and looseness, the
+   per-fold CV wrapper, degenerate bootstrap-CI input, and the fold-id
+   hardening fix) was added and verified retroactively, after the real
+   results below were already obtained. All 10 pass. The code changes
+   made in response to items 1-2 above do not alter the reported
+   numbers (verified by inspection: item 1 only affects Part B timing/
+   correctness of the *baseline* definition, fixed before Part B's
+   reported numbers were ever produced; item 2 is a no-op given `valid`
+   was all-`True` throughout).
+
+### 16.2 Part A results: AUPRC + honest recall-floor reanalysis
+
+| Rank | AUPRC (95% CI) | Base rate (chance) | Original verdict/P/R | Honest per-fold recall-floor>=0.3: mean P / mean R |
+|---|---|---|---|---|
+| Rank 1 (Any) | 0.556 [0.441, 0.681] | 0.036 | FAILURE, P=0.580, R=0.147 | **P=0.783, R=0.289** |
+| Rank 2 (sound_repetition) | 0.105 [0.085, 0.133] | 0.076 | FAILURE, P=0.114, R=0.308 | P=0.118, R=0.310 |
+| Rank 3 (sound_repetition) | 0.270 [0.180, 0.387] | 0.081 | INCONCLUSIVE, P=0.330, R=0.257 | P=0.382, R=0.296 |
+
+**Rank 1's AUPRC (0.556) is ~15x its own chance rate (0.036), with a 95%
+CI nowhere near chance** -- a real, substantial discrimination signal.
+Confirms the external review's own hypothesis (section 5 point 2 of
+`EXTERNAL_REVIEW_2026-08-07.md`): Rank 1's original "FAILURE (recall
+floor)" verdict was a threshold-calibration artifact, not a genuine
+discrimination ceiling. The **honest** (train-fold-only threshold
+selection, never on pooled test predictions) per-fold recall-targeted
+reanalysis confirms this concretely: mean precision **0.783** at mean
+recall **0.289** (per-fold: 0.67/0.43, 1.00/0.33, 0.50/0.20, 0.75/0.25,
+1.00/0.23) -- dramatically better than the original F1-optimal-threshold
+result (P=0.580, R=0.147), though mean recall (0.289) falls just short
+of the pre-registered 0.3 floor on average (2 of 5 folds do clear it).
+**Verdict on Rank 1's original "Failure": substantially understated by
+F1-optimal threshold selection, materially closer to Success than
+Failure under a recall-appropriate operating point, though not a clean
+strict pass against the exact pre-registered floor.**
+
+Rank 2 remains a real Failure even under the honest recall-targeted
+reanalysis (mean P=0.118, still below the 0.15 floor). Rank 3
+(sound_repetition) also improves substantially (mean P=0.382 vs. original
+0.330, clearing the precision floor comfortably) but its original verdict
+was about **fold instability** (2W/3L against the encoder-distance
+baseline), a different concern than the floor itself -- this reanalysis
+does not resolve that instability question.
+
+**Important caveat, not glossed over**: Rank 1's strong "Any" result
+combines `sound_repetition` and `word_repetition` into one binary label.
+The classifier fit on this combined population outperforms either
+type-specific classifier fit separately in the *original* Rank 1
+experiment (word_repetition-alone: recall=0 in every fold; sound_
+repetition-alone: also weak) -- meaning the "Any" classifier detects
+*that a candidate-generation-gap position exists* well, without itself
+telling you *which* type it is. This is a real, practical, but plausibly
+solvable gap (e.g., a cheap secondary rule using Stage A's own
+already-understood per-type mechanisms) between "a much better operating
+point exists" and "this is immediately deployable as a fully-typed
+detector" -- named here, not resolved.
+
+### 16.3 Part B results: end-to-end Track B effect, using the recall-targeted threshold
+
+Rank 1's classifier (recall-floor>=0.3 threshold, not the original
+F1-optimal one) injected as an additional candidate-generation trigger
+into the existing Track B pipeline (gate-off baseline, matching Stage
+A's own methodology), on the 55/58 clips whose cached row count matched
+the re-derived position count exactly (3 clips excluded honestly, not
+guessed at):
+
+| | Baseline (shipped detector alone) | Augmented (+ Rank 1 candidates) |
+|---|---|---|
+| `sound_repetition` | TP=0, FP=0, FN=42, Recall=0.000 | TP=4, FP=1, FN=38, **P=0.800, R=0.095, F1=0.170** |
+| `word_repetition` | TP=0, FP=8, FN=35, Recall=0.000 | unchanged (0 new word_repetition candidates fired) |
+| **Any** | TP=0, FP=8, FN=77, **Recall=0.000** | TP=4, FP=9, FN=73, **P=0.308, R=0.052, F1=0.089** |
+
+**A real, honest, sobering finding, verified not to be a bug** (traced
+through the full scoring path by hand after the number looked smaller
+than Part A's own per-fold recall implied): the end-to-end lift is real
+but small (recall 0.000 -> 0.052 overall, 0.000 -> 0.095 for `sound_
+repetition` specifically), because `score_clip`'s "overall" denominator
+counts **every** ground-truth `sound_repetition`/`word_repetition`
+position in these clips (77 total), not just the Stage-A "category 1"
+subset Rank 1 was trained to address -- most of the remaining loss comes
+from the *other* mechanisms Stage A already categorized (ordinary ASR
+transcription error, mis-routing), which Rank 1 was never designed to
+fix. This is precisely the distinction the external review's own point 5
+asked to have measured for the first time, and it resolves the "could
+plausibly be the largest product improvement" open question honestly:
+**it is a real, non-zero, immediately-available improvement -- at zero
+new cost, using only the already-shipped classifier re-thresholded --
+but a modest one, not a dramatic one**, because the category-1 gap
+Rank 1/Stage B/C targeted is itself only a fraction of total real-world
+loss.
+
+### 16.4 Decision-tree implications
+
+- **A concrete, low-risk, zero-new-cost action item is now identified,
+  separate from Steps 1/2**: re-threshold the shipped Rank 1/item-17
+  classifier from F1-optimal to a recall-targeted (>=0.3) selection rule.
+  This is not automatically adopted here (per standing rule 4 -- this is
+  a finding to be acted on only with explicit go-ahead, not a silent
+  config change) but is now a real, quantified, low-risk candidate for
+  `ROADMAP.md`.
+- **Step 0 does not, on its own, close either remaining gap.** The
+  end-to-end lift (recall 0.052) is real but small -- Steps 1 (already
+  run, FAILURE) and 2 (Dysfluent-WFST, proposed not executed) remain the
+  active plan for the bulk of the `word_repetition`/`sound_repetition`
+  candidate-generation gap.
+- **The "quantity and reliability" ceiling framing (round 2 of the
+  external-review reconciliation) is further narrowed**: at least part of
+  Ranks 1-3's apparent ceiling was a threshold-selection-methodology
+  artifact (F1-optimality vs. a recall-appropriate operating point for a
+  cascade's first stage), independent of sample size or annotation noise
+  -- exactly the "category error" the external review named (section 5
+  point 4) and this reanalysis now directly confirms with real numbers.

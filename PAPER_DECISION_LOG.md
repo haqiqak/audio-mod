@@ -7300,3 +7300,95 @@ reported here as a checkpoint before that larger implementation begins.
 One new file created (`profiling/evaluation/stage_k_alignment_gap_
 word_repetition.py`); no other production code changed. No change to
 `main` yet (uncommitted at time of writing).
+
+---
+
+## 2026-08-08 (same day) — Step 0 executed and reviewed; Rank 1's original verdict substantially understated; Step 2 proposed, not started
+
+**What was done**
+Per the project owner's explicit instruction, ran Step 0 (zero-compute
+reanalysis of Ranks 1-3, per the decision tree in `ASR_RESEARCH_TRACK.md`),
+then performed a thorough review pass for mistakes before documenting,
+then prepared (without starting) a detailed Step 2 proposal.
+
+Implemented `profiling/evaluation/stage_l_zero_compute_reanalysis.py`:
+Part A recomputes AUPRC + clip-level bootstrap 95% CIs for Ranks 1/2/3
+from already-cached row-level predictions (no new inference); Part B
+measures the end-to-end Track B effect of injecting Rank 1's classifier
+as a new candidate-generation trigger. During review, found and fixed two
+real mistakes and one process deviation (detailed in `VALIDATION.md`
+§16.1): (1) Part B's first version omitted the gate-off config, silently
+triggering item 17's shipped encoder-based classifier gate per clip — not
+just a ~30-90s/clip performance cost but a methodological inconsistency,
+since Stage A's "category 1" population is defined under gate-off
+conditions; caught when the project owner asked how much longer the run
+would take, prompting a check of actual CPU time (47+ min CPU across
+31+ min wall-clock) rather than continuing to wait on an unverified
+assumption; (2) a fold-id recomputation relied on an assumption that
+happened to hold but wasn't guaranteed, hardened to remove the
+assumption entirely; (3) `stage_l` was run for real before it had a
+self-test, unlike every other `stage_*` script in this codebase — added
+and verified retroactively (10/10 pass), confirmed not to change any
+already-reported number.
+
+Real results (full detail: `VALIDATION.md` §16.2-16.3): Rank 1's original
+"FAILURE (recall floor)" verdict was substantially understated — AUPRC=
+0.556 (~15x its own chance rate), and an honest per-fold recall-targeted
+reanalysis reaches mean P=0.783 at mean R=0.289 (vs. the original
+P=0.580/R=0.147). Rank 2 remains a real Failure; Rank 3's precision
+improves but its fold-instability concern is unresolved. The end-to-end
+Track B effect (previously never measured) is real but modest: overall
+recall 0.000→0.052. A concrete, zero-new-cost action item is identified
+(re-threshold the shipped Rank 1 classifier) but not adopted here.
+
+Prepared a detailed Step 2 (Dysfluent-WFST) proposal in `ASR_RESEARCH_
+TRACK.md` — concrete steps, named risks, success/failure criteria — with
+nothing executed, per explicit instruction.
+
+**Alternatives considered**
+- Keep waiting on Part B's first (buggy) run rather than investigating
+  why it was taking so long. **Rejected** — 31+ minutes against an
+  expected few minutes (matching Part A's own timing for a comparable
+  fit) was a real anomaly, not just slower-than-expected; checking actual
+  CPU time confirmed genuine heavy computation rather than a hang, which
+  by itself was enough to conclude something was wrong (over-invoking
+  work that shouldn't have been happening), not merely slow.
+- Silently fix the gate-off bug and re-report only the corrected numbers,
+  without recording that the first version was wrong. **Rejected**, same
+  append-and-supersede discipline as every other correction in this
+  track — the mistake and why it happened are recorded in `VALIDATION.md`
+  §16.1 precisely because the project owner asked for thorough review and
+  debugging, not just a clean final number.
+- Treat Rank 1's improved reanalysis (mean R=0.289, just short of the 0.3
+  floor) as a clean SUCCESS given how close it is. **Rejected** — the
+  pre-registered floor is what it is; the honest characterization
+  ("substantially understated, closer to Success than Failure, not a
+  clean strict pass") is reported instead of rounding a near-miss up.
+- Immediately act on the re-thresholding finding by changing `detect.py`'s
+  shipped configuration. **Rejected, deferred** — per standing rule 4,
+  this is a finding to be acted on only with explicit go-ahead, recorded
+  as a candidate for `ROADMAP.md`, not a silent config change.
+- Start Step 2 (Dysfluent-WFST) implementation in this same session.
+  **Rejected, deferred** — explicit instruction was to prepare and
+  propose Step 2, not begin it; the proposal names concrete steps, new
+  dependencies, and risks for review first.
+
+**Why this choice**
+The project owner's request was explicitly for thorough review and
+honest debugging, not just a result — per standing rule 3 (audit
+surprising results before trusting them), a run taking 8x longer than
+its own comparable sibling computation is exactly the kind of anomaly
+that needed checking before its output could be trusted, and the
+resulting fix changed a real methodological inconsistency (gate state),
+not just performance. Recording the mistakes found, and confirming they
+don't invalidate the numbers ultimately reported, is what makes those
+numbers trustworthy rather than merely fast to produce.
+
+**Measured result**
+Real, reviewed, self-tested numbers for Step 0 (detailed above and in
+`VALIDATION.md` §16); a concrete but not-yet-adopted re-thresholding
+candidate for `ROADMAP.md`; a detailed, unexecuted Step 2 proposal in
+`ASR_RESEARCH_TRACK.md`. One new file
+(`profiling/evaluation/stage_l_zero_compute_reanalysis.py`); no other
+production code changed. Nothing beyond Step 0 was executed. No change
+to `main` yet (uncommitted at time of writing).

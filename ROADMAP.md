@@ -1268,6 +1268,25 @@ list, not separate from it.
     by this outcome. Full detail: `VALIDATION.md` section 15.8;
     `ASR_RESEARCH_TRACK.md` "Step 1 executed -- 2026-08-08."
 
+    **Step 0 executed and reviewed, same day.** Zero-compute reanalysis
+    (AUPRC + bootstrap CIs + end-to-end effect) of Ranks 1-3 found Rank
+    1's original "FAILURE (recall floor)" verdict was substantially
+    understated by F1-optimal threshold selection -- an honest, non-leaky,
+    per-fold recall-targeted reanalysis reaches mean P=0.783 at mean
+    R=0.289 (vs. the original P=0.580/R=0.147), confirming the external
+    review's own "category error" critique with real numbers. **A
+    concrete, zero-new-cost candidate item, not yet adopted (needs
+    explicit go-ahead per standing rule 4): re-threshold the shipped
+    Rank 1/item-17 classifier from F1-optimal to recall-targeted
+    selection.** The end-to-end Track B effect (measured for the first
+    time) is real but modest: recall 0.000 -> 0.052. Two real mistakes
+    were found and fixed during review (a gate-config bug that also
+    changed the baseline's methodology, not just its speed; a hardened
+    fold-id assumption) -- full detail in `VALIDATION.md` section 16 and
+    `ASR_RESEARCH_TRACK.md` "Step 0 executed" / "Step 2 proposal"
+    (Dysfluent-WFST, prepared in full detail but **not started**, per
+    explicit instruction).
+
 21. **[New, 2026-08-05, small, detector-side, independent of the ASR
     research track — found while doing item 20's Stage A hand-trace]
     `word_repetition`'s exact-match candidate check appears to miss runs

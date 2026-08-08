@@ -9252,3 +9252,175 @@ was, so it is being reported as its own checkpoint before further
 implementation, rather than proceeding silently — consistent with this
 project's own "measure twice, cut once" discipline for larger
 commitments, not a change in the decision tree itself.
+
+---
+
+## Step 0 executed — 2026-08-08: zero-compute reanalysis of Ranks 1/2/3
+
+Per the project owner's explicit instruction to run Step 0, review
+thoroughly for mistakes, and prepare (not start) Step 2. Full method and
+numbers: `VALIDATION.md` §16. Summary:
+
+**Two real mistakes were found and fixed during this work — named here,
+not smoothed over**, per this session's own standing rule about
+thorough, honest process:
+1. Part B's first version called the detector without the gate-off
+   config `_identify_positions` itself uses, silently invoking item 17's
+   shipped encoder-based classifier gate for every clip — a ~30-90s/clip
+   cost (already documented in `VALIDATION.md` §13.2) that turned a
+   should-be-fast reanalysis into a 31+-minute run. Caught only because
+   the project owner asked how much longer it would take, prompting a
+   check of actual CPU time (47+ minutes of CPU work across 31+ minutes
+   wall-clock — genuinely busy, not hung) rather than continuing to wait
+   on an assumption. This was not just a performance bug — scoring the
+   baseline under gate-on would have silently redefined what "baseline"
+   meant relative to Stage A's own gate-off category-1 definition. Fixed.
+2. A fold-id recomputation in the recall-floor reanalysis relied on an
+   assumption (no rows filtered) that happened to hold in every run so
+   far but wasn't guaranteed. Hardened so the actual fold ids used during
+   fitting are returned directly, not recomputed. Did not change any
+   already-reported number.
+3. Unlike every other `stage_*` script in this codebase, `stage_l` was
+   run for real before it had a self-test — a real process deviation
+   from this project's own convention. Added and verified retroactively
+   (10/10 pass); the fixes above don't change the previously-obtained
+   numbers, verified by inspection.
+
+**Results**:
+- **Rank 1's original "FAILURE (recall floor)" verdict was substantially
+  understated.** AUPRC=0.556 (~15x its own 0.036 chance rate, 95% CI
+  [0.441, 0.681], nowhere near chance) confirms real, strong
+  discrimination. An honest, non-leaky, per-fold recall-targeted
+  reanalysis (threshold selected on train data only, never on pooled
+  test predictions) reaches mean precision **0.783** at mean recall
+  **0.289** — dramatically better than the original F1-optimal
+  threshold's P=0.580/R=0.147, though just short of the pre-registered
+  0.3 recall floor on average. This directly confirms the external
+  review's own "category error" critique (deployability floors judged
+  on a single F1-optimal point, not the achievable operating range).
+- **Rank 2 remains a real Failure** even under the same honest
+  reanalysis (mean P=0.118, still below the 0.15 floor).
+- **Rank 3's precision improves substantially** (mean P=0.382) but its
+  original concern was fold *instability*, not the floor — unresolved
+  by this reanalysis.
+- **A real but important caveat**: Rank 1's strong "Any" result combines
+  `sound_repetition`+`word_repetition` into one label — it detects that
+  a gap position exists well, without itself saying which type. A
+  practical, plausibly solvable gap, not resolved here.
+- **The end-to-end Track B effect (the number this track's own critique,
+  and the external review's, both flagged as never computed) is now
+  measured, using the recall-targeted threshold: real but modest** —
+  overall recall 0.000 → 0.052, `sound_repetition` specifically
+  0.000 → 0.095 (P=0.800). Verified by hand-tracing the full scoring
+  path (the number initially looked smaller than Part A's per-fold
+  recall implied) to confirm this is real, not a bug: most of the
+  remaining loss comes from mechanisms Stage A already categorized as
+  *not* Rank 1's target (ordinary ASR error, mis-routing), so Rank 1's
+  category-1-scoped improvement, while genuine, only reaches a fraction
+  of total real-world loss.
+
+**A concrete, zero-new-cost, low-risk action item is now identified,
+separate from Steps 1/2**: re-threshold the shipped Rank 1/item-17
+classifier from F1-optimal to recall-targeted selection. Not adopted
+here — a finding to be acted on only with explicit go-ahead (standing
+rule 4), recorded as a candidate for `ROADMAP.md`.
+
+**Step 0 does not close either remaining gap on its own** — the
+end-to-end lift is real but small. Steps 1 (FAILURE) and 2
+(Dysfluent-WFST) remain the active plan.
+
+---
+
+## Step 2 proposal — Dysfluent-WFST for `sound_repetition` (NOT YET EXECUTED)
+
+Per the project owner's explicit instruction: prepared for review, **not
+started**. Nothing below has been run.
+
+### What this step is
+
+Pre-registered in spirit by the decision tree above and by round 3's
+§6.2/§6.5; this section makes the concrete implementation plan explicit
+before any of it is executed, so it can be reviewed first.
+
+**Objective**: test whether Dysfluent-WFST (Guo, Lian, Zhou et al.,
+Interspeech 2025, arXiv:2505.16351,
+`github.com/Berkeley-Speech-Group/DysfluentWFST`) recovers usable
+`sound_repetition` candidates at exactly the positions CrisperWhisper's
+decoded text normalizes away (Stage A's category 1 for `sound_
+repetition` — the fragment-loss mechanism, distinct from `word_
+repetition`'s pair-breaking mechanism Step 1 already tested and closed).
+
+### Concrete steps, in order
+
+1. **Environment setup** (new dependencies — flagged explicitly, since
+   this is a materially larger environment change than anything in
+   Step 0/1): clone `Berkeley-Speech-Group/DysfluentWFST`; install `k2`
+   (a WFST library with a nontrivial build, per round 1's finding that
+   its repo's own documentation is thin); install/download a phone-
+   posterior model (wav2vec2 or WavLM-CTC, per the paper); add a
+   grapheme-to-phoneme (G2P) step to convert CrisperWhisper's word-level
+   transcript into the phoneme reference sequence the WFST decoder
+   requires (not currently part of this project's pipeline at all).
+2. **Mandatory first sub-step, before any real evaluation** (round 3
+   §6.2/§6.5): the frame-synchronicity runtime check —
+   `len(shortest_path.labels) == T` (number of frames) on a known clip.
+   This resolves the currently-genuinely-unresolved timestamp question
+   (two independent code-reading passes disagreed with each other on
+   what the decoder's special transition arcs mean) in minutes, before
+   committing further engineering effort to a timing solution that may
+   not be needed in the assumed form.
+3. **Pre-register the exact evaluation methodology** in `VALIDATION.md`
+   (matching every prior stage's discipline) before running the real
+   test: scoring against the *existing* Stage A baseline (45.2% loss
+   rate) and Rank 1's own numbers (this reconciliation's revised
+   understanding of them, section 16 above) — not a fresh, incomparable
+   metric set.
+4. **Run against two explicit, separately-scored audio conditions**, per
+   the paper's own documented severe noise sensitivity (round 1 §1: WPER
+   10% → ~30-74% under modest synthetic noise): (a) the existing
+   120-clip Track B real-ASR sample (LibriStutter's spliced-real-audio
+   condition); (b) real, non-synthetic stuttering audio, if the small
+   real-stuttering set (Boli + FluencyBank Timestamped + Sep-28k-SW,
+   evaluation-only per the CC BY-NC 4.0 finding) has been acquired by
+   then — not required to start (2), but named as part of what a
+   complete Step 2 run would include.
+5. **Score using this project's own localization/candidate-generation
+   convention** (event position + type, not the paper's own phoneme-
+   sequence-accuracy metrics), reusing `score_clip`/Track B machinery
+   where possible, same as every other stage in this track.
+
+### Named risks, not smoothed over
+
+- **No confirmed CPU feasibility.** The paper never states a GPU
+  requirement, but this is an inference (round 1 §1), not confirmed.
+- **Timing is genuinely unresolved**, not merely "needs engineering" —
+  step 2 above exists specifically because two independent attempts to
+  resolve this by reading code disagreed with each other.
+- **Only real-world validation anywhere is aphasia (nfvPPA), not
+  stuttering** — a real, untested population-transfer gap, compounded by
+  documented severe noise sensitivity.
+- **Repo maturity is uncertain** (thin README, no confirmed install
+  path) — nontrivial integration engineering, not "clone and run."
+- **G2P is a new pipeline component** this project has never needed
+  before — its own accuracy/failure modes on CrisperWhisper's output are
+  unverified.
+- **This targets `sound_repetition` only.** `word_repetition`'s own
+  candidate-generation gap remains open (Step 1: Failure) — Step 2 does
+  not address it, matching the decision tree's own scoping.
+
+### Success/failure criteria (restated from round 3 §6.5, unchanged)
+
+- **Success**: stable, bootstrapped-CI-supported improvement over Rank
+  1's own now-better-understood operating point (section 16 above),
+  holding up on real audio if acquired, with a working timing solution
+  or an accepted coarser fallback (CrisperWhisper's own word-level
+  timing). → integrate as a third fusion signal; `sound_repetition`'s
+  gap closed; Stage D not needed for this gap.
+- **Failure**: does not transfer to real audio, or timing recovery
+  proves infeasible at reasonable effort. → proceeds to the Stage D
+  precondition (both Steps 1 and 2 failed, and a power analysis on the
+  assembled real evaluation data confirms Stage D's own gate is
+  resolvable) named in the decision tree above.
+
+**Nothing in this proposal has been executed.** This is a plan for
+review, exactly as instructed.

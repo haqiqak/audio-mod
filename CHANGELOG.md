@@ -6,6 +6,36 @@ entries are titled to match). See `DOCS.md` for how these files relate.
 
 ---
 
+## 2026-08-08 (asr-research branch), Step 0 executed + reviewed; Step 2 proposed (not started)
+
+- **Rank 1's original verdict substantially understated; end-to-end
+  effect measured for the first time; two real mistakes found and
+  fixed during review.** Ran Step 0 (zero-compute reanalysis of Ranks
+  1-3) via new `profiling/evaluation/stage_l_zero_compute_reanalysis.py`.
+  Found and fixed during a thorough review pass: (1) Part B's first run
+  accidentally invoked item 17's shipped encoder-based classifier gate
+  per clip instead of the gate-off config Stage A's own methodology
+  requires — not just a ~30-90s/clip slowdown (31+ min run, killed) but
+  a methodological inconsistency; (2) hardened a fold-id recomputation
+  that relied on an unverified assumption; (3) added a self-test
+  retroactively (this project's other `stage_*` scripts all have one
+  before running for real; this one didn't, until now — 10/10 pass).
+  Results: Rank 1's AUPRC=0.556 (~15x chance) and an honest per-fold
+  recall-targeted reanalysis (mean P=0.783, mean R=0.289) show the
+  original "FAILURE (recall floor)" verdict (P=0.580, R=0.147) was a
+  threshold-calibration artifact, not a discrimination ceiling — exactly
+  the external review's own "category error" critique, now confirmed
+  with real numbers. Rank 2 remains a real Failure. The end-to-end Track
+  B effect (never previously measured) is real but modest: recall
+  0.000→0.052. A zero-new-cost re-thresholding action item is identified
+  but not adopted (needs explicit go-ahead). Also prepared a detailed
+  Step 2 (Dysfluent-WFST) proposal — concrete steps, dependencies, named
+  risks, success/failure criteria — **not started**, per explicit
+  instruction. → `PAPER_DECISION_LOG.md`, "Step 0 executed and reviewed;
+  Rank 1's original verdict substantially understated; Step 2 proposed,
+  not started"; full detail in `VALIDATION.md` §16 and
+  `ASR_RESEARCH_TRACK.md` "Step 0 executed" / "Step 2 proposal" sections.
+
 ## 2026-08-08 (asr-research branch), Step 1 executed
 
 - **Alignment-gap test for `word_repetition`: FAILURE.** Pre-registered
